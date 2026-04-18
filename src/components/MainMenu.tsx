@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/providers/auth-provider";
-import { signOutUser } from "@/lib/firebase";
+import { signInWithGoogleRest } from "@/lib/firebase";
 import UserProfilePanel from "@/components/UserProfilePanel";
 
 // ─── Colors ─────────────────────────────────────────────────────────────────
@@ -172,13 +172,13 @@ function AuthModal({ isOpen, onClose, defaultMode }: {
     setGoogleLoading(true);
     try {
       const result = await signInGoogle();
-      if (result.error) {
+      if (result.error && result.error.length > 0) {
         setError(result.error);
       } else {
         onClose();
       }
     } catch {
-      setError("Google sign-in failed.");
+      setError("Google sign-in failed. Please try email sign-in.");
     } finally {
       setGoogleLoading(false);
     }
@@ -270,7 +270,7 @@ function AuthModal({ isOpen, onClose, defaultMode }: {
           >
             <button
               type="button"
-              onClick={() => { setIsLogin(true); setError(""); }}
+              onClick={() => { setIsLogin("login"); setError(""); }}
               className="flex-1 py-2.5 text-sm font-bold rounded-xl transition-all duration-200"
               style={{
                 backgroundColor: isLogin ? C.pink : "transparent",
@@ -281,7 +281,7 @@ function AuthModal({ isOpen, onClose, defaultMode }: {
             </button>
             <button
               type="button"
-              onClick={() => { setIsLogin(false); setError(""); }}
+              onClick={() => { setIsLogin("signup"); setError(""); }}
               className="flex-1 py-2.5 text-sm font-bold rounded-xl transition-all duration-200"
               style={{
                 backgroundColor: !isLogin ? C.pink : "transparent",
@@ -1327,7 +1327,7 @@ export default function MainMenu({
                 document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
               });
             } catch(e) {}
-            signOutUser().catch(() => {});
+            // Sign out is handled by the auth provider via UserProfilePanel
             window.location.href = "/";
           }}
           className="fixed bottom-6 right-6 z-[70] flex items-center gap-2 px-5 py-3 rounded-2xl shadow-lg text-sm font-bold transition-all duration-200 hover:shadow-xl hover:scale-105 active:scale-95"
