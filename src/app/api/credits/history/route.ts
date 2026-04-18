@@ -1,22 +1,33 @@
-/*
- * [RECONSTRUCTED STUB]
- * 
- * This file was reconstructed from the project's file tree and deployment metadata.
- * The original source code is not available through the Vercel API.
- * 
- * To restore the original code:
- * 1. Go to https://vercel.com/adlenbenmechta2-9356s-projects/my-project
- * 2. Click on "Code" or the source viewer
- * 3. Copy the content of each file
- * 4. Replace this stub with the original code
- */
-
 import { NextRequest, NextResponse } from "next/server";
+import { getAuthUser } from "@/lib/auth-server";
+import { getTransactionHistory } from "@/lib/credits";
 
+export const dynamic = "force-dynamic";
+
+/**
+ * GET /api/credits/history — Get credit transaction history
+ * Query: ?page=1&limit=20
+ */
 export async function GET(request: NextRequest) {
-  return NextResponse.json({ message: "Restore from Vercel Web Editor" });
-}
+  try {
+    const authUser = await getAuthUser(request);
+    if (!authUser) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-export async function POST(request: NextRequest) {
-  return NextResponse.json({ message: "Restore from Vercel Web Editor" });
+    const userId = authUser.id;
+    const url = new URL(request.url);
+    const page = parseInt(url.searchParams.get("page") || "1", 10);
+    const limit = Math.min(parseInt(url.searchParams.get("limit") || "20", 10), 100);
+
+    const result = await getTransactionHistory(userId, page, limit);
+
+    return NextResponse.json(result);
+  } catch (error) {
+    console.error("Get credit history error:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch credit history" },
+      { status: 500 }
+    );
+  }
 }

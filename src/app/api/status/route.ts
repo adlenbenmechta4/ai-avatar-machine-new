@@ -1,22 +1,16 @@
-/*
- * [RECONSTRUCTED STUB]
- * 
- * This file was reconstructed from the project's file tree and deployment metadata.
- * The original source code is not available through the Vercel API.
- * 
- * To restore the original code:
- * 1. Go to https://vercel.com/adlenbenmechta2-9356s-projects/my-project
- * 2. Click on "Code" or the source viewer
- * 3. Copy the content of each file
- * 4. Replace this stub with the original code
- */
-
 import { NextRequest, NextResponse } from "next/server";
+import { getJob } from "@/lib/job-store";
 
-export async function GET(request: NextRequest) {
-  return NextResponse.json({ message: "Restore from Vercel Web Editor" });
-}
+export const maxDuration = 300;
 
-export async function POST(request: NextRequest) {
-  return NextResponse.json({ message: "Restore from Vercel Web Editor" });
+export async function GET(req: NextRequest) {
+  const jobId = req.nextUrl.searchParams.get("jobId");
+  if (!jobId) {
+    return NextResponse.json({ error: "jobId is required" }, { status: 400 });
+  }
+  const job = getJob(jobId);
+  if (!job) {
+    return NextResponse.json({ error: "Job not found. It may have expired (jobs are kept for 60 minutes)." }, { status: 404 });
+  }
+  return NextResponse.json(job);
 }

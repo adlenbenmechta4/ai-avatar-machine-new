@@ -1,3 +1,91 @@
-generator client { provider = "prisma-client-js" }
-datasource db { provider = "postgresql" url = env("DATABASE_URL") }
-/* RESTORE MODELS FROM VERCEL WEB EDITOR */
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String       @id @default(cuid())
+  name          String
+  email         String       @unique
+  password      String       @default("")
+  role          String       @default("user") // "user" or "admin"
+  plan          String       @default("free")
+  creditsUsed   Int          @default(0)
+  creditsLimit  Int          @default(3)
+  subscription  Subscription?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  sessions      Session[]
+  transactions  CreditTransaction[]
+  videos        GeneratedVideo[]
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expires      DateTime
+}
+
+model Subscription {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan            String
+  status          String   @default("active")
+  stripeSessionId String?
+  startDate       DateTime @default(now())
+  endDate         DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model CreditTransaction {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount      Int      // positive = credit added, negative = credit used
+  type        String   // "video_generation", "admin_grant", "admin_revoke", "plan_upgrade", "plan_reset", "refund"
+  description String   // human-readable reason
+  jobId       String?  // related job ID (for video generations)
+  metadata    String?  // JSON string for extra context
+  createdAt   DateTime @default(now())
+}
+
+model AdminSettings {
+  id                       String   @id @default("main")
+  siteName                 String   @default("AI Avatar Machine")
+  stripePublicKey          String?
+  stripeSecretKey          String?
+  stripeWebhookSecret      String?
+  planFreeCredits          Int      @default(3)
+  planProCredits           Int      @default(50)
+  planEnterpriseCredits    Int      @default(999999)
+  planFreePrice            String   @default("0")
+  planProPrice             String   @default("19.99")
+  planEnterprisePrice      String   @default("49.99")
+  creditCostPerScene       Int      @default(1) // how many credits per video scene
+  enableRegistration       Boolean  @default(true)
+  enableStripePayment      Boolean  @default(false)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
+
+model GeneratedVideo {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title        String   @default("My AI Video")
+  videoUrl     String
+  thumbnailUrl String?
+  duration     String?
+  scenesCount  Int      @default(1)
+  provider     String   @default("kie")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

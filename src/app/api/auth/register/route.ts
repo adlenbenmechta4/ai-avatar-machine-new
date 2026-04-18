@@ -1,22 +1,80 @@
-/*
- * [RECONSTRUCTED STUB]
- * 
- * This file was reconstructed from the project's file tree and deployment metadata.
- * The original source code is not available through the Vercel API.
- * 
- * To restore the original code:
- * 1. Go to https://vercel.com/adlenbenmechta2-9356s-projects/my-project
- * 2. Click on "Code" or the source viewer
- * 3. Copy the content of each file
- * 4. Replace this stub with the original code
- */
+import { NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
+import { db } from "@/lib/db";
 
-import { NextRequest, NextResponse } from "next/server";
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const { name, email, password } = body;
 
-export async function GET(request: NextRequest) {
-  return NextResponse.json({ message: "Restore from Vercel Web Editor" });
-}
+    if (!name || !email || !password) {
+      return NextResponse.json(
+        { error: "Name, email, and password are required" },
+        { status: 400 }
+      );
+    }
 
-export async function POST(request: NextRequest) {
-  return NextResponse.json({ message: "Restore from Vercel Web Editor" });
+    if (password.length < 6) {
+      return NextResponse.json(
+        { error: "Password must be at least 6 characters" },
+        { status: 400 }
+      );
+    }
+
+    // Check if user already exists
+    const existingUser = await db.user.findUnique({
+      where: { email: email.toLowerCase() },
+    });
+
+    if (existingUser) {
+      return NextResponse.json(
+        { error: "An account with this email already exists" },
+        { status: 409 }
+      );
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    // Check if this is the first user — make them admin
+    const userCount = await db.user.count();
+    const isFirstUser = userCount === 0;
+
+    // Create user and subscription in a transaction
+    const user = await db.user.create({
+      data: {
+        name,
+        email: email.toLowerCase(),
+        password: hashedPassword,
+        role: isFirstUser ? "admin" : "user",
+        plan: "free",
+        creditsUsed: 0,
+        creditsLimit: isFirstUser ? 999999 : 3, // Admin gets unlimited credits
+        subscription: {
+          create: {
+            plan: isFirstUser ? "enterprise" : "free",
+            status: "active",
+          },
+        },
+      },
+      include: {
+        subscription: true,
+      },
+    });
+
+    return NextResponse.json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      plan: user.plan,
+      creditsUsed: user.creditsUsed,
+      creditsLimit: user.creditsLimit,
+    });
+  } catch (error) {
+    console.error("Registration error:", error);
+    return NextResponse.json(
+      { error: "Something went wrong. Please try again." },
+      { status: 500 }
+    );
+  }
 }

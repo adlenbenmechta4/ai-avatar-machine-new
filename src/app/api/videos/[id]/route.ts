@@ -1,22 +1,42 @@
-/*
- * [RECONSTRUCTED STUB]
- * 
- * This file was reconstructed from the project's file tree and deployment metadata.
- * The original source code is not available through the Vercel API.
- * 
- * To restore the original code:
- * 1. Go to https://vercel.com/adlenbenmechta2-9356s-projects/my-project
- * 2. Click on "Code" or the source viewer
- * 3. Copy the content of each file
- * 4. Replace this stub with the original code
- */
-
 import { NextRequest, NextResponse } from "next/server";
+import { getAuthUser } from "@/lib/auth-server";
+import { db } from "@/lib/db";
 
-export async function GET(request: NextRequest) {
-  return NextResponse.json({ message: "Restore from Vercel Web Editor" });
-}
+// ─── DELETE /api/videos/[id] ─ Delete a video by ID ──────────────────────────
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = await getAuthUser(request);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-export async function POST(request: NextRequest) {
-  return NextResponse.json({ message: "Restore from Vercel Web Editor" });
+    const { id } = await params;
+
+    // Find the video first to verify ownership
+    const video = await db.generatedVideo.findUnique({
+      where: { id },
+    });
+
+    if (!video) {
+      return NextResponse.json({ error: "Video not found" }, { status: 404 });
+    }
+
+    if (video.userId !== user.id) {
+      return NextResponse.json({ error: "Forbidden: you don't own this video" }, { status: 403 });
+    }
+
+    // Delete the video from database
+    await db.generatedVideo.delete({
+      where: { id },
+    });
+
+    return NextResponse.json({ success: true, message: "Video deleted" });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("DELETE /api/videos/[id] error:", msg);
+    return NextResponse.json({ error: "Failed to delete video" }, { status: 500 });
+  }
 }
