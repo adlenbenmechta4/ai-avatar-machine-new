@@ -75,8 +75,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "API key is required" }, { status: 400 });
     }
 
-    // Validate aspect ratio (default to 9:16)
-    const imageAspectRatio = aspectRatio === "16:9" ? "16:9" : "9:16";
+    // Map aspect ratio to pixel dimensions for each model
+    // nano-banana-2 uses pixel dimensions, nano-banana-edit uses ratio format
+    const isVertical = aspectRatio !== "16:9";
+    const nanoBananaSize = isVertical ? "1024x1792" : "1792x1024";
+    const editSize = isVertical ? "9:16" : "16:9";
 
     // Build the image generation prompt with hidden suffix
     const imgPrompt = prompt.trim() + ", MAKE THE AVATAR LOOKING TO THE CAMERA";
@@ -90,7 +93,7 @@ export async function POST(req: NextRequest) {
           input: {
             prompt: imgPrompt,
             image_urls: [referenceImageUrl.trim()],
-            image_size: imageAspectRatio,
+            image_size: editSize,
             output_format: "png",
             strength: 0.65,
           },
@@ -99,7 +102,7 @@ export async function POST(req: NextRequest) {
           model: "nano-banana-2",
           input: {
             prompt: imgPrompt,
-            image_size: imageAspectRatio,
+            image_size: nanoBananaSize,
           },
         };
 
