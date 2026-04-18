@@ -10,13 +10,32 @@ import {
   loadAuthSession,
   clearAuthSession,
   refreshIdToken,
-  initGoogleSignIn,
-  signInWithGooglePopup,
-  GOOGLE_CONSOLE_OAUTH_URL,
-  FIREBASE_CONSOLE_AUTH_URL,
   type StoredAuthSession,
   type RestAuthResponse,
 } from "@/lib/firebase";
+
+import {
+  getAuth,
+  signInWithPopup as firebaseSignInWithPopup,
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  type User,
+} from "firebase/auth";
+import { getApps, initializeApp } from "firebase/app";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAmC4nz1cpnmo-7OVw1E9HaqCf69LsJPBU",
+  authDomain: "ai-avatar-machine.firebaseapp.com",
+  projectId: "ai-avatar-machine",
+  storageBucket: "ai-avatar-machine.firebasestorage.app",
+  messagingSenderId: "121083068310",
+  appId: "1:121083068310:web:8ec3c4e1461644ad5527b7",
+  measurementId: "G-V42TGR1LGE",
+};
+
+const fbApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+const fbAuth = getAuth(fbApp);
+const fbGoogleProvider = new GoogleAuthProvider();
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -202,72 +221,78 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Sign in with Google (multi-strategy: GIS One Tap → OAuth2 Popup → error with instructions)
+  // Sign in with Google
+  // Strategy 1: Firebase signInWithPopup (requires domain in Firebase authorized domains)
+  // Strategy 2: REST API with Google ID token (bypasses domain check)
   const signInGoogle = useCallback(async () => {
-    let googleIdToken: string | null = null;
-    let usedMethod = "";
-
-    // ── Strategy 1: GIS One Tap (works on authorized domains) ──
+    // ── Strategy 1: Firebase SDK signInWithPopup (most reliable) ──
     try {
+      const result = await firebaseSignInWithPopup(fbAuth, fbGoogleProvider);
+      const firebaseUser = result.user;
+      const idToken = await firebaseUser.getIdToken();
+
+      // Build session from Firebase user
+      const sessionData: RestAuthResponse = {
+        idToken,
+        refreshToken: firebaseUser.refreshToken,
+        expiresIn: "3600",
+        localId: firebaseUser.uid,
+        email: firebaseUser.email || "",
+        displayName: firebaseUser.displayName || "",
+        photoUrl: firebaseUser.photoURL || "",
+      };
+
+      const savedSession = saveAuthSession(sessionData);
+      setSession(savedSession);
+
+      // Sync with backend
+      const appUser = await syncUserWithBackend(idToken);
+      if (appUser) setUser(appUser);
+
+      return {};
+    } catch (error: unknown) {
+      const err = error as { code?: string; message?: string };
+      console.warn("Firebase signInWithPopup failed:", err.code, err.message);
+
+      // If popup was closed by user, don't show error
+      if (err.code === "auth/popup-closed-by-user") {
+        return { error: "" };
+      }
+
+      // If domain is not authorized, show clear message
+      if (err.code === "auth/unauthorized-domain") {
+        const currentDomain = typeof window !== "undefined" ? window.location.hostname : "";
+        return {
+          error: `Domain "${currentDomain}" is not authorized. Please add it in Firebase Console → Authentication → Settings → Authorized domains, then try again.`,
+        };
+      }
+
+      // For other errors, try REST API fallback
+    }
+
+    // ── Strategy 2: GIS One Tap → REST API (bypasses domain check) ──
+    try {
+      const { initGoogleSignIn } = await import("@/lib/firebase");
       const gis = await initGoogleSignIn();
       if (gis) {
         const token = await gis.getToken();
         if (token) {
-          googleIdToken = token;
-          usedMethod = "GIS One Tap";
+          const data = await signInWithGoogleRest(token);
+          const sessionData = saveAuthSession(data);
+          setSession(sessionData);
+
+          const appUser = await syncUserWithBackend(data.idToken);
+          if (appUser) setUser(appUser);
+
+          return {};
         }
       }
-    } catch (error: unknown) {
-      console.warn("GIS One Tap failed:", error);
+    } catch (error) {
+      console.warn("GIS fallback failed:", error);
     }
 
-    // ── Strategy 2: Direct OAuth2 Popup (works when redirect_uri is authorized) ──
-    if (!googleIdToken) {
-      try {
-        const popupResult = await signInWithGooglePopup();
-        if ("idToken" in popupResult) {
-          googleIdToken = popupResult.idToken;
-          usedMethod = "OAuth2 Popup";
-        } else if (popupResult.error === "popup_closed") {
-          return { error: "" }; // User closed popup intentionally, don't show error
-        } else if (popupResult.error === "Popup blocked by browser. Please allow popups and try again.") {
-          return { error: popupResult.error };
-        }
-      } catch (error: unknown) {
-        console.warn("OAuth2 Popup failed:", error);
-      }
-    }
-
-    // ── Process the Google ID token ──
-    if (googleIdToken) {
-      try {
-        // Exchange Google token for Firebase token via REST API
-        const data = await signInWithGoogleRest(googleIdToken);
-        const sessionData = saveAuthSession(data);
-        setSession(sessionData);
-
-        const appUser = await syncUserWithBackend(data.idToken);
-        if (appUser) setUser(appUser);
-
-        return {};
-      } catch (error: unknown) {
-        const err = error as { code?: string; message?: string };
-        console.error("Firebase token exchange failed:", err.code, err.message);
-        return { error: err.message || "Google sign-in failed." };
-      }
-    }
-
-    // ── All strategies failed — show helpful instructions ──
-    const currentDomain = typeof window !== "undefined" ? window.location.hostname : "unknown";
-    const setupUrl = `${GOOGLE_CONSOLE_OAUTH_URL}`;
-    const setupUrl2 = `${FIREBASE_CONSOLE_AUTH_URL}`;
-
-    return {
-      error: `GOOGLE_DOMAIN_SETUP_REQUIRED`,
-      domain: currentDomain,
-      setupUrl,
-      setupUrl2,
-    };
+    // ── All strategies failed ──
+    return { error: "Google sign-in failed. Please try again or sign in with email." };
   }, []);
 
   // Sign out

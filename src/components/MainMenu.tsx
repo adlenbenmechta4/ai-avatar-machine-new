@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/providers/auth-provider";
-import { signInWithGoogleRest } from "@/lib/firebase";
 import UserProfilePanel from "@/components/UserProfilePanel";
 
 // ─── Colors ─────────────────────────────────────────────────────────────────
@@ -172,13 +171,7 @@ function AuthModal({ isOpen, onClose, defaultMode }: {
     setGoogleLoading(true);
     try {
       const result = await signInGoogle();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const resultAny = result as any;
-      if (resultAny.error === "GOOGLE_DOMAIN_SETUP_REQUIRED") {
-        // Show domain setup instructions
-        const domain = resultAny.domain || window.location.hostname;
-        setError(`__DOMAIN_SETUP__${domain}|||${resultAny.setupUrl}|||${resultAny.setupUrl2}`);
-      } else if (result.error && result.error.length > 0) {
+      if (result.error && result.error.length > 0) {
         setError(result.error);
       } else {
         onClose();
@@ -300,63 +293,12 @@ function AuthModal({ isOpen, onClose, defaultMode }: {
 
           {/* Error */}
           {error && (
-            error.startsWith("__DOMAIN_SETUP__") ? (
-              <div
-                className="rounded-xl px-4 py-3 mb-4 text-sm space-y-3"
-                style={{ backgroundColor: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A" }}
-              >
-                <div className="font-bold flex items-center gap-2">
-                  <svg width="16" height="16" viewBox="0 0 20 20" fill="#D97706">
-                    <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-                  </svg>
-                  Google Sign-In Setup Required
-                </div>
-                <div className="text-xs leading-relaxed space-y-2">
-                  <p>The domain <strong>{error.split("|||")[0].replace("__DOMAIN_SETUP__", "")}</strong> needs to be authorized for Google Sign-In.</p>
-                  <div className="space-y-1.5">
-                    <p className="font-semibold text-xs">Quick Fix (2 steps):</p>
-                    <ol className="list-decimal list-inside space-y-1 text-xs">
-                      <li>
-                        Open{" "}
-                        <a
-                          href={error.split("|||")[1]}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="underline font-bold hover:no-underline"
-                          style={{ color: "#B45309" }}
-                        >
-                          Google Cloud Console
-                        </a>
-                        {" "}and add your domain to <strong>"Authorized JavaScript origins"</strong>
-                      </li>
-                      <li>
-                        Open{" "}
-                        <a
-                          href={error.split("|||")[2]}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="underline font-bold hover:no-underline"
-                          style={{ color: "#B45309" }}
-                        >
-                          Firebase Console
-                        </a>
-                        {" "}and add your domain to <strong>"Authorized domains"</strong>
-                      </li>
-                    </ol>
-                  </div>
-                  <p className="text-xs" style={{ color: "#A16207" }}>
-                    After setup, refresh the page and try again. In the meantime, you can sign in with email below.
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div
-                className="rounded-xl px-4 py-3 mb-4 text-sm font-medium"
-                style={{ backgroundColor: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA" }}
-              >
-                {error}
-              </div>
-            )
+            <div
+              className="rounded-xl px-4 py-3 mb-4 text-sm font-medium"
+              style={{ backgroundColor: "#FEF2F2", color: "#DC2626", border: "1px solid #FECACA" }}
+            >
+              {error}
+            </div>
           )}
 
           {/* Form */}
