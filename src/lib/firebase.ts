@@ -311,6 +311,94 @@ export function renderGoogleButton(container: HTMLElement, callback: (token: str
   });
 }
 
+// ─── Direct OAuth2 Popup Fallback ──────────────────────────────────────────
+// Uses Google's OAuth2 endpoint directly in a popup, bypassing GIS domain checks.
+// The popup opens Google's sign-in page, authenticates, then redirects to our
+// callback page which sends the token back via postMessage.
+
+export function signInWithGooglePopup(): Promise<{ idToken: string } | { error: string }> {
+  return new Promise((resolve) => {
+    if (typeof window === "undefined") {
+      resolve({ error: "Not in browser environment" });
+      return;
+    }
+
+    const redirectUri = `${window.location.origin}/auth/google-callback`;
+    const nonce = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+
+    const params = new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID,
+      redirect_uri: redirectUri,
+      response_type: "id_token",
+      scope: "openid email profile",
+      nonce,
+      prompt: "select_account",
+    });
+
+    const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+
+    // Open popup
+    const popup = window.open(
+      oauthUrl,
+      "google_signin",
+      "width=500,height=650,left=200,top=200,scrollbars=yes,resizable=yes"
+    );
+
+    if (!popup) {
+      resolve({ error: "Popup blocked by browser. Please allow popups and try again." });
+      return;
+    }
+
+    // Listen for postMessage from the callback page
+    const handleMessage = (event: MessageEvent) => {
+      // Only accept messages from our origin
+      if (event.origin !== window.location.origin) return;
+
+      const data = event.data;
+      if (data?.type !== "google_oauth_callback") return;
+
+      window.removeEventListener("message", handleMessage);
+      clearInterval(pollInterval);
+
+      if (data.idToken) {
+        resolve({ idToken: data.idToken });
+      } else if (data.error) {
+        resolve({ error: data.error });
+      } else {
+        resolve({ error: "No token received from Google" });
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+
+    // Poll for popup closure (fallback if postMessage doesn't work)
+    const pollInterval = setInterval(() => {
+      if (popup.closed) {
+        clearInterval(pollInterval);
+        window.removeEventListener("message", handleMessage);
+        // If we get here without a message, the popup was closed
+        resolve({ error: "popup_closed" });
+      }
+    }, 500);
+
+    // Timeout after 2 minutes
+    setTimeout(() => {
+      clearInterval(pollInterval);
+      window.removeEventListener("message", handleMessage);
+      try { popup.close(); } catch { /* ignore */ }
+      resolve({ error: "Sign-in timed out. Please try again." });
+    }, 120000);
+  });
+}
+
+// Google Cloud Console link for adding authorized domain
+export const GOOGLE_CONSOLE_OAUTH_URL =
+  "https://console.cloud.google.com/apis/credentials/oauthclient/121083068310-6qjd3eqn8f9lq3aoqrfk5l8h2f5041qv.apps.googleusercontent.com?project=ai-avatar-machine";
+
+// Firebase Console link for adding authorized domain
+export const FIREBASE_CONSOLE_AUTH_URL =
+  "https://console.firebase.google.com/project/ai-avatar-machine/authentication/providers";
+
 // ─── SDK Auth Functions (kept as fallback) ──────────────────────────────────
 
 export async function signUpWithEmail(email: string, password: string) {

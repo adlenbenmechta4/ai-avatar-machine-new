@@ -11,6 +11,9 @@ import {
   clearAuthSession,
   refreshIdToken,
   initGoogleSignIn,
+  signInWithGooglePopup,
+  GOOGLE_CONSOLE_OAUTH_URL,
+  FIREBASE_CONSOLE_AUTH_URL,
   type StoredAuthSession,
   type RestAuthResponse,
 } from "@/lib/firebase";
@@ -199,40 +202,72 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Sign in with Google (via REST API — no domain check)
+  // Sign in with Google (multi-strategy: GIS One Tap → OAuth2 Popup → error with instructions)
   const signInGoogle = useCallback(async () => {
+    let googleIdToken: string | null = null;
+    let usedMethod = "";
+
+    // ── Strategy 1: GIS One Tap (works on authorized domains) ──
     try {
-      // Initialize Google Identity Services
       const gis = await initGoogleSignIn();
-
       if (gis) {
-        // Try to get token via GIS popup/One Tap
-        const googleIdToken = await gis.getToken();
-        if (googleIdToken) {
-          // Exchange Google token for Firebase token via REST API
-          const data = await signInWithGoogleRest(googleIdToken);
-          const sessionData = saveAuthSession(data);
-          setSession(sessionData);
-
-          const appUser = await syncUserWithBackend(data.idToken);
-          if (appUser) setUser(appUser);
-
-          return {};
+        const token = await gis.getToken();
+        if (token) {
+          googleIdToken = token;
+          usedMethod = "GIS One Tap";
         }
       }
-
-      // If GIS popup didn't work, try loading the GIS library and using the button callback
-      // This is handled by the MainMenu component via renderGoogleButton
-      return { error: "Google sign-in popup was closed. Please try again." };
     } catch (error: unknown) {
-      const err = error as { code?: string; message?: string };
-      console.error("Google sign-in error:", err.code, err.message);
-
-      if (err.code === "auth/popup-closed-by-user" || !err.message) {
-        return { error: "" };
-      }
-      return { error: err.message || "Google sign-in failed." };
+      console.warn("GIS One Tap failed:", error);
     }
+
+    // ── Strategy 2: Direct OAuth2 Popup (works when redirect_uri is authorized) ──
+    if (!googleIdToken) {
+      try {
+        const popupResult = await signInWithGooglePopup();
+        if ("idToken" in popupResult) {
+          googleIdToken = popupResult.idToken;
+          usedMethod = "OAuth2 Popup";
+        } else if (popupResult.error === "popup_closed") {
+          return { error: "" }; // User closed popup intentionally, don't show error
+        } else if (popupResult.error === "Popup blocked by browser. Please allow popups and try again.") {
+          return { error: popupResult.error };
+        }
+      } catch (error: unknown) {
+        console.warn("OAuth2 Popup failed:", error);
+      }
+    }
+
+    // ── Process the Google ID token ──
+    if (googleIdToken) {
+      try {
+        // Exchange Google token for Firebase token via REST API
+        const data = await signInWithGoogleRest(googleIdToken);
+        const sessionData = saveAuthSession(data);
+        setSession(sessionData);
+
+        const appUser = await syncUserWithBackend(data.idToken);
+        if (appUser) setUser(appUser);
+
+        return {};
+      } catch (error: unknown) {
+        const err = error as { code?: string; message?: string };
+        console.error("Firebase token exchange failed:", err.code, err.message);
+        return { error: err.message || "Google sign-in failed." };
+      }
+    }
+
+    // ── All strategies failed — show helpful instructions ──
+    const currentDomain = typeof window !== "undefined" ? window.location.hostname : "unknown";
+    const setupUrl = `${GOOGLE_CONSOLE_OAUTH_URL}`;
+    const setupUrl2 = `${FIREBASE_CONSOLE_AUTH_URL}`;
+
+    return {
+      error: `GOOGLE_DOMAIN_SETUP_REQUIRED`,
+      domain: currentDomain,
+      setupUrl,
+      setupUrl2,
+    };
   }, []);
 
   // Sign out
