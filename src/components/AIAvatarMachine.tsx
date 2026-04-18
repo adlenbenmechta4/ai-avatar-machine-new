@@ -45,58 +45,16 @@ const C = {
 // ─── Pipeline Steps ──────────────────────────────────────────────────────────
 
 const PIPELINE_STEPS = [
-  {
-    num: 1,
-    title: "Generate Frames",
-    icon: "\uD83D\uDDBC\uFE0F",
-    desc: "AI creates avatar images in different poses & locations",
-    color: C.pink,
-  },
-  {
-    num: 2,
-    title: "Create Videos",
-    icon: "\uD83C\uDFA5",
-    desc: "AI Image-to-Video engine for each frame",
-    color: C.cyan,
-  },
-  {
-    num: 3,
-    title: "Combine Clips",
-    icon: "\uD83D\uDD17",
-    desc: "Merge all clips into one final video",
-    color: C.lime,
-  },
-  {
-    num: 4,
-    title: "Final Video",
-    icon: "\u2728",
-    desc: "Your AI avatar video is ready",
-    color: C.pink,
-  },
+  { num: 1, title: "Frames", icon: "\uD83D\uDDBC\uFE0F", color: C.pink },
+  { num: 2, title: "Videos", icon: "\uD83C\uDFA5", color: C.cyan },
+  { num: 3, title: "Merge", icon: "\uD83D\uDD17", color: C.lime },
+  { num: 4, title: "Done", icon: "\u2728", color: C.pink },
 ];
 
 const HEYGEN_PIPELINE_STEPS = [
-  {
-    num: 1,
-    title: "Create Avatar",
-    icon: "\uD83D\uDC64",
-    desc: "Upload photo & create Photo Avatar ($0.0167/s)",
-    color: C.pink,
-  },
-  {
-    num: 2,
-    title: "Generate Video",
-    icon: "\uD83C\uDFA5",
-    desc: "AI creates talking video from full script",
-    color: C.cyan,
-  },
-  {
-    num: 3,
-    title: "Final Video",
-    icon: "\u2728",
-    desc: "Your AI avatar video is ready!",
-    color: C.pink,
-  },
+  { num: 1, title: "Avatar", icon: "\uD83D\uDC64", color: C.pink },
+  { num: 2, title: "Video", icon: "\uD83C\uDFA5", color: C.cyan },
+  { num: 3, title: "Done", icon: "\u2728", color: C.pink },
 ];
 
 // ─── Sample Data ─────────────────────────────────────────────────────────────
@@ -1685,75 +1643,88 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light" }: { 
 
           {/* ─── Pipeline Visual ────────────────────────────────────── */}
           <section className="mb-10 sm:mb-14">
-            <div className={`grid grid-cols-2 ${pipelineSteps.length === 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-3 sm:gap-4 relative`}>
-              {/* Connection line */}
-              <div
-                className="hidden lg:block absolute top-1/2 -translate-y-1/2 h-[3px] rounded-full"
-                style={{ backgroundColor: T.cardBorder, left: pipelineSteps.length === 4 ? '12.5%' : '16.67%', right: pipelineSteps.length === 4 ? '12.5%' : '16.67%' }}
-              >
-                {Array.from({ length: pipelineSteps.length - 1 }).map((_, i) => {
-                  const status = stepStatus(i + 2);
-                  const pct = status === "done" ? 100 : status === "active" ? 50 : 0;
-                  return (
-                    <div
-                      key={i}
-                      className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 transition-all duration-700"
-                      style={{ left: `${i * (100 / (pipelineSteps.length - 2))}%` }}
-                    >
-                      <span
-                        className="text-base"
-                        style={{
-                          color: pct === 100 ? T.lime : pct === 50 ? T.pink : "#D1D5DB",
-                          opacity: pct === 0 ? 0.4 : 1,
-                        }}
-                      >
-                        ▶
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {pipelineSteps.map((step) => {
+            <div className="flex items-center justify-center gap-2 sm:gap-4">
+              {pipelineSteps.map((step, idx) => {
                 const status = stepStatus(step.num);
                 return (
-                  <div
-                    key={step.num}
-                    className="group relative rounded-3xl p-5 sm:p-6 border-2 transition-all duration-500"
-                    style={{
-                      backgroundColor: status === "active" ? step.color + "10" : T.cardBg,
-                      borderColor: status === "active" ? step.color : status === "done" ? T.lime : T.cardBorder,
-                    }}
-                  >
-                    <div
-                      className="inline-flex items-center justify-center w-10 h-10 rounded-2xl text-sm font-bold mb-3 transition-all duration-500"
-                      style={{
-                        backgroundColor: status === "active" ? step.color : status === "done" ? T.lime : T.cardBorder,
-                        color: status === "active" || status === "done" ? T.dark : T.textMuted,
-                      }}
-                    >
-                      {status === "done" ? "✓" : step.num}
-                    </div>
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <span className="text-xl">{step.icon}</span>
-                      <h3
-                        className="font-bold text-sm sm:text-base uppercase tracking-wide"
+                  <React.Fragment key={step.num}>
+                    {/* Step circle */}
+                    <div className="flex flex-col items-center gap-1.5 sm:gap-2">
+                      <div
+                        className="relative w-11 h-11 sm:w-14 sm:h-14 rounded-full flex items-center justify-center text-lg sm:text-2xl transition-all duration-500"
                         style={{
-                          color: status === "active" ? step.color : status === "done" ? T.dark : T.text,
+                          backgroundColor: status === "active" ? step.color + "20" : status === "done" ? step.color : T.inputBg,
+                          border: status === "idle" ? `2px dashed ${T.cardBorder}` : `2px solid ${step.color}`,
+                          boxShadow: status === "active" ? `0 0 20px ${step.color}40, 0 0 40px ${step.color}15` : status === "done" ? `0 0 12px ${step.color}30` : "none",
+                          transform: status === "active" ? "scale(1.1)" : "scale(1)",
+                        }}
+                      >
+                        {status === "done" ? (
+                          <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" viewBox="0 0 24 24" stroke={step.color} strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                          </svg>
+                        ) : (
+                          <span
+                            style={{
+                              opacity: status === "idle" ? 0.35 : 1,
+                              filter: status === "idle" ? "grayscale(1)" : "none",
+                            }}
+                          >
+                            {step.icon}
+                          </span>
+                        )}
+                        {/* Pulse ring for active step */}
+                        {status === "active" && (
+                          <>
+                            <div className="absolute inset-0 rounded-full animate-ping" style={{ backgroundColor: step.color, opacity: 0.15 }} />
+                            <div
+                              className="absolute -inset-1.5 rounded-full"
+                              style={{
+                                border: `2px solid ${step.color}30`,
+                                animation: "pipeline-pulse 2s ease-in-out infinite",
+                              }}
+                            />
+                          </>
+                        )}
+                        {/* Checkmark pop animation for done */}
+                        {status === "done" && (
+                          <div
+                            className="absolute inset-0 rounded-full"
+                            style={{
+                              border: `2px solid ${step.color}`,
+                              animation: "pipeline-done-pop 0.4s ease-out forwards",
+                            }}
+                          />
+                        )}
+                      </div>
+                      <span
+                        className="text-[10px] sm:text-xs font-bold uppercase tracking-widest transition-all duration-500"
+                        style={{
+                          color: status === "active" ? step.color : status === "done" ? T.text : T.textMuted,
+                          opacity: status === "idle" ? 0.4 : 1,
                         }}
                       >
                         {step.title}
-                      </h3>
+                      </span>
                     </div>
-                    <p className="text-xs sm:text-sm font-light leading-relaxed" style={{ color: T.textMuted }}>
-                      {step.desc}
-                    </p>
-                    {status === "active" && (
-                      <div className="absolute top-4 right-4">
-                        <div className="w-2.5 h-2.5 rounded-full animate-ping" style={{ backgroundColor: step.color }} />
+                    {/* Connector arrow */}
+                    {idx < pipelineSteps.length - 1 && (
+                      <div className="flex items-center mx-1 sm:mx-2">
+                        <div className="relative h-[2px] w-6 sm:w-10 overflow-hidden rounded-full" style={{ backgroundColor: T.cardBorder }}>
+                          <div
+                            className="absolute inset-y-0 left-0 rounded-full transition-all duration-700"
+                            style={{
+                              width: status === "done" ? "100%" : stepStatus(pipelineSteps[idx + 1].num) === "active" ? "50%" : "0%",
+                              backgroundColor: step.color,
+                            }}
+                          />
+                        </div>
+                        <svg className="w-3 h-3 sm:w-4 sm:h-4 -ml-0.5 sm:-ml-1 transition-colors duration-500" viewBox="0 0 24 24" fill="none" stroke={status === "done" ? step.color : T.cardBorder} strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                        </svg>
                       </div>
                     )}
-                  </div>
+                  </React.Fragment>
                 );
               })}
             </div>
