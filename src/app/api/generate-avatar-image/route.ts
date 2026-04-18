@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { prompt, referenceImageUrl, apiKey } = body;
+    const { prompt, referenceImageUrl, apiKey, aspectRatio } = body;
 
     if (!prompt || prompt.trim().length < 5) {
       return NextResponse.json({ error: "Please provide a detailed prompt (at least 5 characters)" }, { status: 400 });
@@ -66,6 +66,9 @@ export async function POST(req: NextRequest) {
     if (!apiKey || apiKey.length < 10) {
       return NextResponse.json({ error: "API key is required" }, { status: 400 });
     }
+
+    // Validate aspect ratio (default to 9:16)
+    const imageAspectRatio = aspectRatio === "16:9" ? "16:9" : "9:16";
 
     // Build the image generation prompt
     const imgPrompt = prompt.trim();
@@ -79,7 +82,7 @@ export async function POST(req: NextRequest) {
           input: {
             prompt: imgPrompt,
             image_urls: [referenceImageUrl.trim()],
-            image_size: "9:16",
+            image_size: imageAspectRatio,
             output_format: "png",
             strength: 0.65,
           },
@@ -88,6 +91,7 @@ export async function POST(req: NextRequest) {
           model: "nano-banana-2",
           input: {
             prompt: imgPrompt,
+            image_size: imageAspectRatio,
           },
         };
 

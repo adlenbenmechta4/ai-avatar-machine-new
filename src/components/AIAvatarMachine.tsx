@@ -250,7 +250,7 @@ function CreateAvatarSection({
   theme: string;
   kieApiKey: string;
   avatarImage: string | null;
-  onGenerate: (prompt: string, referenceImageUrl: string) => Promise<void>;
+  onGenerate: (prompt: string, referenceImageUrl: string, aspectRatio: string) => Promise<void>;
   isGenerating: boolean;
   progress: string;
   generatedUrl: string;
@@ -262,6 +262,7 @@ function CreateAvatarSection({
   const [prompt, setPrompt] = useState("");
   const [useReference, setUseReference] = useState(false);
   const [uploadedRefImage, setUploadedRefImage] = useState<string | null>(null);
+  const [aspectRatio, setAspectRatio] = useState<"9:16" | "16:9">("9:16");
 
   const handleRefUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -308,8 +309,8 @@ function CreateAvatarSection({
       }
     }
 
-    await onGenerate(prompt.trim(), refUrl);
-  }, [prompt, kieApiKey, useReference, uploadedRefImage, onGenerate]);
+    await onGenerate(prompt.trim(), refUrl, aspectRatio);
+  }, [prompt, kieApiKey, useReference, uploadedRefImage, aspectRatio, onGenerate]);
 
   const samplePrompts = [
     "A professional young woman with dark hair wearing a navy blue blazer, standing confidently in front of a modern glass office building with city skyline at golden hour",
@@ -347,6 +348,49 @@ function CreateAvatarSection({
             The AI will generate a stunning avatar image for you. You can optionally upload a 
             reference photo to maintain facial consistency.
           </p>
+
+          {/* Aspect Ratio Selector */}
+          <div className="mb-6">
+            <label className="block text-xs font-bold uppercase tracking-wider mb-2" style={{ color: T.text }}>
+              Image Aspect Ratio
+            </label>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setAspectRatio("9:16")}
+                className="flex-1 flex items-center justify-center gap-2.5 px-4 py-3.5 rounded-xl text-xs font-bold uppercase tracking-wide transition-all duration-200 cursor-pointer border-2"
+                style={{
+                  backgroundColor: aspectRatio === "9:16" ? `${T.cyan}15` : T.inputBg,
+                  borderColor: aspectRatio === "9:16" ? T.cyan : T.inputBorder,
+                  color: aspectRatio === "9:16" ? T.cyan : T.textMuted,
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="7" y="2" width="10" height="20" rx="2" />
+                </svg>
+                <div className="text-left">
+                  <div className="text-[11px] font-black">9:16 Vertical</div>
+                  <div className="text-[9px] opacity-70 font-normal">Portrait / Stories / Reels</div>
+                </div>
+              </button>
+              <button
+                onClick={() => setAspectRatio("16:9")}
+                className="flex-1 flex items-center justify-center gap-2.5 px-4 py-3.5 rounded-xl text-xs font-bold uppercase tracking-wide transition-all duration-200 cursor-pointer border-2"
+                style={{
+                  backgroundColor: aspectRatio === "16:9" ? `${T.cyan}15` : T.inputBg,
+                  borderColor: aspectRatio === "16:9" ? T.cyan : T.inputBorder,
+                  color: aspectRatio === "16:9" ? T.cyan : T.textMuted,
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="5" width="20" height="14" rx="2" />
+                </svg>
+                <div className="text-left">
+                  <div className="text-[11px] font-black">16:9 Landscape</div>
+                  <div className="text-[9px] opacity-70 font-normal">YouTube / Desktop / Web</div>
+                </div>
+              </button>
+            </div>
+          </div>
 
           {/* Reference Photo Toggle */}
           <div className="mb-6">
@@ -1563,7 +1607,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light" }: { 
                 theme={theme}
                 kieApiKey={kieApiKey}
                 avatarImage={avatarImage}
-                onGenerate={async (prompt, refUrl) => {
+                onGenerate={async (prompt, refUrl, aspectRatio) => {
                   setIsGeneratingAvatar(true);
                   setAvatarError("");
                   setAvatarProgress("Submitting to AI...");
@@ -1578,6 +1622,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light" }: { 
                         prompt,
                         referenceImageUrl: refUrl || undefined,
                         apiKey: kieApiKey,
+                        aspectRatio,
                       }),
                     });
 
