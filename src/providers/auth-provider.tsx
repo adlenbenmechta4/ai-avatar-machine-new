@@ -104,6 +104,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (appUser) {
         setUser(appUser);
         setSession(sessionData);
+      } else {
+        // Backend sync failed — use session data directly
+        console.warn("doSync: Backend sync failed, using session data");
+        setUser({
+          id: sessionData.localId,
+          name: sessionData.displayName || sessionData.email?.split("@")[0] || "User",
+          email: sessionData.email || "",
+          role: "user",
+          plan: "free",
+          creditsUsed: 0,
+          creditsLimit: 3,
+        });
+        setSession(sessionData);
       }
     } finally {
       syncLock.current = false;
@@ -245,9 +258,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const savedSession = saveAuthSession(sessionData);
       setSession(savedSession);
 
-      // Sync with backend
-      const appUser = await syncUserWithBackend(idToken);
-      if (appUser) setUser(appUser);
+      // Sync with backend — use fallback if backend fails
+      let appUser = await syncUserWithBackend(idToken);
+      if (!appUser) {
+        // Backend sync failed — create a local user from Firebase data
+        console.warn("Backend sync failed, using local Firebase user data");
+        appUser = {
+          id: firebaseUser.uid,
+          name: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "User",
+          email: firebaseUser.email || "",
+          role: "user",
+          plan: "free",
+          creditsUsed: 0,
+          creditsLimit: 3,
+        };
+      }
+      setUser(appUser);
 
       return {};
     } catch (error: unknown) {
@@ -281,8 +307,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const sessionData = saveAuthSession(data);
           setSession(sessionData);
 
-          const appUser = await syncUserWithBackend(data.idToken);
-          if (appUser) setUser(appUser);
+          let appUser = await syncUserWithBackend(data.idToken);
+          if (!appUser) {
+            console.warn("Backend sync failed, using local user data from REST");
+            appUser = {
+              id: data.localId,
+              name: data.displayName || data.email?.split("@")[0] || "User",
+              email: data.email || "",
+              role: "user",
+              plan: "free",
+              creditsUsed: 0,
+              creditsLimit: 3,
+            };
+          }
+          setUser(appUser);
 
           return {};
         }
