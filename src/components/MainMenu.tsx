@@ -119,7 +119,7 @@ function AuthModal({ isOpen, onClose, defaultMode }: {
   defaultMode?: "login" | "signup";
 }) {
   const { signIn, signUp, signInGoogle } = useAuth();
-  const [isLogin, setIsLogin] = useState(defaultMode || "login");
+  const [isLogin, setIsLogin] = useState(defaultMode !== "signup");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -130,7 +130,7 @@ function AuthModal({ isOpen, onClose, defaultMode }: {
 
   useEffect(() => {
     if (isOpen) {
-      setIsLogin(defaultMode || "login");
+      setIsLogin(defaultMode !== "signup");
       setName("");
       setEmail("");
       setPassword("");
@@ -269,7 +269,7 @@ function AuthModal({ isOpen, onClose, defaultMode }: {
           >
             <button
               type="button"
-              onClick={() => { setIsLogin("login"); setError(""); }}
+              onClick={() => { setIsLogin(true); setError(""); }}
               className="flex-1 py-2.5 text-sm font-bold rounded-xl transition-all duration-200"
               style={{
                 backgroundColor: isLogin ? C.pink : "transparent",
@@ -280,7 +280,7 @@ function AuthModal({ isOpen, onClose, defaultMode }: {
             </button>
             <button
               type="button"
-              onClick={() => { setIsLogin("signup"); setError(""); }}
+              onClick={() => { setIsLogin(false); setError(""); }}
               className="flex-1 py-2.5 text-sm font-bold rounded-xl transition-all duration-200"
               style={{
                 backgroundColor: !isLogin ? C.pink : "transparent",
@@ -417,7 +417,7 @@ function AuthModal({ isOpen, onClose, defaultMode }: {
 
 // ─── Plans Section ──────────────────────────────────────────────────────────
 
-function PlansSection() {
+function PlansSection({ onGetStarted }: { onGetStarted: () => void }) {
   const [hoveredPlan, setHoveredPlan] = useState<number | null>(null);
   const sectionRef = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
@@ -686,6 +686,7 @@ function PlansSection() {
 
               {/* CTA Button */}
               <button
+                onClick={onGetStarted}
                 className="w-full py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-300"
                 style={{
                   background: plan.highlight
@@ -1054,20 +1055,6 @@ export default function MainMenu({
                 </>
               ) : (
                 <>
-                  {/* Sign In Button */}
-                  <button
-                    onClick={openSignIn}
-                    className="px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold uppercase tracking-wider transition-all duration-200 hover:shadow-lg"
-                    style={{
-                      backgroundColor: "rgba(255,255,255,0.12)",
-                      color: C.white,
-                      border: "1.5px solid rgba(255,255,255,0.25)",
-                      backdropFilter: "blur(10px)",
-                    }}
-                  >
-                    Sign In
-                  </button>
-
                   {/* Sign Up Button */}
                   <button
                     onClick={openSignUp}
@@ -1281,7 +1268,7 @@ export default function MainMenu({
         </main>
 
         {/* ─── Plans Section ───────────────────────────────── */}
-        <PlansSection />
+        <PlansSection onGetStarted={openSignUp} />
 
         {/* ─── Footer ──────────────────────────────────────── */}
         <footer
