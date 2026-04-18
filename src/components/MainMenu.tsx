@@ -1331,14 +1331,19 @@ export default function MainMenu({
               Your AI Avatar Machine &middot; Powered by Advanced AI
             </p>
             <div className="flex items-center gap-4">
-              {["Privacy Policy", "Terms of Service", "Support"].map((link) => (
-                <button
-                  key={link}
+              {[
+                { label: "Privacy Policy", href: "/privacy" },
+                { label: "Terms of Service", href: "/terms" },
+                { label: "Support", href: "/support" },
+              ].map((link) => (
+                <a
+                  key={link.label}
+                  href={link.href}
                   className="text-xs font-medium transition-colors hover:opacity-80"
                   style={{ color: "rgba(255,255,255,0.45)" }}
                 >
-                  {link}
-                </button>
+                  {link.label}
+                </a>
               ))}
             </div>
           </div>
