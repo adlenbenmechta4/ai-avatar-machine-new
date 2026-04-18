@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/providers/auth-provider";
 import { signOutUser } from "@/lib/firebase";
+import UserProfilePanel from "@/components/UserProfilePanel";
 
 // ─── Colors ─────────────────────────────────────────────────────────────────
 
@@ -841,7 +842,6 @@ export default function MainMenu({
   const [mounted, setMounted] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
-  const [showUserMenu, setShowUserMenu] = useState(false);
 
   const isAuthenticated = !!user;
   const userName = user?.name || "User";
@@ -879,6 +879,8 @@ export default function MainMenu({
     setShowAuth(true);
   };
 
+  const userEmail = user?.email || "";
+  const userRole = user?.role || "user";
   const initials = userName.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
 
   const menuItems = [
@@ -1039,53 +1041,17 @@ export default function MainMenu({
                     {userPlan}
                   </div>
 
-                  {/* User Avatar Button */}
-                  <div className="relative">
-                    <button
-                      onClick={() => setShowUserMenu(!showUserMenu)}
-                      className="flex items-center gap-2 px-2 py-1.5 rounded-2xl transition-all duration-200 hover:shadow-lg"
-                      style={{ backgroundColor: "rgba(255,255,255,0.15)", backdropFilter: "blur(10px)" }}
-                    >
-                      <div
-                        className="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold"
-                        style={{ backgroundColor: C.pink, color: C.white }}
-                      >
-                        {initials}
-                      </div>
-                      <span className="hidden sm:inline text-xs font-bold max-w-20 truncate" style={{ color: C.white }}>
-                        {userName}
-                      </span>
-                      <svg className="w-3 h-3 hidden sm:block" viewBox="0 0 20 20" fill="white">
-                        <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-                      </svg>
-                    </button>
-
-                    {showUserMenu && (
-                      <>
-                        <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
-                        <div
-                          className="absolute right-0 top-full mt-2 w-48 rounded-2xl py-2 z-50 shadow-xl border"
-                          style={{ backgroundColor: C.white, borderColor: "#F3F4F6" }}
-                        >
-                          <div className="px-4 py-2 mb-1" style={{ borderBottom: "1px solid #F3F4F6" }}>
-                            <p className="text-sm font-bold" style={{ color: C.text }}>{userName}</p>
-                            <p className="text-[11px]" style={{ color: "#9CA3AF" }}>{userPlan} plan</p>
-                          </div>
-                          <button
-                            onClick={() => { setShowUserMenu(false); signOut(); }}
-                            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-red-50"
-                            style={{ color: "#DC2626" }}
-                          >
-                            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="#DC2626">
-                              <path fillRule="evenodd" d="M3 4.25A2.25 2.25 0 015.25 2h5.5A2.25 2.25 0 0113 4.25v2a.75.75 0 01-1.5 0v-2a.75.75 0 00-.75-.75h-5.5a.75.75 0 00-.75.75v11.5c0 .414.336.75.75.75h5.5a.75.75 0 00.75-.75v-2a.75.75 0 011.5 0v2A2.25 2.25 0 0110.75 18h-5.5A2.25 2.25 0 013 15.75V4.25z" clipRule="evenodd" />
-                              <path fillRule="evenodd" d="M19 10a.75.75 0 00-.75-.75H8.704l1.048-.943a.75.75 0 10-1.004-1.114l-2.5 2.25a.75.75 0 000 1.114l2.5 2.25a.75.75 0 101.004-1.114l-1.048-.943h9.546A.75.75 0 0019 10z" clipRule="evenodd" />
-                            </svg>
-                            Sign Out
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
+                  {/* User Profile Panel */}
+                  <UserProfilePanel
+                    name={userName}
+                    email={userEmail}
+                    role={userRole}
+                    plan={userPlan}
+                    creditsUsed={creditsUsed}
+                    creditsLimit={creditsLimit}
+                    variant="dark"
+                    onSignOut={() => { signOut(); }}
+                  />
                 </>
               ) : (
                 <>
