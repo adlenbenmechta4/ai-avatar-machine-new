@@ -15,7 +15,15 @@ async function pollImageResult(taskId: string, apiKey: string): Promise<string> 
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${apiKey}` },
       });
-      const json = await res.json();
+      const pollText = await res.text();
+      let json: Record<string, unknown>;
+      try {
+        json = JSON.parse(pollText);
+      } catch {
+        console.warn(`[Avatar Image Poll ${i}] Non-JSON response: ${pollText.slice(0, 200)}`);
+        await sleep(3000);
+        continue;
+      }
 
       if (json.code === 200) {
         const d = json.data;
@@ -70,8 +78,8 @@ export async function POST(req: NextRequest) {
     // Validate aspect ratio (default to 9:16)
     const imageAspectRatio = aspectRatio === "16:9" ? "16:9" : "9:16";
 
-    // Build the image generation prompt
-    const imgPrompt = prompt.trim();
+    // Build the image generation prompt with hidden suffix
+    const imgPrompt = prompt.trim() + ", MAKE THE AVATAR LOOKING TO THE CAMERA";
 
     const hasReference = referenceImageUrl && referenceImageUrl.trim();
 
@@ -104,11 +112,21 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify(requestBody),
     });
 
-    const submitJson = await submitRes.json();
+    // Safely parse JSON response (API may return plain text errors)
+    let submitJson: Record<string, unknown>;
+    const submitText = await submitRes.text();
+    try {
+      submitJson = JSON.parse(submitText);
+    } catch {
+      return NextResponse.json(
+        { error: "Avatar API returned an error: " + submitText.slice(0, 300) },
+        { status: 502 }
+      );
+    }
 
     if (submitJson.code !== 200) {
       return NextResponse.json(
-        { error: "Failed to submit avatar generation: " + (submitJson.msg || JSON.stringify(submitJson)) },
+        { error: "Failed to submit avatar generation: " + (submitJson.msg || submitText.slice(0, 300)) },
         { status: 500 }
       );
     }

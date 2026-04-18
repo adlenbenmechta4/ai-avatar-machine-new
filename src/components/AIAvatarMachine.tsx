@@ -1626,7 +1626,13 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light" }: { 
                       }),
                     });
 
-                    const data = await res.json();
+                    const resText = await res.text();
+                    let data: Record<string, string | null>;
+                    try {
+                      data = JSON.parse(resText);
+                    } catch {
+                      throw new Error(resText.slice(0, 200) || "Unexpected response from server");
+                    }
 
                     if (!res.ok) {
                       throw new Error(data.error || `Generation failed (${res.status})`);
