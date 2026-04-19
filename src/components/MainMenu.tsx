@@ -940,6 +940,14 @@ export default function MainMenu({
     }
   };
 
+  // Fallback: if video doesn't fire canplaythrough within 4s, show it anyway
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!videoLoaded) setVideoLoaded(true);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [videoLoaded]);
+
   const handleCardClick = (id: string) => {
     if (!isAuthenticated) {
       setAuthMode("signup");
@@ -1030,6 +1038,8 @@ export default function MainMenu({
           muted
           playsInline
           onCanPlayThrough={handleVideoCanPlay}
+          onLoadedData={handleVideoCanPlay}
+          preload="auto"
           className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${videoLoaded ? "opacity-100" : "opacity-0"}`}
           style={{ objectFit: "cover" }}
         >
