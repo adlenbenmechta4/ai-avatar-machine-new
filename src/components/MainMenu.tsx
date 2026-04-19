@@ -862,31 +862,6 @@ function VideoCardDisplay({ isHovered }: { isHovered: boolean }) {
         </div>
       </div>
 
-      {/* "9:16 Vertical" badge */}
-      <div
-        className="flex items-center gap-1.5 mt-2.5"
-        style={{
-          opacity: isHovered ? 0.9 : 0.5,
-          transition: "opacity 0.4s ease",
-        }}
-      >
-        <div
-          style={{
-            width: 10,
-            height: 14,
-            borderRadius: 2,
-            border: `1.5px solid ${C.pink}`,
-            opacity: 0.8,
-          }}
-        />
-        <span
-          className="text-[9px] font-bold uppercase tracking-[0.15em]"
-          style={{ color: C.pink }}
-        >
-          9:16
-        </span>
-      </div>
-
       {/* Progress dots */}
       <div className="flex items-center gap-1.5 mt-2">
         {CARD_VIDEOS.map((_, i) => (
