@@ -723,101 +723,181 @@ function VideoCardDisplay({ isHovered }: { isHovered: boolean }) {
   const [fading, setFading] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Auto-rotate videos every 3s - always running, with fade
+  // Auto-rotate videos every 3.5s with fade
   useEffect(() => {
     const interval = setInterval(() => {
       setFading(true);
       setTimeout(() => {
         setCurrentIdx((prev) => (prev + 1) % CARD_VIDEOS.length);
         setFading(false);
-      }, 300);
-    }, 3000);
+      }, 350);
+    }, 3500);
     return () => clearInterval(interval);
   }, []);
 
-  const posStyle = (idx: number) => (idx === 1 || idx === 2) ? "center 25%" : "center center";
+  // 9:16 aspect ratio - vertical phone-style
+  const frameW = 140;
+  const frameH = Math.round(frameW * (16 / 9)); // ~249
 
   return (
     <div
       ref={containerRef}
-      className="relative w-full overflow-hidden"
+      className="relative flex flex-col items-center"
       style={{
-        height: 180,
-        borderRadius: "14px",
-        background: "#0A0A0A",
-        boxShadow: isHovered
-          ? `0 8px 30px rgba(228,97,173,0.25), 0 2px 10px rgba(0,0,0,0.2)`
-          : "0 4px 16px rgba(0,0,0,0.12)",
-        transition: "box-shadow 0.5s ease, transform 0.5s ease",
-        transform: isHovered ? "scale(1.02)" : "scale(1)",
+        transition: "transform 0.6s cubic-bezier(0.23, 1, 0.32, 1)",
+        transform: isHovered ? "scale(1.03)" : "scale(1)",
       }}
     >
-      {/* Current video */}
-      <video
-        key={currentIdx}
-        autoPlay
-        loop
-        muted
-        playsInline
-        className="absolute inset-0 w-full h-full"
+      {/* Phone Frame */}
+      <div
+        className="relative"
         style={{
-          objectFit: "cover",
-          borderRadius: "14px",
-          objectPosition: posStyle(currentIdx),
-          opacity: fading ? 0 : 1,
-          transition: "opacity 0.3s ease",
+          width: frameW,
+          height: frameH,
+          borderRadius: "22px",
+          background: "linear-gradient(145deg, #1a1a2e 0%, #0A0A0A 100%)",
+          padding: "4px",
+          boxShadow: isHovered
+            ? `0 12px 40px rgba(228,97,173,0.35), 0 4px 12px rgba(0,0,0,0.3), inset 0 0 0 1px rgba(228,97,173,0.2)`
+            : `0 6px 24px rgba(0,0,0,0.2), inset 0 0 0 1px rgba(255,255,255,0.08)`,
+          transition: "box-shadow 0.5s ease",
         }}
       >
-        <source src={CARD_VIDEOS[currentIdx]} type="video/mp4" />
-      </video>
-
-      {/* Hover shimmer effect */}
-      {isHovered && (
+        {/* Inner screen */}
         <div
-          className="absolute inset-0"
+          className="relative w-full h-full overflow-hidden"
           style={{
-            background: "linear-gradient(105deg, transparent 30%, rgba(228,97,173,0.10) 50%, transparent 70%)",
-            animation: "cardShimmer 2s ease-in-out infinite",
-            borderRadius: "14px",
+            borderRadius: "18px",
+            background: "#000",
           }}
-        />
-      )}
+        >
+          {/* Video */}
+          <video
+            key={currentIdx}
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="absolute inset-0 w-full h-full"
+            style={{
+              objectFit: "cover",
+              borderRadius: "18px",
+              objectPosition: "center center",
+              opacity: fading ? 0 : 1,
+              transition: "opacity 0.35s ease",
+            }}
+          >
+            <source src={CARD_VIDEOS[currentIdx]} type="video/mp4" />
+          </video>
 
-      {/* Play icon overlay - subtle */}
+          {/* Top gradient overlay (notch area) */}
+          <div
+            className="absolute top-0 left-0 right-0 z-10 pointer-events-none"
+            style={{
+              height: 32,
+              background: "linear-gradient(180deg, rgba(0,0,0,0.5) 0%, transparent 100%)",
+              borderRadius: "18px 18px 0 0",
+            }}
+          >
+            {/* Dynamic Island / Notch */}
+            <div
+              className="absolute left-1/2 -translate-x-1/2"
+              style={{
+                top: 7,
+                width: 40,
+                height: 10,
+                borderRadius: 6,
+                backgroundColor: "rgba(0,0,0,0.7)",
+                border: "1px solid rgba(255,255,255,0.08)",
+              }}
+            />
+          </div>
+
+          {/* Bottom gradient overlay */}
+          <div
+            className="absolute bottom-0 left-0 right-0 z-10 pointer-events-none"
+            style={{
+              height: 40,
+              background: "linear-gradient(0deg, rgba(0,0,0,0.6) 0%, transparent 100%)",
+              borderRadius: "0 0 18px 18px",
+            }}
+          />
+
+          {/* Play icon overlay */}
+          <div
+            className="absolute inset-0 flex items-center justify-center pointer-events-none z-10"
+            style={{
+              opacity: isHovered ? 0 : 0.35,
+              transition: "opacity 0.4s ease",
+            }}
+          >
+            <div
+              className="flex items-center justify-center"
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: "50%",
+                backgroundColor: "rgba(0,0,0,0.45)",
+                backdropFilter: "blur(8px)",
+                border: "1px solid rgba(255,255,255,0.1)",
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 18 18" fill="white">
+                <path d="M6 3l10 6-10 6V3z" />
+              </svg>
+            </div>
+          </div>
+
+          {/* Hover shimmer */}
+          {isHovered && (
+            <div
+              className="absolute inset-0 z-10 pointer-events-none"
+              style={{
+                background: "linear-gradient(105deg, transparent 30%, rgba(228,97,173,0.08) 50%, transparent 70%)",
+                animation: "cardShimmer 2s ease-in-out infinite",
+                borderRadius: "18px",
+              }}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* "9:16 Vertical" badge */}
       <div
-        className="absolute inset-0 flex items-center justify-center pointer-events-none"
+        className="flex items-center gap-1.5 mt-2.5"
         style={{
-          opacity: isHovered ? 0 : 0.3,
+          opacity: isHovered ? 0.9 : 0.5,
           transition: "opacity 0.4s ease",
         }}
       >
         <div
-          className="flex items-center justify-center"
           style={{
-            width: 44,
-            height: 44,
-            borderRadius: "50%",
-            backgroundColor: "rgba(0,0,0,0.4)",
-            backdropFilter: "blur(6px)",
+            width: 10,
+            height: 14,
+            borderRadius: 2,
+            border: `1.5px solid ${C.pink}`,
+            opacity: 0.8,
           }}
+        />
+        <span
+          className="text-[9px] font-bold uppercase tracking-[0.15em]"
+          style={{ color: C.pink }}
         >
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="white">
-            <path d="M6 3l10 6-10 6V3z" />
-          </svg>
-        </div>
+          9:16
+        </span>
       </div>
 
       {/* Progress dots */}
-      <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 flex items-center gap-1.5 z-10">
+      <div className="flex items-center gap-1.5 mt-2">
         {CARD_VIDEOS.map((_, i) => (
           <div
             key={i}
             className="rounded-full transition-all duration-400"
             style={{
-              width: currentIdx === i ? 16 : 5,
-              height: 5,
-              backgroundColor: currentIdx === i ? C.pink : "rgba(255,255,255,0.3)",
-              boxShadow: currentIdx === i ? `0 0 6px ${C.pink}` : "none",
+              width: currentIdx === i ? 14 : 4,
+              height: 4,
+              backgroundColor: currentIdx === i ? C.pink : "rgba(255,255,255,0.25)",
+              boxShadow: currentIdx === i ? `0 0 8px ${C.pink}80` : "none",
             }}
           />
         ))}
@@ -1055,6 +1135,20 @@ export default function MainMenu({
                 </>
               ) : (
                 <>
+                  {/* Sign In Button */}
+                  <button
+                    onClick={openSignIn}
+                    className="px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold uppercase tracking-wider transition-all duration-200 hover:shadow-lg"
+                    style={{
+                      backgroundColor: "rgba(255,255,255,0.12)",
+                      color: C.white,
+                      border: "1.5px solid rgba(255,255,255,0.25)",
+                      backdropFilter: "blur(10px)",
+                    }}
+                  >
+                    Sign In
+                  </button>
+
                   {/* Sign Up Button */}
                   <button
                     onClick={openSignUp}
@@ -1119,7 +1213,7 @@ export default function MainMenu({
                 return (
                 <div
                   key={item.id}
-                  className={`transition-all duration-700 ${item.disabled ? "cursor-default" : "cursor-pointer"}`}
+                  className={`transition-all duration-700 ${item.disabled ? "cursor-default" : "cursor-pointer"} ${isVideoCard ? "sm:col-span-1 lg:col-span-1" : ""}`}
                   style={{
                     opacity: mounted ? 1 : 0,
                     transform: mounted ? "translateY(0)" : "translateY(40px)",
@@ -1130,11 +1224,13 @@ export default function MainMenu({
                   onClick={() => !item.disabled && handleCardClick(item.id)}
                 >
                   <div
-                    className={`relative overflow-hidden rounded-2xl sm:rounded-3xl h-full transition-all duration-500 ${isVideoCard ? "p-4 sm:p-5" : "p-6 sm:p-7"}`}
+                    className={`relative overflow-hidden rounded-2xl sm:rounded-3xl h-full transition-all duration-500 ${isVideoCard ? "p-5 sm:p-6 flex flex-col items-center" : "p-6 sm:p-7"}`}
                     style={{
                       background: item.disabled
                         ? "rgba(255,255,255,0.06)"
-                        : C.cardBg,
+                        : isVideoCard
+                          ? "linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.85) 100%)"
+                          : C.cardBg,
                       border: `1.5px solid ${
                         isHovered
                           ? `${item.accentColor}60`
@@ -1152,7 +1248,7 @@ export default function MainMenu({
                           : "0 4px 24px rgba(0,0,0,0.06)",
                       transform: isHovered
                         ? isVideoCard
-                          ? "translateY(-8px) scale(1.03)"
+                          ? "translateY(-8px) scale(1.02)"
                           : "translateY(-6px) scale(1.02)"
                         : "translateY(0) scale(1)",
                     }}
@@ -1168,9 +1264,9 @@ export default function MainMenu({
                       />
                     )}
 
-                    {/* Video display for AI Avatar Machine card - TOP section */}
+                    {/* Video display for AI Avatar Machine card - phone mockup */}
                     {isVideoCard && (
-                      <div className="relative z-10 mb-4">
+                      <div className="relative z-10 mb-5">
                         <VideoCardDisplay isHovered={isHovered} />
                       </div>
                     )}
@@ -1192,8 +1288,8 @@ export default function MainMenu({
                     )}
 
                     {/* Title */}
-                    <div className="relative z-10">
-                      <div className="flex items-center gap-2 mb-1.5">
+                    <div className={`relative z-10 ${isVideoCard ? "text-center w-full" : ""}`}>
+                      <div className={`items-center gap-2 mb-1.5 ${isVideoCard ? "flex justify-center" : "flex"}`}>
                         <h3
                           className="text-base sm:text-lg font-bold uppercase tracking-wide"
                           style={{
@@ -1225,7 +1321,7 @@ export default function MainMenu({
                       )}
 
                       <p
-                        className="text-xs sm:text-sm leading-relaxed"
+                        className={`text-xs sm:text-sm leading-relaxed ${isVideoCard ? "max-w-[200px] mx-auto" : ""}`}
                         style={{
                           color: item.disabled ? "rgba(255,255,255,0.3)" : "#6B7280",
                         }}
@@ -1236,7 +1332,7 @@ export default function MainMenu({
 
                     {/* CTA Arrow */}
                     {!item.disabled && (
-                      <div className="relative z-10 mt-5 flex items-center gap-2">
+                      <div className={`relative z-10 mt-5 flex items-center gap-2 ${isVideoCard ? "justify-center" : ""}`}>
                         <span
                           className="text-xs font-bold uppercase tracking-wider"
                           style={{
