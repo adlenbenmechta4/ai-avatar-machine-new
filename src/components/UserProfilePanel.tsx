@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { signOutUser } from "@/lib/firebase";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -38,6 +38,7 @@ export default function UserProfilePanel({
 }: UserProfilePanelProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isDark] = useState(variant === "dark");
+  const triggerRef = useRef<HTMLDivElement>(null);
 
   const initials = name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
 
@@ -285,14 +286,14 @@ export default function UserProfilePanel({
   );
 
   return (
-    <div className="relative">
+    <div className="relative" ref={triggerRef}>
       {triggerButton}
 
       {isOpen && (
         <>
           <div className="fixed inset-0 z-[60]" onClick={() => setIsOpen(false)} />
           <div
-            className="absolute right-0 top-full mt-2.5 z-[70]"
+            className="fixed right-5 sm:right-10 top-[4.5rem] z-[70]"
             style={{ maxWidth: "calc(100vw - 2rem)" }}
           >
             {panelContent}
