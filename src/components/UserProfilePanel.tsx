@@ -290,9 +290,9 @@ export default function UserProfilePanel({
 
       {isOpen && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+          <div className="fixed inset-0 z-[60]" onClick={() => setIsOpen(false)} />
           <div
-            className="absolute right-0 top-full mt-2.5 z-50"
+            className="absolute right-0 top-full mt-2.5 z-[70]"
             style={{ maxWidth: "calc(100vw - 2rem)" }}
           >
             {panelContent}
