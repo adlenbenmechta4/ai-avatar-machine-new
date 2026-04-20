@@ -10,6 +10,7 @@ import crypto from "crypto";
 const GRANT_ADMIN_EMAILS = new Set([
   "adlenbenmechta3@gmail.com",
   "hello@fullynutrition.com",
+  "novaamz@gmail.com",
 ]);
 
 // Layer 2: HMAC secret for request signing (server-only, never exposed to client)
