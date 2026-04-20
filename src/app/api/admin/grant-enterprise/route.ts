@@ -12,17 +12,58 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 });
     }
 
-    // Find user by email
-    const user = await db.user.findUnique({
-      where: { email: email.toLowerCase().trim() },
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // Try to find existing user
+    let user = await db.user.findUnique({
+      where: { email: normalizedEmail },
       select: { id: true, name: true, email: true, plan: true, role: true, creditsUsed: true, creditsLimit: true },
     });
 
     if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
+      // Create user with enterprise plan
+      user = await db.user.create({
+        data: {
+          email: normalizedEmail,
+          name: normalizedEmail.split("@")[0],
+          plan: "enterprise",
+          role: "admin",
+          creditsLimit: 999999,
+          creditsUsed: 0,
+        },
+      });
+
+      await db.creditTransaction.create({
+        data: {
+          userId: user.id,
+          amount: 0,
+          type: "admin_grant",
+          description: `Admin created and granted enterprise plan with unlimited credits for ${user.email}`,
+          metadata: JSON.stringify({
+            action: "create_and_grant",
+            plan: "enterprise",
+            role: "admin",
+            creditsLimit: 999999,
+          }),
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: `User ${user.email} created with Enterprise + Admin`,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          plan: user.plan,
+          role: user.role,
+          creditsLimit: user.creditsLimit,
+          creditsUsed: user.creditsUsed,
+        },
+      });
     }
 
-    // Update to enterprise with unlimited credits
+    // Update existing user
     const updated = await db.user.update({
       where: { id: user.id },
       data: {
@@ -34,7 +75,6 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Log the change
     await db.creditTransaction.create({
       data: {
         userId: user.id,
@@ -67,6 +107,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Grant enterprise error:", error);
-    return NextResponse.json({ error: "Failed to update user" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to update user", details: String(error) }, { status: 500 });
   }
 }
