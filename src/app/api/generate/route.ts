@@ -983,31 +983,30 @@ export async function POST(req: NextRequest) {
 
     console.log(`[Pipeline ${jobId}] Starting ${provider} pipeline with ${validScenes.length} scenes (SSE mode)`);
 
-    // ═══ DEDUCT CREDITS ═══
+    // ═══ DEDUCT CREDITS ═══ (non-fatal — pipeline continues even if deduction fails)
     if (userId) {
       try {
         const costPerScene = await getCreditCostPerScene();
         const totalCost = validScenes.length * costPerScene;
         if (totalCost > 0) {
-          await deductCredits(
+          const result = await deductCredits(
             userId,
             totalCost,
             "video_generation",
             `Video generation: ${validScenes.length} scene(s) x ${costPerScene} credit(s) = ${totalCost} credit(s)`,
             jobId
           );
-          addJobLog(jobId, `Credits: ${totalCost} deducted (${validScenes.length} scenes x ${costPerScene}/scene)`);
+          if (result.error) {
+            addJobLog(jobId, `Credits: ${result.error} (skipped, continuing)`);
+          } else {
+            addJobLog(jobId, `Credits: ${totalCost} deducted (${validScenes.length} scenes x ${costPerScene}/scene)`);
+          }
         }
       } catch (creditErr) {
         const creditMsg = creditErr instanceof Error ? creditErr.message : String(creditErr);
-        console.error(`[Pipeline ${jobId}] Credit deduction failed:`, creditMsg);
-        // Do NOT start the pipeline if credit deduction fails
-        sse(writer, { type: "error", message: `Credit deduction failed: ${creditMsg}. Please try again or contact support.` });
-        setJobError(jobId, `Credit deduction failed: ${creditMsg}`);
-        try { writer.close(); } catch {}
-        return new Response(stream.readable, {
-          headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" },
-        });
+        console.warn(`[Pipeline ${jobId}] Credit deduction failed (non-fatal, continuing):`, creditMsg);
+        addJobLog(jobId, `Credits: deduction skipped (DB unavailable)`);
+        // Continue with pipeline — credit deduction is non-fatal
       }
     }
 
