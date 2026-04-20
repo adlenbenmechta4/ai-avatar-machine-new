@@ -14,17 +14,12 @@ async function requireAdmin(request: NextRequest) {
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }), authUser: null };
   }
 
-  const userId = authUser.id;
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    select: { role: true },
-  });
-
-  if (!user || user.role !== "admin") {
+  // Trust the role from getAuthUser — VIP users already get admin role without DB
+  if (authUser.role !== "admin") {
     return { error: NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 }), authUser: null };
   }
 
-  return { error: null, authUser, userId };
+  return { error: null, authUser, userId: authUser.id };
 }
 
 /**

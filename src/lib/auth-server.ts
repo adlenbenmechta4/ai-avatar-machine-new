@@ -6,7 +6,19 @@ import { db } from "@/lib/db";
 const VIP_EMAILS = new Set([
   "adlenbenmechta3@gmail.com",
   "hello@fullynutrition.com",
+  "novaamz@gmail.com",
 ]);
+
+// Exported function to dynamically add VIP users at runtime
+export function addVipEmail(email: string): void {
+  VIP_EMAILS.add(email.toLowerCase().trim());
+  console.log(`[VIP] Added runtime VIP: ${email.toLowerCase().trim()}`);
+}
+
+// Exported function to get all VIP emails
+export function getVipEmails(): Set<string> {
+  return new Set(VIP_EMAILS);
+}
 
 interface AuthUser {
   id: string;
