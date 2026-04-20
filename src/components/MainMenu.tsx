@@ -965,19 +965,19 @@ export default function MainMenu({
       accentColor: C.pink,
     },
     {
-      id: "coming-soon-1",
-      title: "AI Scene Creator",
-      subtitle: "Coming Soon",
-      description: "Generate beautiful scene backgrounds and environments for your avatar videos using AI image generation.",
+      id: "ai-viral-carousel",
+      title: "AI Viral Carousel Machine",
+      subtitle: "Create Viral Content",
+      description: "Generate stunning viral carousels for Instagram, LinkedIn & more with AI-powered design and copy.",
       icon: (
         <svg width="40" height="40" viewBox="0 0 48 48" fill="none">
-          <rect x="6" y="6" width="36" height="36" rx="6" stroke={C.gold} strokeWidth="2" fill="none" />
-          <circle cx="18" cy="18" r="3" stroke={C.gold} strokeWidth="2" fill="none" />
-          <path d="M6 32l10-10 8 8 6-6 12 12" stroke={C.gold} strokeWidth="2" fill="none" strokeLinejoin="round" />
+          <rect x="6" y="4" width="36" height="40" rx="6" stroke={C.gold} strokeWidth="2" fill="none" />
+          <path d="M14 14h20M14 20h16M14 26h12" stroke={C.gold} strokeWidth="2" strokeLinecap="round" />
+          <path d="M32 30l4 4 6-8" stroke={C.pink} strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="24" cy="4" r="3" fill={C.pink} opacity="0.8" />
         </svg>
       ),
       accentColor: C.gold,
-      disabled: true,
     },
     {
       id: "coming-soon-2",

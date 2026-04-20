@@ -4,6 +4,7 @@ import React, { useState, useCallback, useEffect } from "react";
 import { useAuth } from "@/providers/auth-provider";
 import AIAvatarMachine from "@/components/AIAvatarMachine";
 import MainMenu from "@/components/MainMenu";
+import CarouselView from "@/components/CarouselView";
 import UserProfilePanel from "@/components/UserProfilePanel";
 
 // ─── Colors (matching the existing design) ────────────────────────────────────
@@ -293,13 +294,13 @@ function SubscriptionScreen({ userData, onComplete }: {
 export default function Home() {
   const { user, loading, signOut } = useAuth();
   const [showSubscription, setShowSubscription] = useState(false);
-  const [currentView, setCurrentView] = useState<"menu" | "avatar">("menu");
+  const [currentView, setCurrentView] = useState<"menu" | "avatar" | "carousel">("menu");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
 
   // Redirect to menu if user logs out while on avatar view
   useEffect(() => {
-    if (!loading && !user && currentView === "avatar") {
+    if (!loading && !user && (currentView === "avatar" || currentView === "carousel")) {
       setCurrentView("menu");
     }
   }, [user, loading, currentView]);
@@ -334,10 +335,17 @@ export default function Home() {
         onNavigate={(dest) => {
           if (dest === "ai-avatar-machine") {
             setCurrentView("avatar");
+          } else if (dest === "ai-viral-carousel") {
+            setCurrentView("carousel");
           }
         }}
       />
     );
+  }
+
+  // AI Carousel view
+  if (currentView === "carousel") {
+    return <CarouselView onBack={() => setCurrentView("menu")} />;
   }
 
   // AI Avatar Machine view — only for authenticated users
