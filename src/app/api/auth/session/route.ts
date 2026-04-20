@@ -3,8 +3,11 @@ import { verifyIdToken } from "@/lib/firebase-admin";
 import { db } from "@/lib/db";
 
 // VIP users with unlimited credits (enterprise access)
+// IMPORTANT: This list MUST match the one in src/lib/auth-server.ts
 const VIP_EMAILS = new Set([
   "adlenbenmechta3@gmail.com",
+  "hello@fullynutrition.com",
+  "novaamz@gmail.com",
 ]);
 
 export async function POST(request: NextRequest) {
@@ -55,48 +58,64 @@ export async function POST(request: NextRequest) {
     }
 
     // Find or create user in our database
-    let user = await db.user.findUnique({
-      where: { email: userEmail },
-      include: { subscription: true },
-    });
-
-    if (!user) {
-      // Auto-create user from Firebase auth info
-      const userCount = await db.user.count();
-      const isFirstUser = userCount === 0;
-
-      user = await db.user.create({
-        data: {
-          name: userName,
-          email: userEmail,
-          password: "", // Firebase users don't need local password
-          role: isFirstUser ? "admin" : "user",
-          plan: "free",
-          creditsUsed: 0,
-          creditsLimit: isFirstUser ? 999999 : 3,
-          subscription: {
-            create: {
-              plan: isFirstUser ? "enterprise" : "free",
-              status: "active",
-            },
-          },
-        },
+    try {
+      let user = await db.user.findUnique({
+        where: { email: userEmail },
         include: { subscription: true },
       });
-    }
 
-    // Return user data
-    return NextResponse.json({
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        plan: user.plan,
-        creditsUsed: user.creditsUsed,
-        creditsLimit: user.creditsLimit,
-      },
-    });
+      if (!user) {
+        // Auto-create user from Firebase auth info
+        const userCount = await db.user.count();
+        const isFirstUser = userCount === 0;
+
+        user = await db.user.create({
+          data: {
+            name: userName,
+            email: userEmail,
+            password: "", // Firebase users don't need local password
+            role: isFirstUser ? "admin" : "user",
+            plan: "free",
+            creditsUsed: 0,
+            creditsLimit: isFirstUser ? 999999 : 3,
+            subscription: {
+              create: {
+                plan: isFirstUser ? "enterprise" : "free",
+                status: "active",
+              },
+            },
+          },
+          include: { subscription: true },
+        });
+      }
+
+      // Return user data
+      return NextResponse.json({
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          plan: user.plan,
+          creditsUsed: user.creditsUsed,
+          creditsLimit: user.creditsLimit,
+        },
+      });
+    } catch (dbError) {
+      // DB not available — return free plan user from Firebase data
+      console.warn("[session] DB unavailable, returning Firebase-based user:", dbError);
+      return NextResponse.json({
+        user: {
+          id: decoded.uid || decoded.sub || "fb-user",
+          name: userName,
+          email: userEmail,
+          role: "user",
+          plan: "free",
+          creditsUsed: 0,
+          creditsLimit: 3,
+        },
+      });
+    }
   } catch (error) {
     console.error("Session error:", error);
     return NextResponse.json(

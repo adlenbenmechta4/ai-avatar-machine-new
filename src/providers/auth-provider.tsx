@@ -38,8 +38,11 @@ const fbAuth = getAuth(fbApp);
 const fbGoogleProvider = new GoogleAuthProvider();
 
 // VIP users with unlimited credits (enterprise access)
+// IMPORTANT: This list MUST match the one in src/lib/auth-server.ts
 const VIP_EMAILS = new Set([
   "adlenbenmechta3@gmail.com",
+  "hello@fullynutrition.com",
+  "novaamz@gmail.com",
 ]);
 
 function isVipUser(email: string): boolean {
