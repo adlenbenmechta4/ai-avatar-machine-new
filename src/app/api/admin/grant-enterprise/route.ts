@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getAuthUser } from "@/lib/auth-server";
 
 export const dynamic = "force-dynamic";
 
@@ -15,51 +14,47 @@ export async function POST(request: NextRequest) {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    // Try to find existing user
+    // Find or create user
     let user = await db.user.findUnique({
       where: { email: normalizedEmail },
       select: { id: true, name: true, email: true, plan: true, role: true, creditsUsed: true, creditsLimit: true },
     });
 
+    const newPlan = plan || "enterprise";
+    const newCreditsLimit = creditsLimit || 999999;
+    const newCreditsUsed = creditsUsed !== undefined ? creditsUsed : 0;
+    const newRole = role || "admin";
+
     if (!user) {
-      // Create user with specified plan
       user = await db.user.create({
         data: {
           email: normalizedEmail,
           name: normalizedEmail.split("@")[0],
-          plan: plan || "enterprise",
-          role: role || "admin",
-          creditsLimit: creditsLimit || 999999,
-          creditsUsed: creditsUsed || 0,
+          plan: newPlan,
+          role: newRole,
+          creditsLimit: newCreditsLimit,
+          creditsUsed: newCreditsUsed,
         },
       });
 
       return NextResponse.json({
         success: true,
-        message: `User ${user.email} created with ${user.plan} plan`,
+        message: `User ${user.email} created`,
         isNew: true,
-        user: {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          plan: user.plan,
-          role: user.role,
-          creditsLimit: user.creditsLimit,
-          creditsUsed: user.creditsUsed,
-        },
+        user,
       });
     }
 
     // Update existing user
-    const updateData: Record<string, unknown> = { updatedAt: new Date() };
-    if (plan) updateData.plan = plan;
-    if (creditsLimit) updateData.creditsLimit = creditsLimit;
-    if (creditsUsed !== undefined) updateData.creditsUsed = creditsUsed;
-    if (role) updateData.role = role;
-
     const updated = await db.user.update({
       where: { id: user.id },
-      data: updateData,
+      data: {
+        plan: newPlan,
+        creditsLimit: newCreditsLimit,
+        creditsUsed: newCreditsUsed,
+        role: newRole,
+        updatedAt: new Date(),
+      },
     });
 
     return NextResponse.json({
@@ -78,9 +73,9 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Grant enterprise error:", error);
-    return NextResponse.json({ 
-      error: "Failed to update user", 
-      details: String(error) 
+    return NextResponse.json({
+      error: "Failed to update user",
+      details: String(error),
     }, { status: 500 });
   }
 }

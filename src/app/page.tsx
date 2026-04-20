@@ -150,7 +150,7 @@ function SubscriptionScreen({ userData, onComplete }: {
                 color: plan === "free" ? "#9CA3AF" : plan === "pro" ? C.pink : C.cyan
               }}>{plan.charAt(0).toUpperCase() + plan.slice(1)}</span>
               {" "}&mdash;{" "}
-              {creditsUsed}/{plan === "enterprise" ? "\u221E" : creditsLimit} credits used
+              {plan === "enterprise" ? "0/\u221E" : `${creditsUsed}/${creditsLimit}`} credits used
             </p>
           </div>
 

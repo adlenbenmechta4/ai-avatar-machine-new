@@ -223,7 +223,7 @@ export default function UserProfilePanel({
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-medium" style={{ color: "#9CA3AF" }}>Credits Usage</span>
             <span className="text-xs font-bold" style={{ color: "#F3F4F6" }}>
-              {creditsUsed}/{plan === "enterprise" ? "\u221E" : creditsLimit}
+              {plan === "enterprise" ? "0/\u221E" : `${creditsUsed}/${creditsLimit}`}
             </span>
           </div>
           <div className="w-full h-2.5 rounded-full overflow-hidden" style={{ backgroundColor: "#1E1E1E" }}>

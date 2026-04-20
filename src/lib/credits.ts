@@ -6,6 +6,16 @@ import { Prisma } from "@prisma/client";
  * to ensure data consistency and prevent race conditions.
  */
 
+// Users with creditsLimit >= this value have unlimited credits (no deductions)
+export const UNLIMITED_CREDITS_THRESHOLD = 999999;
+
+/**
+ * Check if a user has unlimited credits based on their plan/limit.
+ */
+export function isUnlimitedUser(creditsLimit: number, plan?: string): boolean {
+  return creditsLimit >= UNLIMITED_CREDITS_THRESHOLD || plan === "enterprise";
+}
+
 // Credit operation types
 export type CreditTransactionType =
   | "video_generation"
@@ -43,11 +53,14 @@ export async function getCreditBalance(userId: string): Promise<{
     throw new Error("User not found");
   }
 
+  const unlimited = isUnlimitedUser(user.creditsLimit, user.plan);
+
   return {
     creditsUsed: user.creditsUsed,
     creditsLimit: user.creditsLimit,
-    available: Math.max(0, user.creditsLimit - user.creditsUsed),
+    available: unlimited ? Infinity : Math.max(0, user.creditsLimit - user.creditsUsed),
     plan: user.plan,
+    isUnlimited: unlimited,
   };
 }
 
@@ -60,6 +73,8 @@ export async function hasEnoughCredits(
   cost: number
 ): Promise<boolean> {
   const balance = await getCreditBalance(userId);
+  // Unlimited users always have enough credits
+  if (balance.isUnlimited) return true;
   return balance.available >= cost;
 }
 
@@ -88,6 +103,27 @@ export async function deductCredits(
       creditsRemaining: (await getCreditBalance(userId)).available,
       creditsLimit: (await getCreditBalance(userId)).creditsLimit,
       error: "Amount is 0 or negative — no deduction needed",
+    };
+  }
+
+  // Check for unlimited credits before transaction
+  const preCheck = await db.user.findUnique({
+    where: { id: userId },
+    select: { creditsUsed: true, creditsLimit: true, plan: true },
+  });
+
+  if (!preCheck) {
+    throw new Error("User not found");
+  }
+
+  // Unlimited users — skip deduction entirely, no credits consumed
+  if (isUnlimitedUser(preCheck.creditsLimit, preCheck.plan)) {
+    return {
+      success: true,
+      creditsUsed: 0,
+      creditsRemaining: Infinity,
+      creditsLimit: preCheck.creditsLimit,
+      error: "User has unlimited credits — no deduction needed",
     };
   }
 
