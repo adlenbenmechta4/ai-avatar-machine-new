@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 // VIP users with unlimited credits (enterprise access)
 const VIP_EMAILS = new Set([
   "adlenbenmechta3@gmail.com",
+  "hello@fullynutrition.com",
 ]);
 
 interface AuthUser {
