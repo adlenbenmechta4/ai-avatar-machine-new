@@ -2,6 +2,27 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth-server";
 import { db } from "@/lib/db";
 
+// ─── Resolve user ID: VIP users may have a Firebase UID, need to find their DB ID ──
+async function resolveUserId(authUserId: string, authEmail: string): Promise<string | null> {
+  try {
+    const dbUser = await db.user.findUnique({
+      where: { email: authEmail },
+      select: { id: true },
+    });
+    if (dbUser) return dbUser.id;
+
+    const byId = await db.user.findUnique({
+      where: { id: authUserId },
+      select: { id: true },
+    });
+    if (byId) return byId.id;
+
+    return null;
+  } catch {
+    return authUserId;
+  }
+}
+
 // ─── DELETE /api/videos/[id] ─ Delete a video by ID ──────────────────────────
 export async function DELETE(
   request: NextRequest,
@@ -24,7 +45,10 @@ export async function DELETE(
       return NextResponse.json({ error: "Video not found" }, { status: 404 });
     }
 
-    if (video.userId !== user.id) {
+    // Resolve the correct DB user ID for ownership check
+    const dbUserId = await resolveUserId(user.id, user.email);
+
+    if (video.userId !== dbUserId && video.userId !== user.id) {
       return NextResponse.json({ error: "Forbidden: you don't own this video" }, { status: 403 });
     }
 
