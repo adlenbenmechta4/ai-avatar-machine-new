@@ -41,6 +41,7 @@ export async function getAuthUser(request: NextRequest): Promise<AuthUser | null
     }
 
     if (!idToken) {
+      console.warn("[getAuthUser] No token found in request");
       return null;
     }
 
@@ -48,6 +49,7 @@ export async function getAuthUser(request: NextRequest): Promise<AuthUser | null
     const decoded = await verifyIdToken(idToken);
 
     if (!decoded || !decoded.email) {
+      console.warn("[getAuthUser] Token verification returned no email", decoded ? "(has uid)" : "(null decoded)");
       return null;
     }
 
@@ -55,6 +57,7 @@ export async function getAuthUser(request: NextRequest): Promise<AuthUser | null
 
     // VIP users: grant enterprise access with unlimited credits without DB dependency
     if (VIP_EMAILS.has(normalizedEmail)) {
+      console.log("[getAuthUser] VIP user authenticated:", normalizedEmail);
       return {
         id: decoded.uid || decoded.sub || "vip-user",
         name: decoded.name || decoded.email?.split("@")[0] || "VIP User",
@@ -81,12 +84,13 @@ export async function getAuthUser(request: NextRequest): Promise<AuthUser | null
     });
 
     if (!user) {
+      console.warn("[getAuthUser] User not found in DB:", normalizedEmail);
       return null;
     }
 
     return user;
   } catch (error) {
-    console.error("getAuthUser error:", error);
+    console.error("[getAuthUser] Error:", error);
     return null;
   }
 }

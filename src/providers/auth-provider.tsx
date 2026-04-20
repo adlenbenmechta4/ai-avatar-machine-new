@@ -149,17 +149,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             idToken = refreshed.idToken;
             setSession(newSession);
           } catch {
-            // Refresh failed, clear session
-            clearAuthSession();
-            setSession(null);
-            setLoading(false);
-            return;
+            // Refresh failed — keep session so authFetch can retry later
+            console.warn("initAuth: token refresh failed, keeping existing session for authFetch retry");
+            setSession(stored);
           }
         } else {
           setSession(stored);
         }
 
-        // Sync with backend
+        // Sync with backend (use current token even if refresh failed)
         await doSync(idToken, stored);
       }
 
@@ -373,29 +371,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Authenticated fetch - attaches Firebase ID token
+  // Authenticated fetch - attaches Firebase ID token with auto-retry on 401
   const authFetch = useCallback(async (url: string, options: RequestInit = {}) => {
-    const stored = loadAuthSession();
-    if (stored) {
+    // Helper: get a valid token (refresh if expired)
+    const getValidToken = async (): Promise<string | null> => {
+      const stored = loadAuthSession();
+      if (!stored) return null;
+
       let token = stored.idToken;
-      // Refresh if needed
+      // Refresh if token is expired or about to expire (within 5 min)
       if (Date.now() > stored.expiresAt - 5 * 60 * 1000) {
         try {
           const refreshed = await refreshIdToken(stored.refreshToken);
           saveAuthSession(refreshed);
           token = refreshed.idToken;
         } catch {
-          // Ignore, use expired token
+          // Refresh failed — try using the current token anyway
+          console.warn("authFetch: token refresh failed, using existing token");
         }
       }
+      return token;
+    };
 
-      if (token) {
-        const headers = new Headers(options.headers);
-        headers.set("Authorization", `Bearer ${token}`);
-        return fetch(url, { ...options, headers });
+    const token = await getValidToken();
+    const headers = new Headers(options.headers);
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+
+    const res = await fetch(url, { ...options, headers });
+
+    // If 401 and we had a token, try refreshing and retrying once
+    if (res.status === 401 && token) {
+      console.warn(`authFetch: got 401 on ${url}, attempting token refresh + retry`);
+      try {
+        const stored = loadAuthSession();
+        if (stored?.refreshToken) {
+          const refreshed = await refreshIdToken(stored.refreshToken);
+          saveAuthSession(refreshed);
+          const retryHeaders = new Headers(options.headers);
+          retryHeaders.set("Authorization", `Bearer ${refreshed.idToken}`);
+          return fetch(url, { ...options, headers: retryHeaders });
+        }
+      } catch {
+        console.warn("authFetch: retry refresh also failed, returning original 401");
       }
     }
-    return fetch(url, options);
+
+    return res;
   }, []);
 
   return (
