@@ -83,7 +83,7 @@ function CursorEffect() {
       {/* Glow trail */}
       <div
         ref={trailRef}
-        className="fixed top-0 left-0 pointer-events-none z-[9999] rounded-full"
+        className="fixed top-0 left-0 pointer-events-none z-[10001] rounded-full"
         style={{
           width: 40,
           height: 40,
@@ -96,7 +96,7 @@ function CursorEffect() {
       {/* Main dot */}
       <div
         ref={cursorRef}
-        className="fixed top-0 left-0 pointer-events-none z-[9999] rounded-full"
+        className="fixed top-0 left-0 pointer-events-none z-[10001] rounded-full"
         style={{
           width: 12,
           height: 12,
