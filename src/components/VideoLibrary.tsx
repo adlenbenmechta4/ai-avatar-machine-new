@@ -2,6 +2,13 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/providers/auth-provider";
+import {
+  saveVideoToStorage,
+  loadVideosFromStorage,
+  deleteVideoFromStorage,
+  mergeVideos,
+  type StoredVideo,
+} from "@/lib/video-store";
 
 // ─── Colors (matching AIAvatarMachine) ────────────────────────────────────────
 
@@ -363,7 +370,7 @@ interface VideoLibraryProps {
 export default function VideoLibrary({ onViewCreate, theme }: VideoLibraryProps) {
   const T = theme === "dark" ? DC : C;
   const isDark = theme === "dark";
-  const { authFetch } = useAuth();
+  const { authFetch, user } = useAuth();
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>("");
@@ -373,19 +380,32 @@ export default function VideoLibrary({ onViewCreate, theme }: VideoLibraryProps)
     setLoading(true);
     setError("");
     try {
-      const res = await authFetch("/api/videos");
-      if (!res.ok) {
-        throw new Error(`Failed to fetch videos (${res.status})`);
+      // Always load from localStorage first (persistent, works without DB)
+      const userEmail = user?.email || "";
+      const localVideos = userEmail ? loadVideosFromStorage(userEmail) : [];
+
+      // Try API as secondary source (works when DB is available)
+      let apiVideos: VideoItem[] = [];
+      try {
+        const res = await authFetch("/api/videos");
+        if (res.ok) {
+          const data = await res.json();
+          apiVideos = (data.videos || []) as VideoItem[];
+        }
+      } catch {
+        // API failed — use localStorage only
       }
-      const data = await res.json();
-      setVideos(data.videos || []);
+
+      // Merge: API videos + localStorage videos (deduplicated)
+      const merged = mergeVideos(apiVideos as StoredVideo[], localVideos as unknown as StoredVideo[]) as unknown as VideoItem[];
+      setVideos(merged);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
     } finally {
       setLoading(false);
     }
-  }, [authFetch]);
+  }, [authFetch, user?.email]);
 
   useEffect(() => {
     fetchVideos();
@@ -394,18 +414,28 @@ export default function VideoLibrary({ onViewCreate, theme }: VideoLibraryProps)
   const handleDelete = useCallback(
     async (id: string) => {
       try {
-        const res = await authFetch(`/api/videos/${id}`, { method: "DELETE" });
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({ error: "Delete failed" }));
-          throw new Error(errData.error || "Delete failed");
+        // Always delete from localStorage
+        const userEmail = user?.email || "";
+        if (userEmail) deleteVideoFromStorage(userEmail, id);
+
+        // Try API delete (works when DB is available)
+        try {
+          const res = await authFetch(`/api/videos/${id}`, { method: "DELETE" });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({ error: "Delete failed" }));
+            throw new Error(errData.error || "Delete failed");
+          }
+        } catch {
+          // API delete failed — localStorage delete already done, continue
         }
+
         setVideos((prev) => prev.filter((v) => v.id !== id));
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         alert("Failed to delete video: " + msg);
       }
     },
-    [authFetch]
+    [authFetch, user?.email]
   );
 
   return (

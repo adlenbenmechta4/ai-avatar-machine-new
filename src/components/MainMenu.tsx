@@ -1387,7 +1387,14 @@ export default function MainMenu({
       {isAuthenticated && (
         <button
           onClick={() => {
-            try { localStorage.clear(); } catch(e) {}
+            // Only clear auth-related localStorage keys, preserve video library
+            try {
+              Object.keys(localStorage).forEach((key) => {
+                if (key.startsWith("firebase") || key.startsWith("auth_") || key === "guestMode") {
+                  localStorage.removeItem(key);
+                }
+              });
+            } catch(e) {}
             try { sessionStorage.clear(); } catch(e) {}
             try {
               document.cookie.split(";").forEach(function(c) {

@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/providers/auth-provider";
 import VideoLibrary from "@/components/VideoLibrary";
+import { saveVideoToStorage } from "@/lib/video-store";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1330,6 +1331,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light" }: { 
     setLogs([]);
     setPipelineError("");
     autoRetryCountRef.current = 0;
+    setSavedToLibrary(false);
     setAvatarUrl("");
     setScenes((prev) =>
       prev.map((s) => ({
@@ -1408,50 +1410,79 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light" }: { 
   // ─── Auto-save to library on completion ──────────────────────────
   const doSaveToLibrary = useCallback(async (videoUrl: string, frameUrls: string[]) => {
     if (!videoUrl) return;
+    const videoData = {
+      title: "My AI Video",
+      videoUrl,
+      thumbnailUrl: frameUrls[0] || null,
+      duration: `${totalDuration}s`,
+      scenesCount: videoProvider === "heygen" ? 1 : scenes.length,
+      provider: videoProvider,
+    };
+
+    // Always save to localStorage (persistent, works without DB)
+    const userEmail = user?.email || "";
+    if (userEmail) {
+      saveVideoToStorage(userEmail, {
+        id: "local_" + Date.now(),
+        ...videoData,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    // Also try API save (for when DB is available)
     try {
       const res = await authFetch("/api/videos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: "My AI Video",
-          videoUrl,
-          thumbnailUrl: frameUrls[0] || null,
-          duration: `${totalDuration}s`,
-          scenesCount: videoProvider === "heygen" ? 1 : scenes.length,
-          provider: videoProvider,
-        }),
+        body: JSON.stringify(videoData),
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        console.error("Auto-save to library failed:", res.status, errData);
-        addLog("⚠ Auto-save to library failed — click 'Save to Library' to retry");
+        console.error("Auto-save to API failed:", res.status, errData);
+        addLog("✅ Video saved to library (local storage)");
       } else {
         setSavedToLibrary(true);
-        addLog("✅ Video saved to library automatically!");
+        addLog("✅ Video saved to library!");
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error("Auto-save error:", msg);
-      addLog("⚠ Auto-save to library failed — click 'Save to Library' to retry");
+      console.error("Auto-save API error:", msg);
+      addLog("✅ Video saved to library (local storage)");
     }
-  }, [totalDuration, videoProvider, scenes.length, authFetch]);
+  }, [totalDuration, videoProvider, scenes.length, authFetch, user?.email]);
 
   // Manual save (button click — retry if auto-save failed)
   const saveToLibrary = useCallback(async () => {
     if (!finalVideoUrl) return;
     if (savedToLibrary) return;
+    const videoData = {
+      title: "My AI Video",
+      videoUrl: finalVideoUrl,
+      thumbnailUrl: finalFrameUrls[0] || null,
+      duration: `${totalDuration}s`,
+      scenesCount: videoProvider === "heygen" ? 1 : scenes.length,
+      provider: videoProvider,
+    };
+
+    // Always save to localStorage
+    const userEmail = user?.email || "";
+    if (userEmail) {
+      saveVideoToStorage(userEmail, {
+        id: "local_" + Date.now(),
+        ...videoData,
+        createdAt: new Date().toISOString(),
+      });
+      setSavedToLibrary(true);
+      addLog("✅ Video saved to library!");
+      return;
+    }
+
+    // Fallback: try API save
     try {
       const res = await authFetch("/api/videos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: "My AI Video",
-          videoUrl: finalVideoUrl,
-          thumbnailUrl: finalFrameUrls[0] || null,
-          duration: `${totalDuration}s`,
-          scenesCount: videoProvider === "heygen" ? 1 : scenes.length,
-          provider: videoProvider,
-        }),
+        body: JSON.stringify(videoData),
       });
       if (!res.ok) {
         throw new Error(`Save failed (${res.status})`);
@@ -1461,7 +1492,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light" }: { 
       const msg = err instanceof Error ? err.message : String(err);
       alert("Failed to save to library: " + msg);
     }
-  }, [finalVideoUrl, finalFrameUrls, totalDuration, videoProvider, scenes.length, authFetch, savedToLibrary]);
+  }, [finalVideoUrl, finalFrameUrls, totalDuration, videoProvider, scenes.length, authFetch, savedToLibrary, user?.email]);
 
   // ─── Render ───────────────────────────────────────────────────────────
   return (
@@ -1601,24 +1632,37 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light" }: { 
                     addLog("Avatar image generated successfully!");
 
                     // Auto-save to library
+                    const avatarData = {
+                      title: "My AI Avatar",
+                      videoUrl: data.imageUrl,
+                      thumbnailUrl: data.imageUrl,
+                      duration: null,
+                      scenesCount: 1,
+                      provider: "avatar" as string,
+                    };
+
+                    // Always save to localStorage
+                    const userEmail = user?.email || "";
+                    if (userEmail) {
+                      saveVideoToStorage(userEmail, {
+                        id: "local_" + Date.now(),
+                        ...avatarData,
+                        createdAt: new Date().toISOString(),
+                      });
+                    }
+
+                    // Also try API save
                     try {
                       await authFetch("/api/videos", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          title: "My AI Avatar",
-                          videoUrl: data.imageUrl,
-                          thumbnailUrl: data.imageUrl,
-                          duration: null,
-                          scenesCount: 1,
-                          provider: "avatar",
-                        }),
+                        body: JSON.stringify(avatarData),
                       });
-                      setAvatarSaved(true);
-                      addLog("Avatar saved to library!");
                     } catch {
-                      addLog("Auto-save to library failed");
+                      // API failed — localStorage save already done
                     }
+                    setAvatarSaved(true);
+                    addLog("Avatar saved to library!");
                   } catch (err: unknown) {
                     const msg = err instanceof Error ? err.message : String(err);
                     setAvatarError(msg);
