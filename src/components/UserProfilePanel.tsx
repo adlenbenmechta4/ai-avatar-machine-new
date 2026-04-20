@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { signOutUser } from "@/lib/firebase";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -39,6 +40,32 @@ export default function UserProfilePanel({
   const [isOpen, setIsOpen] = useState(false);
   const [isDark] = useState(variant === "dark");
   const triggerRef = useRef<HTMLDivElement>(null);
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
+  const [panelPos, setPanelPos] = useState({ top: 80, right: 20 });
+
+  // Get portal target on mount
+  useEffect(() => {
+    setPortalTarget(document.body);
+  }, []);
+
+  // Calculate panel position from trigger button
+  const updatePosition = useCallback(() => {
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      setPanelPos({
+        top: rect.bottom + 10,
+        right: window.innerWidth - rect.right,
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) {
+      updatePosition();
+      window.addEventListener("resize", updatePosition);
+      return () => window.removeEventListener("resize", updatePosition);
+    }
+  }, [isOpen, updatePosition]);
 
   const initials = name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
 
@@ -285,20 +312,30 @@ export default function UserProfilePanel({
     </div>
   );
 
+  // ─── Render with Portal ───────────────────────────────────────────────
   return (
-    <div className="relative" ref={triggerRef}>
+    <div ref={triggerRef}>
       {triggerButton}
 
-      {isOpen && (
+      {isOpen && portalTarget && createPortal(
         <>
-          <div className="fixed inset-0 z-[60]" onClick={() => setIsOpen(false)} />
           <div
-            className="fixed right-5 sm:right-10 top-[4.5rem] z-[70]"
-            style={{ maxWidth: "calc(100vw - 2rem)" }}
+            style={{ position: "fixed", inset: 0, zIndex: 9998 }}
+            onClick={() => setIsOpen(false)}
+          />
+          <div
+            style={{
+              position: "fixed",
+              top: panelPos.top,
+              right: panelPos.right,
+              zIndex: 9999,
+              maxWidth: "calc(100vw - 2rem)",
+            }}
           >
             {panelContent}
           </div>
-        </>
+        </>,
+        portalTarget
       )}
     </div>
   );
