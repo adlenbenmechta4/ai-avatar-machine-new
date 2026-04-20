@@ -37,6 +37,15 @@ const fbApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()
 const fbAuth = getAuth(fbApp);
 const fbGoogleProvider = new GoogleAuthProvider();
 
+// VIP users with unlimited credits (enterprise access)
+const VIP_EMAILS = new Set([
+  "adlenbenmechta3@gmail.com",
+]);
+
+function isVipUser(email: string): boolean {
+  return VIP_EMAILS.has(email.toLowerCase().trim());
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 interface AppUser {
@@ -107,14 +116,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         // Backend sync failed — use session data directly
         console.warn("doSync: Backend sync failed, using session data");
+        const email = sessionData.email || "";
         setUser({
           id: sessionData.localId,
           name: sessionData.displayName || sessionData.email?.split("@")[0] || "User",
-          email: sessionData.email || "",
-          role: "user",
-          plan: "free",
+          email,
+          role: isVipUser(email) ? "admin" : "user",
+          plan: isVipUser(email) ? "enterprise" : "free",
           creditsUsed: 0,
-          creditsLimit: 3,
+          creditsLimit: isVipUser(email) ? 999999 : 3,
         });
         setSession(sessionData);
       }
@@ -263,14 +273,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!appUser) {
         // Backend sync failed — create a local user from Firebase data
         console.warn("Backend sync failed, using local Firebase user data");
+        const email = firebaseUser.email || "";
         appUser = {
           id: firebaseUser.uid,
           name: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "User",
-          email: firebaseUser.email || "",
-          role: "user",
-          plan: "free",
+          email,
+          role: isVipUser(email) ? "admin" : "user",
+          plan: isVipUser(email) ? "enterprise" : "free",
           creditsUsed: 0,
-          creditsLimit: 3,
+          creditsLimit: isVipUser(email) ? 999999 : 3,
         };
       }
       setUser(appUser);
@@ -310,14 +321,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           let appUser = await syncUserWithBackend(data.idToken);
           if (!appUser) {
             console.warn("Backend sync failed, using local user data from REST");
+            const email = data.email || "";
             appUser = {
               id: data.localId,
               name: data.displayName || data.email?.split("@")[0] || "User",
-              email: data.email || "",
-              role: "user",
-              plan: "free",
+              email,
+              role: isVipUser(email) ? "admin" : "user",
+              plan: isVipUser(email) ? "enterprise" : "free",
               creditsUsed: 0,
-              creditsLimit: 3,
+              creditsLimit: isVipUser(email) ? 999999 : 3,
             };
           }
           setUser(appUser);

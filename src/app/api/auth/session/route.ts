@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyIdToken } from "@/lib/firebase-admin";
 import { db } from "@/lib/db";
 
+// VIP users with unlimited credits (enterprise access)
+const VIP_EMAILS = new Set([
+  "adlenbenmechta3@gmail.com",
+]);
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -27,12 +32,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid token: no decoded data" }, { status: 401 });
     }
 
-    const userEmail = decoded.email;
+    const userEmail = (decoded.email || "").toLowerCase().trim();
     if (!userEmail) {
       return NextResponse.json({ error: "Invalid token: no email in token" }, { status: 401 });
     }
 
     const userName = decoded.name || decoded.firebase?.name || userEmail.split("@")[0];
+
+    // VIP users: return enterprise access without touching the database
+    if (VIP_EMAILS.has(userEmail)) {
+      return NextResponse.json({
+        user: {
+          id: decoded.uid || decoded.sub || "vip-user",
+          name: userName,
+          email: userEmail,
+          role: "admin",
+          plan: "enterprise",
+          creditsUsed: 0,
+          creditsLimit: 999999,
+        },
+      });
+    }
 
     // Find or create user in our database
     let user = await db.user.findUnique({
