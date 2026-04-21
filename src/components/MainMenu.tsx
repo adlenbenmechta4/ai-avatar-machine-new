@@ -15,6 +15,7 @@ const C = {
   beige: "#F5E6D3",
   warmGray: "#B8A99A",
   gold: "#C9A96E",
+  cyan: "#16B1DE",
   softPink: "#FDE8F0",
   lightPink: "#F9E4EE",
   overlay: "rgba(10, 10, 10, 0.45)",
@@ -980,19 +981,22 @@ export default function MainMenu({
       accentColor: C.gold,
     },
     {
-      id: "coming-soon-2",
-      title: "AI Script Writer",
-      subtitle: "Coming Soon",
-      description: "Let AI help you craft compelling scripts tailored for avatar video production with natural dialogue.",
+      id: "ai-podcast-machine",
+      title: "AI Podcast Machine",
+      subtitle: "Create Podcast Videos",
+      description: "Generate AI-powered podcast videos with two characters, dialogue automation, and seamless video merging.",
       icon: (
         <svg width="40" height="40" viewBox="0 0 48 48" fill="none">
-          <rect x="8" y="6" width="32" height="36" rx="4" stroke={C.warmGray} strokeWidth="2" fill="none" />
-          <path d="M14 16h20M14 22h16M14 28h12" stroke={C.warmGray} strokeWidth="2" strokeLinecap="round" />
-          <path d="M30 30l4 4 6-8" stroke={C.pink} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="14" cy="18" r="6" stroke={C.cyan} strokeWidth="2" fill="none" />
+          <circle cx="34" cy="18" r="6" stroke={C.pink} strokeWidth="2" fill="none" />
+          <path d="M14 28c0-4 2.7-7 6-7s6 3 6 7" stroke={C.cyan} strokeWidth="2" fill="none" strokeLinecap="round" />
+          <path d="M34 28c0-4-2.7-7-6-7s-6 3-6 7" stroke={C.pink} strokeWidth="2" fill="none" strokeLinecap="round" />
+          <path d="M20 22c0 0 2-3 4 0s4 0 4 0" stroke={C.gold} strokeWidth="1.5" strokeLinecap="round" />
+          <path d="M12 36h24" stroke={C.warmGray} strokeWidth="2" strokeLinecap="round" />
+          <path d="M16 33h16" stroke={C.warmGray} strokeWidth="1.5" strokeLinecap="round" opacity="0.5" />
         </svg>
       ),
-      accentColor: C.warmGray,
-      disabled: true,
+      accentColor: C.cyan,
     },
   ];
 
