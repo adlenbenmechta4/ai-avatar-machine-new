@@ -362,6 +362,7 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
   const [generating, setGenerating] = useState(false);
   const [generationStatus, setGenerationStatus] = useState("");
   const [generationProgress, setGenerationProgress] = useState(0);
+  const [pipelineStep, setPipelineStep] = useState(0);
   const [error, setError] = useState("");
 
   const [result, setResult] = useState<{
@@ -380,12 +381,6 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
     char1Dialogues.some((d) => d.text.trim()) &&
     char2Dialogues.some((d) => d.text.trim());
 
-  const totalSteps = () => {
-    const c1 = char1Dialogues.filter((d) => d.text.trim()).length;
-    const c2 = char2Dialogues.filter((d) => d.text.trim()).length;
-    return Math.max(c1, c2) * 2 + 1; // videos + merge
-  };
-
   // ─── Handle Generate ─────────────────────────────────────────────────
   const handleGenerate = async () => {
     if (!isValid) return;
@@ -394,26 +389,8 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
     setError("");
     setResult(null);
     setGenerationProgress(0);
-    setGenerationStatus("Starting podcast generation...");
-
-    const total = totalSteps();
-    let currentStep = 0;
-
-    const progressInterval = setInterval(() => {
-      // Simulate slow progress while waiting for API
-      setGenerationStatus((prev) => {
-        if (prev.includes("Generating video")) {
-          const match = prev.match(/video (\d+)/);
-          if (match) {
-            const vNum = parseInt(match[1]);
-            const subStep = Math.floor((Date.now() / 5000) % 4);
-            const dots = ".".repeat(subStep + 1);
-            return `Generating video ${vNum} of ${total - 1}${dots}`;
-          }
-        }
-        return prev;
-      });
-    }, 5000);
+    setPipelineStep(0);
+    setGenerationStatus("Connecting to pipeline...");
 
     try {
       const res = await fetch("/api/generate-podcast", {
@@ -429,24 +406,69 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
         }),
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Generation failed");
+      // ─── SSE Stream Reading ─────────────────────────────────────
+      if (!res.body) {
+        throw new Error("No response stream");
       }
 
-      setResult(data);
-      setGenerationProgress(100);
-      setGenerationStatus("Done!");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-      if (!data.success) {
-        setError(data.error || "Generation failed. Check errors below.");
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6).trim());
+
+            switch (event.type) {
+              case "started":
+                setGenerationStatus(event.message || "Pipeline started");
+                setPipelineStep(1);
+                break;
+              case "progress":
+                setPipelineStep(event.step || 1);
+                setGenerationProgress(event.pct || 0);
+                setGenerationStatus(event.message || "");
+                break;
+              case "video_error":
+                console.warn(`[Podcast] Video ${event.index} failed:`, event.error);
+                break;
+              case "merge_error":
+                console.warn("[Podcast] Merge failed:", event.error);
+                break;
+              case "done":
+                setPipelineStep(3);
+                setGenerationProgress(100);
+                setGenerationStatus("Podcast complete!");
+                setResult({
+                  mergedVideoUrl: event.mergedVideoUrl || null,
+                  individualVideos: event.individualVideos || [],
+                  totalGenerated: event.totalGenerated || 0,
+                  totalRequested: event.totalRequested || 0,
+                  errors: event.errors,
+                });
+                break;
+              case "error":
+                setError(event.message || "Generation failed");
+                break;
+            }
+          } catch {
+            // Ignore malformed SSE lines
+          }
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
     } finally {
-      clearInterval(progressInterval);
       setGenerating(false);
     }
   };
@@ -687,90 +709,180 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // GENERATING VIEW
+  // GENERATING VIEW — Pipeline with SSE
   // ═══════════════════════════════════════════════════════════════════════
   if (generating) {
+    // Pipeline steps
+    const PIPELINE = [
+      { num: 1, title: "Videos", icon: "\u{1F3AC}", color: C.cyan },
+      { num: 2, title: "Merge", icon: "\u{1F517}", color: C.gold },
+      { num: 3, title: "Done", icon: "\u2728", color: C.pink },
+    ];
+
+    const stepStatus = (num: number): "idle" | "active" | "done" => {
+      if (pipelineStep === 0) return "idle";
+      if (pipelineStep >= num + 1) return "done";
+      if (pipelineStep === num) return "active";
+      return "idle";
+    };
+
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center" style={{ backgroundColor: C.dark }}>
-        <div className="text-center max-w-md px-6">
-          {/* Animated Icon */}
-          <div className="mb-8">
-            <div className="w-20 h-20 rounded-full mx-auto flex items-center justify-center"
-              style={{
-                background: `linear-gradient(135deg, ${C.cyan}, ${C.pink})`,
-                boxShadow: `0 0 40px ${C.cyan}40, 0 0 80px ${C.pink}20`,
-                animation: "podcastPulse 2s ease-in-out infinite",
-              }}
-            >
-              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                <line x1="12" y1="19" x2="12" y2="23" />
-                <line x1="8" y1="23" x2="16" y2="23" />
-              </svg>
+      <div className="min-h-screen flex flex-col" style={{ backgroundColor: C.dark }}>
+        {/* ─── Pipeline Stepper ──────────────────────────────────── */}
+        <div className="px-6 pt-8 pb-4">
+          <div className="max-w-lg mx-auto">
+            <div className="flex items-center justify-center gap-2 sm:gap-4">
+              {PIPELINE.map((step, idx) => {
+                const status = stepStatus(step.num);
+                return (
+                  <React.Fragment key={step.num}>
+                    {/* Step Circle */}
+                    <div className="flex flex-col items-center gap-2">
+                      <div
+                        className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center text-xl sm:text-2xl transition-all duration-500"
+                        style={{
+                          backgroundColor: status === "done" ? step.color
+                            : status === "active" ? `${step.color}20`
+                            : "#1A1A1A",
+                          border: status === "idle"
+                            ? `2px dashed #333333`
+                            : `2px solid ${status === "done" ? step.color : step.color}60`,
+                          transform: status === "active" ? "scale(1.1)" : "scale(1)",
+                          boxShadow: status === "active"
+                            ? `0 0 20px ${step.color}40, 0 0 40px ${step.color}15`
+                            : status === "done"
+                            ? `0 0 12px ${step.color}30`
+                            : "none",
+                        }}
+                      >
+                        {/* Ping ring for active */}
+                        {status === "active" && (
+                          <div
+                            className="absolute inset-0 rounded-2xl animate-ping"
+                            style={{ backgroundColor: `${step.color}15` }}
+                          />
+                        )}
+                        <span className="relative z-10">
+                          {status === "done" ? (
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          ) : (
+                            step.icon
+                          )}
+                        </span>
+                      </div>
+                      <span
+                        className="text-[10px] sm:text-xs font-bold uppercase tracking-wider transition-colors duration-500"
+                        style={{
+                          color: status === "idle" ? "#555555"
+                            : status === "active" ? step.color
+                            : step.color,
+                        }}
+                      >
+                        {step.title}
+                      </span>
+                    </div>
+
+                    {/* Connector Arrow */}
+                    {idx < PIPELINE.length - 1 && (
+                      <div className="flex-shrink-0 mt-[-20px]" style={{ width: "40px" }}>
+                        <div className="h-0.5 rounded-full overflow-hidden" style={{ backgroundColor: "#2A2A2A" }}>
+                          <div
+                            className="h-full rounded-full transition-all duration-700"
+                            style={{
+                              width: stepStatus(PIPELINE[idx + 1].num) === "done" ? "100%"
+                                : stepStatus(PIPELINE[idx + 1].num) === "active" ? "50%"
+                                : "0%",
+                              backgroundColor: step.color,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </div>
           </div>
+        </div>
 
-          <h2 className="text-xl font-black uppercase tracking-wider mb-3" style={{ color: C.white }}>
-            Generating Podcast
-          </h2>
+        {/* ─── Current Step Info ──────────────────────────────────── */}
+        <div className="flex-1 flex flex-col items-center justify-center px-6">
+          <div className="max-w-lg w-full">
+            {/* Step Message */}
+            <div className="text-center mb-6">
+              <p className="text-base sm:text-lg font-bold mb-2" style={{ color: C.white }}>
+                {generationStatus || "Starting..."}
+              </p>
+              <p className="text-xs" style={{ color: "#666666" }}>
+                This may take several minutes. Please keep this page open.
+              </p>
+            </div>
 
-          <p className="text-sm mb-6" style={{ color: "#A0A0A0" }}>
-            {generationStatus}
-          </p>
+            {/* Progress Bar */}
+            <div className="w-full h-3 rounded-full overflow-hidden mb-6" style={{ backgroundColor: "#1A1A1A" }}>
+              <div
+                className="h-full rounded-full transition-all duration-1000 ease-out"
+                style={{
+                  width: `${generationProgress}%`,
+                  background: pipelineStep === 1
+                    ? `linear-gradient(90deg, ${C.cyan}, ${C.pink})`
+                    : pipelineStep === 2
+                    ? `linear-gradient(90deg, ${C.gold}, ${C.pink})`
+                    : `linear-gradient(90deg, ${C.pink}, ${C.cyan})`,
+                  boxShadow: pipelineStep === 1
+                    ? `0 0 12px ${C.cyan}60`
+                    : pipelineStep === 2
+                    ? `0 0 12px ${C.gold}60`
+                    : `0 0 12px ${C.pink}60`,
+                }}
+              />
+            </div>
 
-          {/* Progress Bar */}
-          <div className="w-full h-2 rounded-full overflow-hidden" style={{ backgroundColor: "#2A2A2A" }}>
-            <div
-              className="h-full rounded-full transition-all duration-1000"
-              style={{
-                width: `${generationProgress}%`,
-                background: `linear-gradient(90deg, ${C.cyan}, ${C.pink})`,
-                boxShadow: `0 0 12px ${C.cyan}60`,
-              }}
-            />
-          </div>
-
-          {/* Sequence Preview */}
-          <div className="mt-8">
-            <p className="text-[10px] font-bold uppercase tracking-widest mb-3" style={{ color: "#666666" }}>
-              Generation Sequence
-            </p>
-            <div className="flex flex-wrap items-center justify-center gap-1.5">
-              {(() => {
-                const c1 = char1Dialogues.filter((d) => d.text.trim()).length;
-                const c2 = char2Dialogues.filter((d) => d.text.trim()).length;
-                const maxR = Math.max(c1, c2);
-                const items: Array<{ label: string; char: number }> = [];
-                for (let i = 0; i < maxR; i++) {
-                  if (i < c1) items.push({ label: `C1-${i + 1}`, char: 1 });
-                  if (i < c2) items.push({ label: `C2-${i + 1}`, char: 2 });
-                }
-                return items.map((item, idx) => (
-                  <div
-                    key={idx}
-                    className="px-2 py-1 rounded-md text-[9px] font-bold"
-                    style={{
-                      backgroundColor: item.char === 1 ? `${C.cyan}20` : `${C.pink}20`,
-                      color: item.char === 1 ? C.cyan : C.pink,
-                      border: `1px solid ${item.char === 1 ? `${C.cyan}30` : `${C.pink}30`}`,
-                    }}
-                  >
-                    {item.label}
-                  </div>
-                ));
-              })()}
-              <div className="px-2 py-1 rounded-md text-[9px] font-bold"
-                style={{ backgroundColor: `${C.gold}20`, color: C.gold, border: `1px solid ${C.gold}30` }}
-              >
-                MERGE
+            {/* Sequence Preview with active indicators */}
+            <div className="rounded-2xl p-4" style={{ backgroundColor: "#1A1A1A", border: "1px solid #2A2A2A" }}>
+              <p className="text-[10px] font-bold uppercase tracking-widest mb-3" style={{ color: "#555555" }}>
+                Generation Sequence
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-1.5">
+                {(() => {
+                  const c1 = char1Dialogues.filter((d) => d.text.trim()).length;
+                  const c2 = char2Dialogues.filter((d) => d.text.trim()).length;
+                  const maxR = Math.max(c1, c2);
+                  const items: Array<{ label: string; char: number }> = [];
+                  for (let i = 0; i < maxR; i++) {
+                    if (i < c1) items.push({ label: `C1-${i + 1}`, char: 1 });
+                    if (i < c2) items.push({ label: `C2-${i + 1}`, char: 2 });
+                  }
+                  return items.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="px-2 py-1 rounded-md text-[9px] font-bold transition-all duration-300"
+                      style={{
+                        backgroundColor: item.char === 1 ? `${C.cyan}20` : `${C.pink}20`,
+                        color: item.char === 1 ? C.cyan : C.pink,
+                        border: `1px solid ${item.char === 1 ? `${C.cyan}30` : `${C.pink}30`}`,
+                        opacity: pipelineStep >= 2 ? 0.5 : 1,
+                      }}
+                    >
+                      {item.label}
+                    </div>
+                  ));
+                })()}
+                <div
+                  className="px-2 py-1 rounded-md text-[9px] font-bold transition-all duration-300"
+                  style={{
+                    backgroundColor: pipelineStep >= 2 ? `${C.gold}20` : "transparent",
+                    color: pipelineStep >= 2 ? C.gold : "#444444",
+                    border: `1px solid ${pipelineStep >= 2 ? `${C.gold}30` : "#333333"}`,
+                  }}
+                >
+                  MERGE
+                </div>
               </div>
             </div>
           </div>
-
-          <p className="text-[11px] mt-6" style={{ color: "#555555" }}>
-            This may take several minutes. Please keep this page open.
-          </p>
         </div>
 
         <style jsx>{`
