@@ -718,6 +718,7 @@ function PlansSection({ onGetStarted }: { onGetStarted: () => void }) {
 // ─── Video Carousel Display for Cards ──────────────────────────────────
 
 const CARD_VIDEOS = ["/videos/1.mp4", "/videos/2.mp4", "/videos/3.mp4", "/videos/4.mp4", "/videos/5.mp4"];
+const PODCAST_VIDEO = "/videos/podcast-preview.mp4";
 
 function VideoCardDisplay({ isHovered }: { isHovered: boolean }) {
   const [currentIdx, setCurrentIdx] = useState(() => Math.floor(Math.random() * CARD_VIDEOS.length));
@@ -877,6 +878,289 @@ function VideoCardDisplay({ isHovered }: { isHovered: boolean }) {
             }}
           />
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Podcast Video Card Display (Creative) ──────────────────────────────
+
+function PodcastVideoCardDisplay({ isHovered }: { isHovered: boolean }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [videoLoaded, setVideoLoaded] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!videoLoaded) setVideoLoaded(true);
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [videoLoaded]);
+
+  // 9:16 vertical phone-style frame
+  const frameW = 140;
+  const frameH = Math.round(frameW * (16 / 9));
+
+  return (
+    <div
+      className="relative flex flex-col items-center"
+      style={{
+        transition: "transform 0.6s cubic-bezier(0.23, 1, 0.32, 1)",
+        transform: isHovered ? "scale(1.03)" : "scale(1)",
+      }}
+    >
+      {/* Floating sound wave rings */}
+      {isHovered && (
+        <>
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              top: -8,
+              left: -14,
+              width: 50,
+              height: 50,
+              borderRadius: "50%",
+              border: `1.5px solid ${C.cyan}40`,
+              animation: "podcastWave 2s ease-out infinite",
+            }}
+          />
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              top: -16,
+              left: -22,
+              width: 66,
+              height: 66,
+              borderRadius: "50%",
+              border: `1px solid ${C.pink}30`,
+              animation: "podcastWave 2s ease-out infinite 0.4s",
+            }}
+          />
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              bottom: -8,
+              right: -14,
+              width: 50,
+              height: 50,
+              borderRadius: "50%",
+              border: `1.5px solid ${C.cyan}40`,
+              animation: "podcastWave 2s ease-out infinite 0.8s",
+            }}
+          />
+        </>
+      )}
+
+      {/* Phone Frame */}
+      <div
+        className="relative"
+        style={{
+          width: frameW,
+          height: frameH,
+          borderRadius: "22px",
+          background: "linear-gradient(145deg, #0a1628 0%, #060d1a 100%)",
+          padding: "4px",
+          boxShadow: isHovered
+            ? `0 12px 40px rgba(22,177,222,0.35), 0 4px 12px rgba(0,0,0,0.3), inset 0 0 0 1px rgba(22,177,222,0.2)`
+            : `0 6px 24px rgba(0,0,0,0.2), inset 0 0 0 1px rgba(255,255,255,0.08)`,
+          transition: "box-shadow 0.5s ease",
+        }}
+      >
+        {/* Inner screen */}
+        <div
+          className="relative w-full h-full overflow-hidden"
+          style={{
+            borderRadius: "18px",
+            background: "#000",
+          }}
+        >
+          {/* Video */}
+          <video
+            ref={videoRef}
+            autoPlay
+            loop
+            muted
+            playsInline
+            onCanPlayThrough={() => setVideoLoaded(true)}
+            onLoadedData={() => setVideoLoaded(true)}
+            className="absolute inset-0 w-full h-full"
+            style={{
+              objectFit: "cover",
+              borderRadius: "18px",
+              objectPosition: "center center",
+              opacity: videoLoaded ? 1 : 0,
+              transition: "opacity 0.6s ease",
+            }}
+          >
+            <source src={PODCAST_VIDEO} type="video/mp4" />
+          </video>
+
+          {/* Loading placeholder */}
+          {!videoLoaded && (
+            <div
+              className="absolute inset-0 flex items-center justify-center"
+              style={{
+                borderRadius: "18px",
+                background: `linear-gradient(135deg, #0a1628, #0d1f3c)`,
+              }}
+            >
+              <div
+                className="flex items-center justify-center"
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: "50%",
+                  background: `linear-gradient(135deg, ${C.cyan}30, ${C.pink}30)`,
+                  animation: "pulse 1.5s ease-in-out infinite",
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill={C.cyan}>
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" />
+                </svg>
+              </div>
+            </div>
+          )}
+
+          {/* Top gradient overlay (notch) */}
+          <div
+            className="absolute top-0 left-0 right-0 z-10 pointer-events-none"
+            style={{
+              height: 32,
+              background: "linear-gradient(180deg, rgba(0,0,0,0.5) 0%, transparent 100%)",
+              borderRadius: "18px 18px 0 0",
+            }}
+          >
+            {/* Dynamic Island */}
+            <div
+              className="absolute left-1/2 -translate-x-1/2"
+              style={{
+                top: 7,
+                width: 40,
+                height: 10,
+                borderRadius: 6,
+                backgroundColor: "rgba(0,0,0,0.7)",
+                border: "1px solid rgba(255,255,255,0.08)",
+              }}
+            />
+          </div>
+
+          {/* Bottom gradient overlay with podcast badge */}
+          <div
+            className="absolute bottom-0 left-0 right-0 z-10 pointer-events-none"
+            style={{
+              height: 48,
+              background: "linear-gradient(0deg, rgba(0,0,0,0.7) 0%, transparent 100%)",
+              borderRadius: "0 0 18px 18px",
+            }}
+          >
+            {/* LIVE badge */}
+            <div
+              className="absolute bottom-3 left-3 flex items-center gap-1.5"
+              style={{
+                animation: isHovered ? "pulse 1.5s ease-in-out infinite" : "none",
+              }}
+            >
+              <div
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  backgroundColor: "#FF3B3B",
+                  boxShadow: "0 0 6px #FF3B3B80",
+                }}
+              />
+              <span
+                className="text-[8px] font-bold uppercase tracking-widest"
+                style={{ color: "rgba(255,255,255,0.9)" }}
+              >
+                Podcast
+              </span>
+            </div>
+
+            {/* Sound wave equalizer bars */}
+            <div className="absolute bottom-2.5 right-3 flex items-end gap-[2px]">
+              {[12, 8, 16, 6, 10, 14, 7, 11].map((h, i) => (
+                <div
+                  key={i}
+                  style={{
+                    width: 2,
+                    height: h,
+                    borderRadius: 1,
+                    background: `linear-gradient(180deg, ${C.cyan}, ${C.pink})`,
+                    opacity: isHovered ? 0.8 : 0.4,
+                    animation: `equalizerBar ${0.6 + i * 0.15}s ease-in-out infinite alternate`,
+                    transition: "opacity 0.3s ease",
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Hover shimmer */}
+          {isHovered && (
+            <div
+              className="absolute inset-0 z-10 pointer-events-none"
+              style={{
+                background: "linear-gradient(105deg, transparent 30%, rgba(22,177,222,0.08) 50%, transparent 70%)",
+                animation: "cardShimmer 2s ease-in-out infinite",
+                borderRadius: "18px",
+              }}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Dual character indicators */}
+      <div className="flex items-center gap-3 mt-3">
+        {/* Character 1 */}
+        <div className="flex items-center gap-1.5">
+          <div
+            className="w-5 h-5 rounded-full flex items-center justify-center"
+            style={{
+              background: `linear-gradient(135deg, ${C.cyan}40, ${C.cyan}20)`,
+              border: `1px solid ${C.cyan}60`,
+            }}
+          >
+            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: C.cyan }} />
+          </div>
+          <span
+            className="text-[9px] font-semibold uppercase tracking-wider"
+            style={{ color: "rgba(255,255,255,0.6)" }}
+          >
+            Char 1
+          </span>
+        </div>
+
+        {/* VS divider */}
+        <div
+          className="w-5 h-5 rounded-full flex items-center justify-center"
+          style={{
+            background: `linear-gradient(135deg, ${C.gold}, ${C.pink})`,
+            boxShadow: `0 2px 8px ${C.gold}40`,
+          }}
+        >
+          <span className="text-[7px] font-black" style={{ color: C.white }}>
+            VS
+          </span>
+        </div>
+
+        {/* Character 2 */}
+        <div className="flex items-center gap-1.5">
+          <div
+            className="w-5 h-5 rounded-full flex items-center justify-center"
+            style={{
+              background: `linear-gradient(135deg, ${C.pink}40, ${C.pink}20)`,
+              border: `1px solid ${C.pink}60`,
+            }}
+          >
+            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: C.pink }} />
+          </div>
+          <span
+            className="text-[9px] font-semibold uppercase tracking-wider"
+            style={{ color: "rgba(255,255,255,0.6)" }}
+          >
+            Char 2
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -1198,6 +1482,7 @@ export default function MainMenu({
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
               {menuItems.map((item, index) => {
                 const isVideoCard = !item.disabled && item.id === "ai-avatar-machine";
+                const isPodcastCard = !item.disabled && item.id === "ai-podcast-machine";
                 const isHovered = activeCard === index && !item.disabled;
                 return (
                 <div
@@ -1213,11 +1498,11 @@ export default function MainMenu({
                   onClick={() => !item.disabled && handleCardClick(item.id)}
                 >
                   <div
-                    className={`relative overflow-hidden rounded-2xl sm:rounded-3xl h-full transition-all duration-500 ${isVideoCard ? "p-5 sm:p-6 flex flex-col items-center" : "p-6 sm:p-7"}`}
+                    className={`relative overflow-hidden rounded-2xl sm:rounded-3xl h-full transition-all duration-500 ${(isVideoCard || isPodcastCard) ? "p-5 sm:p-6 flex flex-col items-center" : "p-6 sm:p-7"}`}
                     style={{
                       background: item.disabled
                         ? "rgba(255,255,255,0.06)"
-                        : isVideoCard
+                        : (isVideoCard || isPodcastCard)
                           ? "linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.85) 100%)"
                           : C.cardBg,
                       border: `1.5px solid ${
@@ -1231,12 +1516,12 @@ export default function MainMenu({
                       WebkitBackdropFilter: "blur(20px)",
                       boxShadow:
                         isHovered
-                          ? isVideoCard
+                          ? (isVideoCard || isPodcastCard)
                             ? `0 25px 60px ${item.accentColor}30, 0 8px 30px rgba(0,0,0,0.2)`
                             : `0 20px 60px ${item.accentColor}20, 0 8px 24px rgba(0,0,0,0.1)`
                           : "0 4px 24px rgba(0,0,0,0.06)",
                       transform: isHovered
-                        ? isVideoCard
+                        ? (isVideoCard || isPodcastCard)
                           ? "translateY(-8px) scale(1.02)"
                           : "translateY(-6px) scale(1.02)"
                         : "translateY(0) scale(1)",
@@ -1260,8 +1545,15 @@ export default function MainMenu({
                       </div>
                     )}
 
+                    {/* Video display for AI Podcast Machine card - creative podcast mockup */}
+                    {isPodcastCard && (
+                      <div className="relative z-10 mb-5">
+                        <PodcastVideoCardDisplay isHovered={isHovered} />
+                      </div>
+                    )}
+
                     {/* Icon - only show for non-video cards */}
-                    {!isVideoCard && (
+                    {!isVideoCard && !isPodcastCard && (
                     <div className="relative z-10 mb-5">
                       <div
                         className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center transition-all duration-300"
@@ -1277,8 +1569,8 @@ export default function MainMenu({
                     )}
 
                     {/* Title */}
-                    <div className={`relative z-10 ${isVideoCard ? "text-center w-full" : ""}`}>
-                      <div className={`items-center gap-2 mb-1.5 ${isVideoCard ? "flex justify-center" : "flex"}`}>
+                    <div className={`relative z-10 ${(isVideoCard || isPodcastCard) ? "text-center w-full" : ""}`}>
+                      <div className={`items-center gap-2 mb-1.5 ${(isVideoCard || isPodcastCard) ? "flex justify-center" : "flex"}`}>
                         <h3
                           className="text-base sm:text-lg font-bold uppercase tracking-wide"
                           style={{
@@ -1310,7 +1602,7 @@ export default function MainMenu({
                       )}
 
                       <p
-                        className={`text-xs sm:text-sm leading-relaxed ${isVideoCard ? "max-w-[200px] mx-auto" : ""}`}
+                        className={`text-xs sm:text-sm leading-relaxed ${(isVideoCard || isPodcastCard) ? "max-w-[200px] mx-auto" : ""}`}
                         style={{
                           color: item.disabled ? "rgba(255,255,255,0.3)" : "#6B7280",
                         }}
@@ -1321,7 +1613,7 @@ export default function MainMenu({
 
                     {/* CTA Arrow */}
                     {!item.disabled && (
-                      <div className={`relative z-10 mt-5 flex items-center gap-2 ${isVideoCard ? "justify-center" : ""}`}>
+                      <div className={`relative z-10 mt-5 flex items-center gap-2 ${(isVideoCard || isPodcastCard) ? "justify-center" : ""}`}>
                         <span
                           className="text-xs font-bold uppercase tracking-wider"
                           style={{
@@ -1436,6 +1728,42 @@ export default function MainMenu({
         @media (pointer: fine) {
           * {
             cursor: none !important;
+          }
+        }
+
+        @keyframes cardShimmer {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+
+        @keyframes podcastWave {
+          0% {
+            transform: scale(0.8);
+            opacity: 0.8;
+          }
+          100% {
+            transform: scale(1.4);
+            opacity: 0;
+          }
+        }
+
+        @keyframes equalizerBar {
+          0% {
+            transform: scaleY(0.3);
+          }
+          100% {
+            transform: scaleY(1);
+          }
+        }
+
+        @keyframes pulse {
+          0%, 100% {
+            opacity: 1;
+            transform: scale(1);
+          }
+          50% {
+            opacity: 0.7;
+            transform: scale(0.95);
           }
         }
       `}</style>
