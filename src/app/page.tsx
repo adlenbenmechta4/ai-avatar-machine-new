@@ -345,7 +345,7 @@ export default function Home() {
 
   // AI Carousel view
   if (currentView === "carousel") {
-    return <CarouselView onBack={() => setCurrentView("menu")} />;
+    return <CarouselView onBack={() => setCurrentView("menu")} isAdmin={!!isAdmin} />;
   }
 
   // AI Avatar Machine view — only for authenticated users
