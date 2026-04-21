@@ -1,16 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthUser } from "@/lib/auth-server";
 import { put } from "@vercel/blob";
 
 export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
   try {
-    const user = await getAuthUser(req);
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     const body = await req.json();
     const { base64, fileName = "character.png" } = body;
 
