@@ -67,7 +67,7 @@ async function generateCharacterVideo(
       imageUrls: [characterImageUrl],
       model: "veo3_fast",
       generationType: "FIRST_AND_LAST_FRAMES_2_VIDEO",
-      aspect_ratio: "16:9",
+      aspect_ratio: "9:16",
     }),
   });
 
@@ -108,7 +108,7 @@ async function mergeVideosWithFal(videoUrls: string[], falApiKey: string): Promi
     body: JSON.stringify({
       video_urls: videoUrls,
       target_fps: 30,
-      resolution: "landscape_16_9",
+      resolution: "portrait_16_9",
     }),
   });
 
