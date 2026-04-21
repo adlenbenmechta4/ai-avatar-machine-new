@@ -164,8 +164,8 @@ function CharacterPanel({
             <img
               src={imageUrl}
               alt={`Character ${characterNum}`}
-              className="w-full h-40 sm:h-48 object-cover rounded-2xl"
-              style={{ border: `2px solid ${accentColor}30` }}
+              className="w-full object-cover rounded-2xl"
+              style={{ border: `2px solid ${accentColor}30`, aspectRatio: "9/16" }}
             />
             {!disabled && (
               <button
@@ -185,11 +185,12 @@ function CharacterPanel({
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading || disabled}
-            className="w-full h-40 sm:h-48 rounded-2xl flex flex-col items-center justify-center gap-3 transition-all duration-200"
+            className="w-full rounded-2xl flex flex-col items-center justify-center gap-3 transition-all duration-200"
             style={{
               backgroundColor: `${lightColor}40`,
               border: `2px dashed ${accentColor}40`,
               opacity: uploading ? 0.6 : 1,
+              aspectRatio: "9/16",
             }}
           >
             {uploading ? (
