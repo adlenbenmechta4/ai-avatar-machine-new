@@ -1109,59 +1109,7 @@ function PodcastVideoCardDisplay({ isHovered }: { isHovered: boolean }) {
         </div>
       </div>
 
-      {/* Dual character indicators */}
-      <div className="flex items-center gap-3 mt-3">
-        {/* Character 1 */}
-        <div className="flex items-center gap-1.5">
-          <div
-            className="w-5 h-5 rounded-full flex items-center justify-center"
-            style={{
-              background: `linear-gradient(135deg, ${C.cyan}40, ${C.cyan}20)`,
-              border: `1px solid ${C.cyan}60`,
-            }}
-          >
-            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: C.cyan }} />
-          </div>
-          <span
-            className="text-[9px] font-semibold uppercase tracking-wider"
-            style={{ color: "rgba(255,255,255,0.6)" }}
-          >
-            Char 1
-          </span>
-        </div>
 
-        {/* VS divider */}
-        <div
-          className="w-5 h-5 rounded-full flex items-center justify-center"
-          style={{
-            background: `linear-gradient(135deg, ${C.gold}, ${C.pink})`,
-            boxShadow: `0 2px 8px ${C.gold}40`,
-          }}
-        >
-          <span className="text-[7px] font-black" style={{ color: C.white }}>
-            VS
-          </span>
-        </div>
-
-        {/* Character 2 */}
-        <div className="flex items-center gap-1.5">
-          <div
-            className="w-5 h-5 rounded-full flex items-center justify-center"
-            style={{
-              background: `linear-gradient(135deg, ${C.pink}40, ${C.pink}20)`,
-              border: `1px solid ${C.pink}60`,
-            }}
-          >
-            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: C.pink }} />
-          </div>
-          <span
-            className="text-[9px] font-semibold uppercase tracking-wider"
-            style={{ color: "rgba(255,255,255,0.6)" }}
-          >
-            Char 2
-          </span>
-        </div>
-      </div>
     </div>
   );
 }
