@@ -63,7 +63,7 @@ async function generateCharacterVideo(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      prompt: `A person talking naturally, expressing: "${dialogueText}". Realistic lip movements and natural facial expressions. Podcast style, professional lighting.`,
+      prompt: `realistic arm movements, the woman/man says exactly with direct clear energy: "${dialogueText}"`,
       imageUrls: [characterImageUrl],
       model: "veo3_fast",
       generationType: "FIRST_AND_LAST_FRAMES_2_VIDEO",
