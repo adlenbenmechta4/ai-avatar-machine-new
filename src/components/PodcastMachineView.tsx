@@ -1,6 +1,9 @@
 "use client";
 
 import React, { useState, useRef, useCallback } from "react";
+import PodcastVideoLibrary from "@/components/PodcastVideoLibrary";
+import { saveVideoToStorage } from "@/lib/video-store";
+import { useAuth } from "@/providers/auth-provider";
 
 // ─── Colors ─────────────────────────────────────────────────────────────────
 
@@ -391,6 +394,49 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
   // ─── Results ─────────────────────────────────────────────────────────
   const [finalVideoUrl, setFinalVideoUrl] = useState("");
   const [finalVideoUrls, setFinalVideoUrls] = useState<string[]>([]);
+  const [savedToLibrary, setSavedToLibrary] = useState(false);
+  const [view, setView] = useState<"create" | "library">("create");
+
+  // ─── Video Editor State ─────────────────────────────────────────
+  const [showEditor, setShowEditor] = useState(false);
+  const [cutStartTime, setCutStartTime] = useState(0);
+  const [cutEndTime, setCutEndTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
+  const [isCutting, setIsCutting] = useState(false);
+  const [cutTaskId, setCutTaskId] = useState("");
+  const [cutProgress, setCutProgress] = useState("");
+  const [cutVideoUrl, setCutVideoUrl] = useState("");
+  const [cutError, setCutError] = useState("");
+  const editorVideoRef = useRef<HTMLVideoElement>(null);
+  const cutPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const { user } = useAuth();
+
+  // ─── Save to Library ─────────────────────────────────────────────────
+  const doSaveToLibrary = useCallback(() => {
+    if (!finalVideoUrl || savedToLibrary) return;
+    const userEmail = user?.email || "";
+    if (!userEmail) return;
+    saveVideoToStorage(userEmail, {
+      id: "podcast_" + Date.now(),
+      title: "My AI Podcast",
+      videoUrl: finalVideoUrl,
+      thumbnailUrl: null,
+      duration: null,
+      scenesCount: finalVideoUrls.length || 1,
+      provider: "podcast",
+      createdAt: new Date().toISOString(),
+    });
+    setSavedToLibrary(true);
+    addLog("✅ Podcast video saved to library!");
+  }, [finalVideoUrl, finalVideoUrls.length, savedToLibrary, user?.email]);
+
+  // Auto-save on completion
+  React.useEffect(() => {
+    if (finalVideoUrl && !savedToLibrary) {
+      doSaveToLibrary();
+    }
+  }, [finalVideoUrl, savedToLibrary, doSaveToLibrary]);
 
   // ─── Upload State ────────────────────────────────────────────────────
   const [uploading1, setUploading1] = useState(false);
@@ -409,6 +455,7 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
       abortRef.current?.abort();
       if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
       if (inactivityTimerRef.current) { clearTimeout(inactivityTimerRef.current); inactivityTimerRef.current = null; }
+      if (cutPollRef.current) { clearInterval(cutPollRef.current); cutPollRef.current = null; }
     };
   }, []);
 
@@ -507,6 +554,7 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
     setPipelineError("");
     setFinalVideoUrl("");
     setFinalVideoUrls([]);
+    setSavedToLibrary(false);
     setCombineProgress(0);
     setLogs([]);
     setShowLogs(false);
@@ -671,13 +719,125 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
     setPipelineError("");
     setFinalVideoUrl("");
     setFinalVideoUrls("");
+    setSavedToLibrary(false);
     setCombineProgress(0);
     setLogs([]);
     setClips([]);
+    setShowEditor(false);
+    setCutVideoUrl("");
+    setCutError("");
+    setCutProgress("");
+    setIsCutting(false);
+    setCutTaskId("");
     if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
     if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
     if (inactivityTimerRef.current) { clearTimeout(inactivityTimerRef.current); inactivityTimerRef.current = null; }
+    if (cutPollRef.current) { clearInterval(cutPollRef.current); cutPollRef.current = null; }
   }, []);
+
+  // ─── Video Editor: Open editor ────────────────────────────────────────
+  const openEditor = useCallback(() => {
+    setShowEditor(true);
+    setCutStartTime(0);
+    setCutEndTime(0);
+    setCutVideoUrl("");
+    setCutError("");
+    setCutProgress("");
+    setIsCutting(false);
+    setCutTaskId("");
+  }, []);
+
+  // ─── Video Editor: Handle video loaded metadata ──────────────────────
+  const handleEditorVideoLoaded = useCallback(() => {
+    const video = editorVideoRef.current;
+    if (video && video.duration && isFinite(video.duration)) {
+      setVideoDuration(video.duration);
+      setCutEndTime(video.duration);
+    }
+  }, []);
+
+  // ─── Video Editor: Set cut point to current playhead ──────────────────
+  const setCutPoint = useCallback((type: "start" | "end") => {
+    const video = editorVideoRef.current;
+    if (!video) return;
+    const currentTime = video.currentTime;
+    if (type === "start") {
+      setCutStartTime(Math.min(currentTime, cutEndTime > 0 ? cutEndTime - 1 : currentTime));
+    } else {
+      setCutEndTime(Math.max(currentTime, cutStartTime));
+    }
+  }, [cutEndTime, cutStartTime]);
+
+  // ─── Video Editor: Execute cut via vidopi.com API ─────────────────────
+  const executeCut = useCallback(async () => {
+    if (!finalVideoUrl || isCutting) return;
+    setIsCutting(true);
+    setCutError("");
+    setCutVideoUrl("");
+    setCutProgress("Submitting cut request...");
+
+    try {
+      const res = await fetch("/api/cut-video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          public_link: finalVideoUrl,
+          start_time: Math.floor(cutStartTime),
+          end_time: Math.ceil(cutEndTime),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to start cut");
+
+      const taskId = data.task_id;
+      setCutTaskId(taskId);
+      setCutProgress("Processing your cut...");
+
+      if (cutPollRef.current) clearInterval(cutPollRef.current);
+      cutPollRef.current = setInterval(async () => {
+        try {
+          const statusRes = await fetch(`/api/cut-video-status?taskId=${encodeURIComponent(taskId)}`);
+          const statusData = await statusRes.json();
+
+          if (statusData.status === "SUCCESS") {
+            const result = statusData.result;
+            if (result && result.status === "completed" && statusData.download_url) {
+              setCutVideoUrl(statusData.download_url);
+              setCutProgress("Cut complete!");
+              setIsCutting(false);
+              if (cutPollRef.current) { clearInterval(cutPollRef.current); cutPollRef.current = null; }
+            } else if (result && result.status === "failed") {
+              setCutError(result.error || "Cut processing failed");
+              setIsCutting(false);
+              setCutProgress("");
+              if (cutPollRef.current) { clearInterval(cutPollRef.current); cutPollRef.current = null; }
+            }
+          } else if (statusData.status === "FAILED") {
+            setCutError("Cut task failed");
+            setIsCutting(false);
+            setCutProgress("");
+            if (cutPollRef.current) { clearInterval(cutPollRef.current); cutPollRef.current = null; }
+          } else if (statusData.status === "PENDING" || statusData.status === "PROCESSING") {
+            setCutProgress("Processing your cut...");
+          }
+        } catch {
+          // Keep polling
+        }
+      }, 4000);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Cut failed";
+      setCutError(msg);
+      setIsCutting(false);
+      setCutProgress("");
+    }
+  }, [finalVideoUrl, cutStartTime, cutEndTime, isCutting]);
+
+  // ─── Video Editor: Format time helper ─────────────────────────────────
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
 
   // ─── Download ────────────────────────────────────────────────────────
   const downloadVideo = async (url: string, filename: string) => {
@@ -754,12 +914,58 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
           </span>
         </div>
 
-        <div className="w-[100px]" />
+        {/* Tab Buttons */}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setView("create")}
+            className="px-3 sm:px-4 py-2 rounded-xl text-[11px] font-bold uppercase tracking-wide transition-all duration-300 cursor-pointer border-2"
+            style={{
+              backgroundColor: view === "create" ? C.cyan : C.white,
+              borderColor: view === "create" ? C.cyan : "#E5E7EB",
+              color: view === "create" ? C.white : C.textMuted,
+            }}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="23" />
+                <line x1="8" y1="23" x2="16" y2="23" />
+              </svg>
+              <span className="hidden sm:inline">Create</span>
+            </span>
+          </button>
+          <button
+            onClick={() => setView("library")}
+            className="px-3 sm:px-4 py-2 rounded-xl text-[11px] font-bold uppercase tracking-wide transition-all duration-300 cursor-pointer border-2"
+            style={{
+              backgroundColor: view === "library" ? C.cyan : C.white,
+              borderColor: view === "library" ? C.cyan : "#E5E7EB",
+              color: view === "library" ? C.white : C.textMuted,
+            }}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 0 1-1.125-1.125M3.375 19.5h1.5C5.496 19.5 6 18.996 6 18.375m-3.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-1.5A1.125 1.125 0 0 1 18 18.375M20.625 4.5H3.375m17.25 0c.621 0 1.125.504 1.125 1.125M20.625 4.5h-1.5C18.504 4.5 18 5.004 18 5.625m3.75 0v1.5c0 .621-.504 1.125-1.125 1.125M3.375 4.5c-.621 0-1.125.504-1.125 1.125M3.375 4.5h1.5C5.496 4.5 6 5.004 6 5.625m-3.75 0v1.5c0 .621.504 1.125 1.125 1.125m0 0h1.5m-1.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m1.5-3.75C5.496 8.25 6 7.746 6 7.125v-1.5M4.875 8.25C5.496 8.25 6 8.754 6 9.375v1.5m0-5.25v5.25m0-5.25C6 5.004 6.504 4.5 7.125 4.5h9.75c.621 0 1.125.504 1.125 1.125m1.125 2.625h1.5m-1.5 0A1.125 1.125 0 0 1 18 7.125v-1.5m1.125 2.625c-.621 0-1.125.504-1.125 1.125v1.5m2.625-2.625c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125M18 5.625v5.25M7.125 12h9.75m-9.75 0A1.125 1.125 0 0 1 6 10.875M7.125 12C6.504 12 6 12.504 6 13.125m0-2.25C6 11.496 5.496 12 4.875 12M18 10.875c0 .621-.504 1.125-1.125 1.125M18 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m-12 5.25v-5.25m0 5.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125m-12 0v-1.5c0-.621-.504-1.125-1.125-1.125M18 18.375v-5.25m0 5.25v-1.5c0-.621.504-1.125 1.125-1.125M18 13.125v1.5c0 .621.504 1.125 1.125 1.125M18 13.125c0-.621.504-1.125 1.125-1.125M6 13.125v1.5c0 .621-.504 1.125-1.125 1.125M6 13.125C6 12.504 5.496 12 4.875 12m-1.5 0h1.5m-1.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m1.5-3.75C5.496 12.75 6 12.246 6 11.625v-1.5" />
+              </svg>
+              <span className="hidden sm:inline">My Library</span>
+            </span>
+          </button>
+        </div>
       </header>
 
       {/* ─── Main Content ─────────────────────────────────────── */}
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-        {/* Hero Section */}
+        {/* ─── Library View ──────────────────────────────────── */}
+        {view === "library" && (
+          <div className="mb-10 sm:mb-14">
+            <PodcastVideoLibrary user={user} onViewCreate={() => setView("create")} />
+          </div>
+        )}
+
+        {/* ─── Create View ───────────────────────────────────── */}
+        {view === "create" && (
+        <React.Fragment>
         <div className="text-center mb-8 sm:mb-10">
           <div
             className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full mb-5"
@@ -1141,6 +1347,26 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
                   Download Video
                 </a>
                 <button
+                  onClick={openEditor}
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                  style={{ backgroundColor: C.gold, color: C.white, boxShadow: `0 4px 16px ${C.gold}40` }}
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                  Edit Your Video
+                </button>
+                <button
+                  onClick={() => setView("library")}
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                  style={{ backgroundColor: savedToLibrary ? "#22C55E" : C.cyan, color: C.white }}
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                  {savedToLibrary ? "Saved to Library" : "Save to Library"}
+                </button>
+                <button
                   onClick={resetAll}
                   className="px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer border-2 hover:bg-gray-50"
                   style={{ borderColor: "#E5E7EB", color: C.textMuted }}
@@ -1164,6 +1390,280 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* ═══════════════════════════════════════════════════════════
+            VIDEO EDITOR PANEL (Cut Video)
+        ═══════════════════════════════════════════════════════════ */}
+        {showEditor && finalVideoUrl && (
+          <div className="rounded-[28px] p-1 mb-8 animate-fade-in-up" style={{ backgroundColor: C.gold }}>
+            <div className="rounded-[24px] p-6 sm:p-8" style={{ backgroundColor: C.white }}>
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${C.gold}18` }}>
+                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 className="text-lg sm:text-xl font-black uppercase tracking-tight" style={{ color: C.text }}>
+                      Edit Your Video
+                    </h2>
+                    <p className="text-xs" style={{ color: C.textMuted }}>Cut and trim your podcast video to perfection</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowEditor(false)}
+                  className="w-8 h-8 rounded-lg flex items-center justify-center transition-all hover:scale-110"
+                  style={{ backgroundColor: "#F3F4F6", color: C.textMuted }}
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* ─── Video Player with Cut Controls ──────────────── */}
+              <div className="max-w-lg mx-auto mb-6">
+                <div className="rounded-2xl overflow-hidden border-2 shadow-lg" style={{ borderColor: C.gold }}>
+                  <video
+                    ref={editorVideoRef}
+                    src={finalVideoUrl}
+                    controls
+                    onLoadedMetadata={handleEditorVideoLoaded}
+                    className="w-full"
+                    preload="metadata"
+                  />
+                </div>
+              </div>
+
+              {/* ─── Cut Range Controls ───────────────────────────── */}
+              <div className="max-w-lg mx-auto">
+                {/* Timeline Visual */}
+                <div className="mb-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: C.textMuted }}>Timeline</span>
+                    {videoDuration > 0 && (
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-lg" style={{ backgroundColor: `${C.gold}15`, color: C.gold }}>
+                        Duration: {formatTime(videoDuration)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="relative h-8 rounded-xl overflow-hidden" style={{ backgroundColor: "#F3F4F6" }}>
+                    {/* Full track */}
+                    <div className="absolute inset-y-0 left-0 right-0 rounded-xl" />
+                    {/* Selected range highlight */}
+                    {videoDuration > 0 && (
+                      <div
+                        className="absolute inset-y-0 rounded-lg transition-all duration-200"
+                        style={{
+                          left: `${(cutStartTime / videoDuration) * 100}%`,
+                          width: `${((cutEndTime - cutStartTime) / videoDuration) * 100}%`,
+                          backgroundColor: `${C.gold}40`,
+                          borderLeft: `3px solid ${C.gold}`,
+                          borderRight: `3px solid ${C.gold}`,
+                        }}
+                      />
+                    )}
+                    {/* Time labels */}
+                    <div className="absolute inset-0 flex items-center justify-between px-2">
+                      <span className="text-[9px] font-mono font-bold" style={{ color: C.gold }}>{formatTime(cutStartTime)}</span>
+                      <span className="text-[9px] font-mono font-bold" style={{ color: C.gold }}>{formatTime(cutEndTime)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Start / End Time Inputs + Set Point Buttons */}
+                <div className="grid grid-cols-2 gap-3 mb-5">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: C.textMuted }}>
+                      Start Time (seconds)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        value={Math.floor(cutStartTime)}
+                        onChange={(e) => {
+                          const val = Math.max(0, Math.min(Number(e.target.value), cutEndTime > 0 ? cutEndTime - 1 : videoDuration || 0));
+                          setCutStartTime(val);
+                        }}
+                        min={0}
+                        max={videoDuration > 0 ? videoDuration - 1 : 999}
+                        className="flex-1 px-3 py-2.5 rounded-xl text-sm font-mono outline-none"
+                        style={{ backgroundColor: `${C.lightGold}40`, border: `1px solid ${C.gold}30`, color: C.text }}
+                        disabled={isCutting}
+                      />
+                      <button
+                        onClick={() => setCutPoint("start")}
+                        disabled={isCutting}
+                        className="px-3 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all hover:scale-105 disabled:opacity-40"
+                        style={{ backgroundColor: C.gold, color: C.white }}
+                        title="Set start to current playhead position"
+                      >
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: C.textMuted }}>
+                      End Time (seconds)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        value={Math.ceil(cutEndTime)}
+                        onChange={(e) => {
+                          const val = Math.max(cutStartTime + 1, Math.min(Number(e.target.value), videoDuration || 999));
+                          setCutEndTime(val);
+                        }}
+                        min={1}
+                        max={videoDuration || 999}
+                        className="flex-1 px-3 py-2.5 rounded-xl text-sm font-mono outline-none"
+                        style={{ backgroundColor: `${C.lightGold}40`, border: `1px solid ${C.gold}30`, color: C.text }}
+                        disabled={isCutting}
+                      />
+                      <button
+                        onClick={() => setCutPoint("end")}
+                        disabled={isCutting}
+                        className="px-3 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all hover:scale-105 disabled:opacity-40"
+                        style={{ backgroundColor: C.gold, color: C.white }}
+                        title="Set end to current playhead position"
+                      >
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cut Info */}
+                {videoDuration > 0 && cutEndTime > cutStartTime && (
+                  <div className="text-center mb-5">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold" style={{ backgroundColor: `${C.gold}12`, color: C.gold }}>
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                        <circle cx="12" cy="12" r="10" />
+                        <path strokeLinecap="round" d="M12 6v6l4 2" />
+                      </svg>
+                      Cut duration: {formatTime(cutEndTime - cutStartTime)}
+                      {" "}({Math.floor(cutEndTime - cutStartTime)}s)
+                    </span>
+                  </div>
+                )}
+
+                {/* Cut Button */}
+                <div className="flex items-center justify-center">
+                  {!cutVideoUrl && (
+                    <button
+                      onClick={executeCut}
+                      disabled={isCutting || cutEndTime <= cutStartTime || videoDuration === 0}
+                      className="inline-flex items-center gap-2.5 px-8 py-3.5 rounded-2xl text-sm font-black uppercase tracking-wider transition-all duration-300 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] shadow-lg"
+                      style={{
+                        backgroundColor: isCutting ? C.textMuted : C.gold,
+                        color: C.white,
+                        boxShadow: isCutting ? "none" : `0 6px 24px ${C.gold}40`,
+                      }}
+                    >
+                      {isCutting ? (
+                        <>
+                          <span className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: `${C.white}40`, borderTopColor: C.white }} />
+                          Cutting...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z" />
+                          </svg>
+                          Apply Cut
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+
+                {/* Progress */}
+                {cutProgress && (
+                  <div className="mt-4 text-center">
+                    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl" style={{ backgroundColor: `${C.gold}10` }}>
+                      <span className="w-3 h-3 border-2 rounded-full animate-spin" style={{ borderColor: `${C.gold}30`, borderTopColor: C.gold }} />
+                      <span className="text-xs font-bold" style={{ color: C.gold }}>{cutProgress}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Error */}
+                {cutError && (
+                  <div className="mt-4 rounded-xl border-2 p-4" style={{ borderColor: "#EF4444", backgroundColor: "#FEF2F2" }}>
+                    <p className="text-xs font-bold" style={{ color: "#DC2626" }}>Error: {cutError}</p>
+                  </div>
+                )}
+
+                {/* Cut Result */}
+                {cutVideoUrl && (
+                  <div className="mt-6 pt-6" style={{ borderTop: `2px solid ${C.gold}20` }}>
+                    <div className="text-center mb-4">
+                      <div className="inline-flex items-center gap-2 mb-2 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest" style={{ backgroundColor: "#22C55E15", color: "#22C55E" }}>
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                        </svg>
+                        Cut Complete!
+                      </div>
+                      <p className="text-xs" style={{ color: C.textMuted }}>Your edited video is ready to download</p>
+                    </div>
+
+                    <div className="max-w-sm mx-auto mb-4">
+                      <div className="rounded-2xl overflow-hidden border-2 shadow-lg" style={{ borderColor: "#22C55E" }}>
+                        <video
+                          src={cutVideoUrl}
+                          controls
+                          autoPlay
+                          className="w-full"
+                          preload="metadata"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-center gap-3">
+                      <a
+                        href={cutVideoUrl}
+                        download={`podcast-edited-${Date.now()}.mp4`}
+                        className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                        style={{ backgroundColor: "#22C55E", color: C.white, boxShadow: "0 4px 16px #22C55E40" }}
+                      >
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                        </svg>
+                        Download Edited Video
+                      </a>
+                      <button
+                        onClick={() => { setCutVideoUrl(""); setCutError(""); setCutProgress(""); }}
+                        className="px-5 py-3 rounded-xl text-xs font-bold uppercase tracking-wide transition-all cursor-pointer border-2 hover:bg-gray-50"
+                        style={{ borderColor: "#E5E7EB", color: C.textMuted }}
+                      >
+                        Cut Again
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Tips */}
+                {!cutVideoUrl && !isCutting && (
+                  <div className="mt-5 p-4 rounded-xl" style={{ backgroundColor: `${C.lightGold}30` }}>
+                    <p className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: C.gold }}>How to cut</p>
+                    <ol className="text-[11px] space-y-1.5 list-decimal list-inside" style={{ color: C.textMuted }}>
+                      <li>Play the video and pause at your desired <strong style={{ color: C.text }}>start point</strong></li>
+                      <li>Click the camera button next to Start Time (or type the seconds)</li>
+                      <li>Play to your desired <strong style={{ color: C.text }}>end point</strong> and pause</li>
+                      <li>Click the camera button next to End Time (or type the seconds)</li>
+                      <li>Click <strong style={{ color: C.gold }}>Apply Cut</strong> to process</li>
+                    </ol>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -1213,6 +1713,8 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
               </div>
             )}
           </div>
+        )}
+        </React.Fragment>
         )}
       </main>
     </div>
