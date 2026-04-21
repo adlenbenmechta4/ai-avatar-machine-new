@@ -1385,6 +1385,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light" }: { 
 
   // ─── Duration Options ─────────────────────────────────────────────────
   const durationOptions = [
+    { value: 8, label: "8s" },
     { value: 15, label: "15s" },
     { value: 30, label: "30s" },
     { value: 45, label: "45s" },
