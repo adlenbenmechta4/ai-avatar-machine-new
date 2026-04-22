@@ -645,6 +645,27 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
                 );
                 break;
 
+              case "video_retry":
+                addLog(`🔄 Video ${event.index}: Retrying (${event.attempt}/${event.maxRetries})...`);
+                setClips((prev) =>
+                  prev.map((c) => c.index === event.index ? { ...c, error: `Retrying (${event.attempt}/${event.maxRetries})...`, videoProgress: 0 } : c)
+                );
+                break;
+
+              case "video_retry_failed":
+                addLog(`⚠️ Video ${event.index} attempt ${event.attempt} failed, retrying...`);
+                setClips((prev) =>
+                  prev.map((c) => c.index === event.index ? { ...c, error: `Attempt ${event.attempt} failed, retrying...` } : c)
+                );
+                break;
+
+              case "video_retry_success":
+                addLog(`✅ Video ${event.index}: Succeeded on attempt ${event.attempt}!`);
+                setClips((prev) =>
+                  prev.map((c) => c.index === event.index ? { ...c, error: "" } : c)
+                );
+                break;
+
               case "merge_error":
                 addLog("Merge failed: " + event.error);
                 break;

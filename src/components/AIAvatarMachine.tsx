@@ -1185,6 +1185,13 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light" }: { 
               if (step !== undefined) setPipelineStep(step as PipelineStep);
               if (pct !== undefined) setCombineProgress(pct);
               if (message) addLog(message);
+            } else if (eventType === "video_retry") {
+              addLog(`🔄 Video ${event.index}: Retrying (${event.attempt}/${event.maxRetries})...`);
+              if (event.message) addLog(event.message);
+            } else if (eventType === "video_retry_failed") {
+              addLog(`⚠️ Video ${event.index} attempt ${event.attempt} failed, retrying...`);
+            } else if (eventType === "video_retry_success") {
+              addLog(`✅ Video ${event.index}: Succeeded on attempt ${event.attempt}!`);
             } else if (eventType === "done") {
               const videoUrl = event.videoUrl as string;
               const frameUrls = event.frameUrls as string[];

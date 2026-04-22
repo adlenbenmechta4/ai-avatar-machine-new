@@ -45,9 +45,27 @@ async function pollKieVideo(
     try {
       const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
       const json = await res.json();
+
+      // Check failure even when code !== 200
+      const d = json.data;
+      const statusStr = String(d?.status || d?.state || "").toLowerCase();
+      const successFlag = d?.successFlag;
+      const errorMsg = d?.errorMessage || d?.error || d?.failMsg || d?.message || "";
+
+      // Detect failure statuses
+      const isFailed =
+        successFlag === 2 || successFlag === 3 ||
+        statusStr === "failed" || statusStr === "fail" || statusStr === "failure" ||
+        statusStr === "error" || statusStr === "rejected" || statusStr === "cancelled" ||
+        (json.code !== 200 && json.code !== 0 && statusStr.includes("fail"));
+
+      if (isFailed) {
+        console.error(`[Podcast Video Poll] FAILURE detected for taskId=${taskId}:`, JSON.stringify(d).slice(0, 500));
+        throw new Error("Video gen failed: " + (errorMsg || "unknown error") + ` [status=${statusStr}, flag=${successFlag}]`);
+      }
+
       if (json.code === 200) {
-        const d = json.data;
-        if (d?.successFlag === 1 || d?.status === "success" || d?.state === "success") {
+        if (successFlag === 1 || statusStr === "success") {
           let resp = d.response || d.result || d;
           if (typeof resp === "string") { try { resp = JSON.parse(resp); } catch {} }
           let videoUrl = resp?.resultUrls?.[0] || resp?.originUrls?.[0] || resp?.url || d.resultUrls?.[0] || d.videoUrl || d.video_url;
@@ -55,20 +73,17 @@ async function pollKieVideo(
           if (videoUrl) return videoUrl;
           throw new Error("Video ready but no URL: " + JSON.stringify(d).slice(0, 300));
         }
-        if (d?.successFlag === 2 || d?.successFlag === 3 || d?.status === "failed" || d?.state === "fail") {
-          throw new Error("Video gen failed: " + (d?.errorMessage || d?.error || d?.failMsg || "unknown error"));
-        }
       }
 
       // Send progress every ~30 seconds to keep connection alive
       if (i % 6 === 0 && i > 0) {
         const elapsed = Math.round((i * 5) / 60);
         const pct = Math.min(90, 15 + Math.round(i * 0.5));
-        const statusText = json.data?.status || json.data?.state || "waiting";
+        const statusText = statusStr || "waiting";
         addJobLog(jobId, `Video ${sceneIndex + 1}: still processing... [${elapsed}m elapsed] (${statusText})`);
         updateScene(jobId, sceneIndex, { videoProgress: pct });
         if (writer) {
-          try { sse(writer, { type: "progress", step: 1, pct, message: `Video ${sceneIndex + 1}: processing... [${elapsed}m]` }); } catch {}
+          try { sse(writer, { type: "progress", step: 1, pct, message: `Video ${sceneIndex + 1}: processing... [${elapsed}m] (${statusText})` }); } catch {}
         }
       }
     } catch (err) {
@@ -92,14 +107,18 @@ async function generateCharacterVideo(
   videoIndex: number,
   totalVideos: number
 ): Promise<string> {
-  const MAX_RETRIES = 3;
+  const MAX_RETRIES = 10;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       if (attempt > 1) {
-        addJobLog(jobId, `Video ${videoIndex}: retrying... (attempt ${attempt}/${MAX_RETRIES}), waiting 15s...`);
-        updateScene(jobId, sceneIndex, { videoProgress: 0 });
-        await sleep(15000);
+        const retryDelay = Math.min(30000, 10000 * attempt); // 20s, 30s, 40s... up to 300s
+        addJobLog(jobId, `Video ${videoIndex}: FAILURE detected! Retrying... (attempt ${attempt}/${MAX_RETRIES}), waiting ${Math.round(retryDelay / 1000)}s...`);
+        updateScene(jobId, sceneIndex, { videoProgress: 0, error: "" });
+        if (writer) {
+          try { sse(writer, { type: "video_retry", index: videoIndex, attempt, maxRetries: MAX_RETRIES, message: `Video ${videoIndex}: Retrying (${attempt}/${MAX_RETRIES})...` }); } catch {}
+        }
+        await sleep(retryDelay);
       }
 
       const videoPrompt =
@@ -132,11 +151,17 @@ async function generateCharacterVideo(
 
       const videoUrl = await pollKieVideo(jobId, sceneIndex, taskId, apiKey, writer);
       updateScene(jobId, sceneIndex, { videoProgress: 100, videoDone: true, videoUrl });
-      addJobLog(jobId, `Video ${videoIndex}/${totalVideos}: complete!`);
+      addJobLog(jobId, `Video ${videoIndex}/${totalVideos}: complete!${attempt > 1 ? ` (succeeded on attempt ${attempt})` : ""}`);
+      if (writer && attempt > 1) {
+        try { sse(writer, { type: "video_retry_success", index: videoIndex, attempt, message: `Video ${videoIndex}: Succeeded on attempt ${attempt}!` }); } catch {}
+      }
       return videoUrl;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       addJobLog(jobId, `Video ${videoIndex} attempt ${attempt} failed: ${msg}`);
+      if (writer) {
+        try { sse(writer, { type: "video_retry_failed", index: videoIndex, attempt, maxRetries: MAX_RETRIES, error: msg, message: `Video ${videoIndex} attempt ${attempt} failed, retrying...` }); } catch {}
+      }
       if (attempt === MAX_RETRIES) {
         throw new Error(`Video ${videoIndex} failed after ${MAX_RETRIES} attempts: ${msg}`);
       }
