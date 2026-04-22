@@ -950,8 +950,11 @@ export async function POST(req: NextRequest) {
     }
 
     const { avatarUrl, scenes, kieApiKey, falApiKey, frameMode, videoProvider, heygenApiKey, heygenVoiceId } = body;
-    if (!avatarUrl || typeof avatarUrl !== "string" || !avatarUrl.startsWith("http")) {
-      return NextResponse.json({ error: "avatarUrl is required. Please upload your avatar first." }, { status: 400 });
+    // In custom frames mode, avatar is not required — each scene has its own image
+    if (frameMode !== "custom") {
+      if (!avatarUrl || typeof avatarUrl !== "string" || !avatarUrl.startsWith("http")) {
+        return NextResponse.json({ error: "avatarUrl is required. Please upload your avatar first." }, { status: 400 });
+      }
     }
 
     const validScenes = (scenes as Array<{ description: string; script: string; customFrameImage?: string }>).filter(s => s.description?.trim() || s.script?.trim() || s.customFrameImage);

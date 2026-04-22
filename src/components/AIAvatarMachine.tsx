@@ -2557,12 +2557,12 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
             {!isRunning && pipelineStep === 0 && (
               <button
                 onClick={runGeneration}
-                disabled={!avatarImage || (frameMode === "custom" ? scenes.filter((s) => s.customFrameImage && s.script.trim()).length === 0 : (videoProvider === "heygen" ? !heygenScript.trim() : scenes.filter((s) => s.description.trim() || s.script.trim()).length === 0))}
+                disabled={frameMode === "custom" ? scenes.filter((s) => s.customFrameImage && s.script.trim()).length === 0 : !avatarImage || (videoProvider === "heygen" ? !heygenScript.trim() : scenes.filter((s) => s.description.trim() || s.script.trim()).length === 0)}
                 className="px-8 py-4 rounded-2xl text-base font-black uppercase tracking-wider transition-all duration-300 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl"
                 style={{
                   backgroundColor: T.pink,
                   color: T.white,
-                  boxShadow: avatarImage ? `0 8px 30px ${T.pink}40` : "none",
+                  boxShadow: (frameMode === "custom" || avatarImage) ? `0 8px 30px ${T.pink}40` : "none",
                 }}
               >
                 🚀 Generate Video
