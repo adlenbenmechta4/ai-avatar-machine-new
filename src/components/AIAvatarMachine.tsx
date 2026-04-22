@@ -557,7 +557,7 @@ function CreateAvatarSection({
   );
 }
 
-export default function AIAvatarMachine({ isAdmin = false, theme = "light" }: { isAdmin?: boolean; theme?: string }) {
+export default function AIAvatarMachine({ isAdmin = false, theme = "light", openLibraryKey }: { isAdmin?: boolean; theme?: string; openLibraryKey?: number }) {
   const { authFetch, user } = useAuth();
   const T = useThemeColors(theme as "light" | "dark");
   const isDark = theme === "dark";
@@ -600,6 +600,13 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light" }: { 
 
   // ── View Mode ──
   const [view, setView] = useState<"create" | "library" | "create-avatar">("create");
+
+  // When openLibraryKey changes from parent (user clicked "My Library" in top bar), switch to library view
+  React.useEffect(() => {
+    if (openLibraryKey && openLibraryKey > 0) {
+      setView("library");
+    }
+  }, [openLibraryKey]);
 
   // ── Create Avatar State ──
   const [avatarPrompt, setAvatarPrompt] = useState("");
