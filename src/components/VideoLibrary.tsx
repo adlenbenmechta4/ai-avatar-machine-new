@@ -175,14 +175,23 @@ function VideoCard({
   const T = theme === "dark" ? DC : C;
   const isDark = theme === "dark";
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const handleDelete = useCallback(async (e: React.MouseEvent) => {
+  const handleDeleteClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
+    setShowDeleteConfirm(true);
+  }, []);
+
+  const confirmDelete = useCallback(async () => {
     if (isDeleting) return;
-    if (!confirm(`Delete "${video.title}"? This cannot be undone.`)) return;
     setIsDeleting(true);
+    setShowDeleteConfirm(false);
     onDelete(video.id);
-  }, [isDeleting, onDelete, video.id, video.title]);
+  }, [isDeleting, onDelete, video.id]);
+
+  const cancelDelete = useCallback(() => {
+    setShowDeleteConfirm(false);
+  }, []);
 
   const formattedDate = new Date(video.createdAt).toLocaleDateString("en-US", {
     month: "short",
@@ -268,13 +277,13 @@ function VideoCard({
           </div>
         )}
 
-        {/* Delete button */}
+        {/* Delete button - always visible */}
         <button
-          onClick={handleDelete}
+          onClick={handleDeleteClick}
           disabled={isDeleting}
-          className="absolute top-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 hover:scale-110 cursor-pointer"
+          className="absolute top-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200 hover:scale-110 cursor-pointer"
           style={{
-            backgroundColor: "rgba(239,68,68,0.9)",
+            backgroundColor: "rgba(239,68,68,0.85)",
             color: T.white,
           }}
           title="Delete video"
@@ -287,6 +296,45 @@ function VideoCard({
             </svg>
           )}
         </button>
+
+        {/* Delete Confirmation Overlay */}
+        {showDeleteConfirm && (
+          <div
+            className="absolute inset-0 flex items-center justify-center z-10 p-3"
+            style={{ backgroundColor: "rgba(0,0,0,0.85)", backdropFilter: "blur(4px)" }}
+            onClick={(e) => { e.stopPropagation(); cancelDelete(); }}
+          >
+            <div
+              className="rounded-2xl p-4 text-center max-w-[180px]"
+              style={{ backgroundColor: isDark ? "#1A1A1A" : "#FFFFFF", border: "2px solid #FECACA" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-10 h-10 rounded-full mx-auto mb-2 flex items-center justify-center" style={{ backgroundColor: "#FEE2E2" }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+              </div>
+              <p className="text-xs font-bold mb-1" style={{ color: isDark ? "#FCA5A5" : "#991B1B" }}>Delete Video?</p>
+              <p className="text-[10px] mb-3" style={{ color: T.textMuted }}>This cannot be undone</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={cancelDelete}
+                  className="flex-1 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide cursor-pointer transition-all hover:scale-[1.02]"
+                  style={{ backgroundColor: T.cardBorder, color: T.textMuted }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  className="flex-1 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide cursor-pointer transition-all hover:scale-[1.02]"
+                  style={{ backgroundColor: "#DC2626", color: "#FFF" }}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Info + Actions */}
