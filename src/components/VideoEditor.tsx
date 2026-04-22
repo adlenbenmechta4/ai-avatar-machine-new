@@ -286,18 +286,22 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
       // For multiple segments, extract each then concat
       if (enabledSegs.length === 1) {
         // Single segment — simple trim
+        // Use INPUT-side seeking (-ss before -i) to properly seek to keyframes
+        // This prevents "audio only" output when cut points don't align with keyframes
         const seg = enabledSegs[0];
+        const duration = (seg.end - seg.start).toFixed(2);
         ffmpeg.on("progress", ({ progress }) => {
           if (progress !== undefined) {
             setProcessProgress(`Processing... ${Math.round(progress * 100)}%`);
           }
         });
         await ffmpeg.exec([
-          "-i", "input.mp4",
           "-ss", seg.start.toFixed(2),
-          "-to", seg.end.toFixed(2),
+          "-i", "input.mp4",
+          "-t", duration,
           "-c", "copy",
           "-avoid_negative_ts", "make_zero",
+          "-movflags", "+faststart",
           "output.mp4",
         ]);
       } else {
@@ -310,13 +314,16 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
 
         for (let i = 0; i < enabledSegs.length; i++) {
           const seg = enabledSegs[i];
+          const duration = (seg.end - seg.start).toFixed(2);
           setProcessProgress(`Processing segment ${i + 1} of ${enabledSegs.length}...`);
+          // Input-side seeking for proper keyframe alignment
           await ffmpeg.exec([
-            "-i", "input.mp4",
             "-ss", seg.start.toFixed(2),
-            "-to", seg.end.toFixed(2),
+            "-i", "input.mp4",
+            "-t", duration,
             "-c", "copy",
             "-avoid_negative_ts", "make_zero",
+            "-movflags", "+faststart",
             `part${i}.mp4`,
           ]);
         }
@@ -332,6 +339,7 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
           "-safe", "0",
           "-i", "concat.txt",
           "-c", "copy",
+          "-movflags", "+faststart",
           "output.mp4",
         ]);
       }
