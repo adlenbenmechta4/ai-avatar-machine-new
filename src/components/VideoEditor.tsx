@@ -283,24 +283,27 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
       // Build ffmpeg filter for extracting and concatenating segments
       setProcessProgress("Processing cuts...");
 
-      // For multiple segments, extract each then concat
+      // Use output-side seeking (-ss AFTER -i) for exact frame-accurate cuts.
+      // Re-encode video (ultrafast) while copying audio to avoid:
+      //   - "audio only" bug from stream-copy misalignment
+      //   - "starts from beginning" bug from input-side seeking to distant keyframes
       if (enabledSegs.length === 1) {
         // Single segment — simple trim
-        // Use INPUT-side seeking (-ss before -i) to properly seek to keyframes
-        // This prevents "audio only" output when cut points don't align with keyframes
         const seg = enabledSegs[0];
-        const duration = (seg.end - seg.start).toFixed(2);
+        const segDuration = (seg.end - seg.start).toFixed(2);
         ffmpeg.on("progress", ({ progress }) => {
           if (progress !== undefined) {
             setProcessProgress(`Processing... ${Math.round(progress * 100)}%`);
           }
         });
         await ffmpeg.exec([
-          "-ss", seg.start.toFixed(2),
           "-i", "input.mp4",
-          "-t", duration,
-          "-c", "copy",
-          "-avoid_negative_ts", "make_zero",
+          "-ss", seg.start.toFixed(2),
+          "-t", segDuration,
+          "-c:v", "libx264",
+          "-preset", "ultrafast",
+          "-crf", "28",
+          "-c:a", "copy",
           "-movflags", "+faststart",
           "output.mp4",
         ]);
@@ -314,15 +317,16 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
 
         for (let i = 0; i < enabledSegs.length; i++) {
           const seg = enabledSegs[i];
-          const duration = (seg.end - seg.start).toFixed(2);
+          const segDuration = (seg.end - seg.start).toFixed(2);
           setProcessProgress(`Processing segment ${i + 1} of ${enabledSegs.length}...`);
-          // Input-side seeking for proper keyframe alignment
           await ffmpeg.exec([
-            "-ss", seg.start.toFixed(2),
             "-i", "input.mp4",
-            "-t", duration,
-            "-c", "copy",
-            "-avoid_negative_ts", "make_zero",
+            "-ss", seg.start.toFixed(2),
+            "-t", segDuration,
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "28",
+            "-c:a", "copy",
             "-movflags", "+faststart",
             `part${i}.mp4`,
           ]);
@@ -667,7 +671,7 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
             <div className="w-full flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-2xl text-sm font-bold"
               style={{ backgroundColor: `${accentColor}15`, color: accentColor }}>
               <span className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: `${accentColor}30`, borderTopColor: accentColor }} />
-              Loading editor engine... (one-time ~25MB download)
+              Loading editor engine... (one-time ~30MB download)
             </div>
           )}
 
