@@ -95,27 +95,9 @@ async function pollKieVideo(
     try {
       const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
       const json = await res.json();
-
-      // Check failure even when code !== 200
-      const d = json.data;
-      const statusStr = String(d?.status || d?.state || "").toLowerCase();
-      const successFlag = d?.successFlag;
-      const errorMsg = d?.errorMessage || d?.error || d?.failMsg || d?.message || "";
-
-      // Detect failure statuses
-      const isFailed =
-        successFlag === 2 || successFlag === 3 ||
-        statusStr === "failed" || statusStr === "fail" || statusStr === "failure" ||
-        statusStr === "error" || statusStr === "rejected" || statusStr === "cancelled" ||
-        (json.code !== 200 && json.code !== 0 && statusStr.includes("fail"));
-
-      if (isFailed) {
-        console.error(`[Video Poll] FAILURE detected for taskId=${taskId}:`, JSON.stringify(d).slice(0, 500));
-        throw new Error("Video gen failed: " + (errorMsg || "unknown error") + ` [status=${statusStr}, flag=${successFlag}]`);
-      }
-
       if (json.code === 200) {
-        if (successFlag === 1 || statusStr === "success") {
+        const d = json.data;
+        if (d?.successFlag === 1 || d?.status === "success" || d?.state === "success") {
           let resp = d.response || d.result || d;
           if (typeof resp === "string") { try { resp = JSON.parse(resp); } catch {} }
           let videoUrl = resp?.resultUrls?.[0] || resp?.originUrls?.[0] || resp?.url || d.resultUrls?.[0] || d.videoUrl || d.video_url;
@@ -123,17 +105,20 @@ async function pollKieVideo(
           if (videoUrl) return videoUrl;
           throw new Error("Video ready but no URL: " + JSON.stringify(d).slice(0, 300));
         }
+        if (d?.successFlag === 2 || d?.successFlag === 3 || d?.status === "failed" || d?.state === "fail") {
+          throw new Error("Video gen failed: " + (d?.errorMessage || d?.error || d?.failMsg || "unknown error"));
+        }
       }
 
       // Send progress updates every ~30 seconds to keep connection alive
       if (i % 6 === 0 && i > 0) {
         const elapsed = Math.round((i * 5) / 60);
         const pct = Math.min(90, 15 + Math.round(i * 0.5));
-        const statusText = statusStr || "waiting";
+        const statusText = json.data?.status || json.data?.state || "waiting";
         addJobLog(jobId, `Video ${sceneIndex + 1}: still processing... [${elapsed}m elapsed] (${statusText})`);
         updateScene(jobId, sceneIndex, { videoProgress: pct });
         if (writer) {
-          try { sse(writer, { type: "progress", step: 2, pct, message: `Video ${sceneIndex + 1}: processing... [${elapsed}m] (${statusText})` }); } catch {}
+          try { sse(writer, { type: "progress", step: 2, pct, message: `Video ${sceneIndex + 1}: processing... [${elapsed}m]` }); } catch {}
         }
       }
     } catch (err) {
@@ -291,7 +276,7 @@ const VIDEO_VISUAL_CONSTRAINTS =
   "After the last word: mouth CLOSED, gentle smile, steady eye contact, perfectly still. " +
   "ZERO extra words, ZERO filler sounds, ZERO lip movement after script ends. ";
 
-// ─── Generate Video — with auto-retry (up to 10 attempts) ────────────────
+// ─── Generate Video — with auto-retry ────────────────────────────────
 async function generateVideo(
   jobId: string,
   sceneIndex: number,
@@ -302,18 +287,14 @@ async function generateVideo(
   isAvatarOnly: boolean,
   writer: WritableStreamDefaultWriter<Uint8Array> | null
 ): Promise<string> {
-  const MAX_RETRIES = 10;
+  const MAX_RETRIES = 3;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       if (attempt > 1) {
-        const retryDelay = Math.min(30000, 10000 * attempt); // 20s, 30s, 40s... up to 300s
-        addJobLog(jobId, `Video ${sceneIndex + 1}: FAILURE detected! Retrying... (attempt ${attempt}/${MAX_RETRIES}), waiting ${Math.round(retryDelay / 1000)}s...`);
-        updateScene(jobId, sceneIndex, { videoProgress: 0, error: "" });
-        if (writer) {
-          try { sse(writer, { type: "video_retry", index: sceneIndex + 1, attempt, maxRetries: MAX_RETRIES, message: `Video ${sceneIndex + 1}: Retrying (${attempt}/${MAX_RETRIES})...` }); } catch {}
-        }
-        await sleep(retryDelay);
+        addJobLog(jobId, `Video ${sceneIndex + 1}: retrying... (attempt ${attempt}/${MAX_RETRIES}), waiting 15s...`);
+        updateScene(jobId, sceneIndex, { videoProgress: 0 });
+        await sleep(15000); // Wait 15s before retry (API needs time to recover)
       }
 
       let videoPrompt: string;
@@ -363,17 +344,11 @@ async function generateVideo(
 
       const videoUrl = await pollKieVideo(jobId, sceneIndex, taskId, apiKey, writer);
       updateScene(jobId, sceneIndex, { videoProgress: 100, videoDone: true, videoUrl });
-      addJobLog(jobId, `Video ${sceneIndex + 1}: complete!${attempt > 1 ? ` (succeeded on attempt ${attempt})` : ""}`);
-      if (writer && attempt > 1) {
-        try { sse(writer, { type: "video_retry_success", index: sceneIndex + 1, attempt, message: `Video ${sceneIndex + 1}: Succeeded on attempt ${attempt}!` }); } catch {}
-      }
+      addJobLog(jobId, `Video ${sceneIndex + 1}: complete!`);
       return videoUrl;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       addJobLog(jobId, `Video ${sceneIndex + 1} attempt ${attempt} failed: ${msg}`);
-      if (writer) {
-        try { sse(writer, { type: "video_retry_failed", index: sceneIndex + 1, attempt, maxRetries: MAX_RETRIES, error: msg, message: `Video ${sceneIndex + 1} attempt ${attempt} failed, retrying...` }); } catch {}
-      }
       if (attempt === MAX_RETRIES) {
         throw new Error(`Video ${sceneIndex + 1} failed after ${MAX_RETRIES} attempts: ${msg}`);
       }
@@ -781,16 +756,9 @@ async function heyGenPollVideoStatus(
 // SSE Streaming Pipeline (Vercel-compatible)
 // ═══════════════════════════════════════════════════════════════════════
 
-// ─── SSE Helper (error-safe: never throws, keeps pipeline alive when client disconnects) ──
-let sseWriterDead = false;
-function sse(writer: WritableStreamDefaultWriter<Uint8Array> | null, event: Record<string, unknown>) {
-  if (!writer || sseWriterDead) return;
-  try {
-    writer.write(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`));
-  } catch {
-    sseWriterDead = true;
-    console.warn("[SSE] Writer is closed/broken, stopping SSE output (pipeline continues)");
-  }
+// ─── SSE Helper ──────────────────────────────────────────────────────
+function sse(writer: WritableStreamDefaultWriter<Uint8Array>, event: Record<string, unknown>) {
+  writer.write(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`));
 }
 
 // ─── Heartbeat: keeps SSE connection alive during long operations ────
@@ -801,10 +769,6 @@ async function startHeartbeat(
   while (!stopSignal.stopped) {
     await sleep(8000);
     if (!stopSignal.stopped) {
-      if (sseWriterDead) {
-        stopSignal.stopped = true;
-        break;
-      }
       try {
         sse(writer, { type: "ping", t: Date.now() });
       } catch {
@@ -828,7 +792,6 @@ async function runPipelineSSE(
   jobId: string,
 ) {
   const heartbeatStop = { stopped: false };
-  sseWriterDead = false; // Reset for each new pipeline run
 
   // Start heartbeat in parallel to keep SSE connection alive
   startHeartbeat(writer, heartbeatStop);
