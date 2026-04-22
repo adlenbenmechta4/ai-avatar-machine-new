@@ -91,7 +91,7 @@ function VideoModal({
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-3xl rounded-2xl overflow-hidden"
+        className="relative w-full max-w-lg rounded-2xl overflow-hidden mx-auto"
         style={{ backgroundColor: "#000", boxShadow: "0 25px 60px rgba(0,0,0,0.5)" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -120,9 +120,9 @@ function VideoModal({
             src={video.videoUrl}
             controls
             autoPlay
-            className="w-full aspect-video"
+            className="w-full aspect-[9/16]"
             playsInline
-            style={{ maxHeight: "80vh" }}
+            style={{ maxHeight: "80vh", objectFit: "contain" }}
           />
         )}
 
@@ -208,8 +208,8 @@ function VideoCard({
     >
       {/* Thumbnail */}
       <div
-        className="relative aspect-video overflow-hidden cursor-pointer"
-        style={{ backgroundColor: "#111" }}
+        className="relative aspect-[9/16] overflow-hidden cursor-pointer mx-auto"
+        style={{ backgroundColor: "#111", maxWidth: "240px" }}
         onClick={() => onPlay(video)}
       >
         {video.provider === "avatar" ? (
@@ -566,7 +566,7 @@ export default function VideoLibrary({ onViewCreate, onEditVideo, theme }: Video
 
       {/* Video Grid */}
       {!loading && !error && videos.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-5">
           {videos.map((video) => (
             <VideoCard
               key={video.id}
