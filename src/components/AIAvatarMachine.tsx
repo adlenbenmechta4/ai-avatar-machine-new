@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/providers/auth-provider";
 import VideoLibrary from "@/components/VideoLibrary";
+import VideoEditor from "@/components/VideoEditor";
 import { saveVideoToStorage } from "@/lib/video-store";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -611,6 +612,10 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light" }: { 
   const [avatarSaved, setAvatarSaved] = useState(false);
 
   const [savedToLibrary, setSavedToLibrary] = useState(false);
+
+  // ── Video Editor State ──
+  const [showEditor, setShowEditor] = useState(false);
+  const [editorVideoUrl, setEditorVideoUrl] = useState("");
 
   // ── Results & Logs ──
   const [finalVideoUrl, setFinalVideoUrl] = useState<string>("");
@@ -1332,6 +1337,8 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light" }: { 
     setPipelineError("");
     autoRetryCountRef.current = 0;
     setSavedToLibrary(false);
+    setShowEditor(false);
+    setEditorVideoUrl("");
     setAvatarUrl("");
     setScenes((prev) =>
       prev.map((s) => ({
@@ -1495,6 +1502,20 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light" }: { 
     }
   }, [finalVideoUrl, finalFrameUrls, totalDuration, videoProvider, scenes.length, authFetch, savedToLibrary, user?.email]);
 
+  // ─── Video Editor: Open editor for generated video ──────────────────
+  const openEditor = useCallback(() => {
+    if (finalVideoUrl) {
+      setEditorVideoUrl(finalVideoUrl);
+      setShowEditor(true);
+    }
+  }, [finalVideoUrl]);
+
+  // ─── Video Editor: Open editor for library video ────────────────────
+  const openEditorForUrl = useCallback((videoUrl: string) => {
+    setEditorVideoUrl(videoUrl);
+    setShowEditor(true);
+  }, []);
+
   // ─── Render ───────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: T.white }}>
@@ -1586,7 +1607,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light" }: { 
           {/* ─── Library View ────────────────────────────────────────── */}
           {view === "library" && (
             <div className="mb-10 sm:mb-14">
-              <VideoLibrary onViewCreate={() => setView("create")} theme={theme} />
+              <VideoLibrary onViewCreate={() => setView("create")} onEditVideo={openEditorForUrl} theme={theme} />
             </div>
           )}
 
@@ -2562,6 +2583,16 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light" }: { 
                     )}
                   </button>
                   <button
+                    onClick={openEditor}
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                    style={{ backgroundColor: T.lime, color: T.dark }}
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                    Edit Your Video
+                  </button>
+                  <button
                     onClick={resetAll}
                     className="px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer border-2 hover:bg-gray-50"
                     style={{ borderColor: T.cardBorder, color: T.textMuted }}
@@ -2685,6 +2716,15 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light" }: { 
           </>
           )}
         </div>
+
+        {/* ─── Video Editor (works for both create & library views) ── */}
+        {showEditor && editorVideoUrl && (
+          <VideoEditor
+            videoUrl={editorVideoUrl}
+            onClose={() => { setShowEditor(false); setEditorVideoUrl(""); }}
+            accentColor={T.lime}
+          />
+        )}
       </main>
 
       <TickerBar
