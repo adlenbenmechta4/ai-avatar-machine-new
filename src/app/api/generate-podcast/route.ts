@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createJob, updateJob, updateScene, setJobDone, setJobError, addJobLog } from "@/lib/job-store";
 
-export const maxDuration = 300;
+export const maxDuration = 900; // 15 minutes — needed for multi-video pipeline with retries
 export const dynamic = "force-dynamic";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
