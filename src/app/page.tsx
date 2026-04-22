@@ -340,6 +340,10 @@ export default function Home() {
             setCurrentView("carousel");
           }
         }}
+        onOpenLibrary={() => {
+          setCurrentView("avatar");
+          setOpenLibraryKey((k) => k + 1);
+        }}
       />
     );
   }
