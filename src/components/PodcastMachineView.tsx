@@ -436,17 +436,13 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
 
   // ─── Refs ────────────────────────────────────────────────────────────
   const abortRef = useRef<AbortController | null>(null);
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const currentJobIdRef = useRef<string | null>(null);
-  const lastEventTimeRef = useRef<number>(0);
-  const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pipelineRunningRef = useRef(false);
 
   // ─── Cleanup ─────────────────────────────────────────────────────────
   React.useEffect(() => {
     return () => {
       abortRef.current?.abort();
-      if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
-      if (inactivityTimerRef.current) { clearTimeout(inactivityTimerRef.current); inactivityTimerRef.current = null; }
+      pipelineRunningRef.current = false;
     };
   }, []);
 
@@ -461,87 +457,52 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
     setLogs((prev) => [...prev, `[${ts}] ${msg}`]);
   }, []);
 
-  // ─── Status Polling Fallback (same as AI Avatar Machine) ─────────────
-  const processedLogsRef = useRef<Set<string>>(new Set());
+  // ─── Pipeline API helpers ──────────────────────────────────────────
+  const submitVideo = async (imageUrl: string, dialogueText: string): Promise<string> => {
+    const res = await fetch("/api/podcast/video", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imageUrl, dialogueText, apiKey: isAdmin ? kieApiKey.trim() : "" }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || "Failed to submit video");
+    return data.taskId;
+  };
 
-  const startStatusPolling = useCallback((jobId: string) => {
-    if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); }
-    processedLogsRef.current = new Set();
+  const checkVideoStatus = async (taskId: string): Promise<{ status: string; videoUrl?: string; error?: string }> => {
+    const apiKeyParam = isAdmin && kieApiKey.trim() ? `&apiKey=${encodeURIComponent(kieApiKey.trim())}` : "";
+    const res = await fetch(`/api/podcast/video?taskId=${encodeURIComponent(taskId)}${apiKeyParam}`);
+    return res.json();
+  };
 
-    pollIntervalRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/status?jobId=${encodeURIComponent(jobId)}`);
-        if (!res.ok) return;
-        const job = await res.json();
+  const submitMerge = async (videoUrls: string[]): Promise<{ requestId?: string; videoUrl?: string }> => {
+    const res = await fetch("/api/podcast/merge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ videoUrls, apiKey: isAdmin ? falApiKey.trim() : "" }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || "Failed to submit merge");
+    if (data.status === "completed" && data.videoUrl) return { videoUrl: data.videoUrl };
+    if (data.requestId) return { requestId: data.requestId };
+    throw new Error("No requestId or videoUrl from merge");
+  };
 
-        // Sync pipeline step
-        if (job.step !== undefined) setPipelineStep(job.step);
-        if (job.mergeProgress !== undefined) setCombineProgress(job.mergeProgress);
+  const checkMergeStatus = async (requestId: string): Promise<{ status: string; videoUrl?: string; error?: string }> => {
+    const apiKeyParam = isAdmin && falApiKey.trim() ? `&apiKey=${encodeURIComponent(falApiKey.trim())}` : "";
+    const res = await fetch(`/api/podcast/merge?requestId=${encodeURIComponent(requestId)}${apiKeyParam}`);
+    return res.json();
+  };
 
-        // Sync clip states
-        if (job.scenes && Array.isArray(job.scenes)) {
-          setClips((prev) =>
-            prev.map((c, i) => {
-              const js = job.scenes[i];
-              if (!js) return c;
-              return {
-                ...c,
-                videoProgress: js.videoProgress ?? c.videoProgress,
-                videoDone: js.videoDone ?? c.videoDone,
-                videoUrl: js.videoUrl || c.videoUrl,
-                error: js.error || c.error,
-              };
-            })
-          );
-        }
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-        // Deduplicate logs
-        if (job.logs && Array.isArray(job.logs)) {
-          setLogs((prev) => {
-            const existing = new Set(prev);
-            const newLogs: string[] = [];
-            for (const log of job.logs) {
-              if (!existing.has(log) && !processedLogsRef.current.has(log)) {
-                processedLogsRef.current.add(log);
-                newLogs.push(log);
-              }
-            }
-            return newLogs.length > 0 ? [...prev, ...newLogs] : prev;
-          });
-        }
-
-        // Handle completion
-        if (job.status === "done" && job.finalVideoUrl) {
-          setFinalVideoUrl(job.finalVideoUrl);
-          setFinalVideoUrls(job.finalVideoUrls || []);
-          setPipelineStep(3);
-          setCombineProgress(100);
-          setIsRunning(false);
-          setPipelineError("");
-          addLog("Pipeline complete! Podcast video is ready!");
-          if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
-        }
-
-        // Handle error — check regardless of isRunning (pipeline may still be running after SSE dropped)
-        if (job.status === "error") {
-          // Only stop if all scenes are done or errored (pipeline truly finished)
-          const allScenesDone = job.scenes?.every((s: { videoDone?: boolean; error?: string }) => s.videoDone || s.error);
-          if (allScenesDone) {
-            setPipelineError(job.error || "Pipeline failed");
-            setIsRunning(false);
-            addLog("ERROR: " + (job.error || "Pipeline failed"));
-            if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
-          }
-        }
-      } catch {
-        // Ignore polling errors
-      }
-    }, 5000);
-  }, [addLog]);
-
-  // ─── Run Generation (same dual-channel approach as AI Avatar Machine) ──
+  // ─── Run Generation (client-driven polling pipeline) ─────────────────
   const runGeneration = useCallback(async () => {
     if (!isValid || isRunning) return;
+
+    const MAX_RETRIES = 10;
+    const POLL_VIDEO_INTERVAL = 8000;
+    const POLL_MERGE_INTERVAL = 5000;
 
     // Reset
     setIsRunning(true);
@@ -553,7 +514,11 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
     setCombineProgress(0);
     setLogs([]);
     setShowLogs(false);
-    lastEventTimeRef.current = Date.now();
+
+    // Create abort controller
+    const controller = new AbortController();
+    abortRef.current = controller;
+    pipelineRunningRef.current = true;
 
     // Build sequence
     const d1 = char1Dialogues.filter((d) => d.text.trim()).map((d) => d.text.trim());
@@ -578,155 +543,155 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
     setClips(initialClips);
     addLog(`Starting podcast generation: ${sequence.length} video clips`);
 
-    // Inactivity timeout watcher (same as AI Avatar Machine)
-    inactivityTimerRef.current = setInterval(() => {
-      const elapsed = (Date.now() - lastEventTimeRef.current) / 1000;
-      if (elapsed > 300) { // 5 minutes no updates
-        addLog("WARNING: No progress update for 5 minutes. Connection may have been lost.");
-      }
-    }, 30000) as unknown as ReturnType<typeof setTimeout>;
+    const videoUrls: string[] = [];
 
     try {
-      const res = await fetch("/api/generate-podcast", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          char1ImageUrl,
-          char2ImageUrl,
-          char1Dialogues: d1,
-          char2Dialogues: d2,
-          kieApiKey: isAdmin ? kieApiKey.trim() : "",
-          falApiKey: isAdmin ? falApiKey.trim() : "",
-        }),
-      });
+      // ── Phase 1: Generate each video sequentially ──────────────────
+      for (let si = 0; si < sequence.length; si++) {
+        if (!pipelineRunningRef.current) throw new DOMException("Aborted", "AbortError");
 
-      if (!res.body) throw new Error("No response stream");
+        const clip = sequence[si];
+        const imageUrl = clip.character === 1 ? char1ImageUrl : char2ImageUrl;
+        const clipIdx = si + 1;
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let receivedTerminal = false;
+        addLog(`🎬 Submitting video ${clipIdx}/${sequence.length} (Character ${clip.character})...`);
+        setClips((prev) => prev.map((c) => c.index === clipIdx ? { ...c, videoProgress: 10, error: "" } : c));
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
+        let clipSucceeded = false;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+          if (!pipelineRunningRef.current) throw new DOMException("Aborted", "AbortError");
 
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
           try {
-            const event = JSON.parse(line.slice(6).trim());
-            lastEventTimeRef.current = Date.now();
+            // Submit
+            const taskId = await submitVideo(imageUrl, clip.text);
+            addLog(`📋 Video ${clipIdx}: Submitted (taskId: ${taskId.slice(0, 8)}..., attempt ${attempt})`);
+            setClips((prev) => prev.map((c) => c.index === clipIdx ? { ...c, videoProgress: 20, error: "" } : c));
 
-            switch (event.type) {
-              case "ping":
-                // Heartbeat — ignore
-                break;
+            // Poll until done/failed
+            let pollCount = 0;
+            while (true) {
+              if (!pipelineRunningRef.current) throw new DOMException("Aborted", "AbortError");
+              await sleep(POLL_VIDEO_INTERVAL);
+              pollCount++;
 
-              case "started":
-                addLog("Pipeline started (job: " + (event.jobId || "unknown") + ")");
-                if (event.jobId) {
-                  currentJobIdRef.current = event.jobId;
-                  startStatusPolling(event.jobId);
-                }
-                break;
+              const status = await checkVideoStatus(taskId);
+              const pct = Math.min(20 + Math.round((pollCount / 45) * 70), 90);
 
-              case "progress":
-                setPipelineStep(event.step || 1);
-                if (event.step === 2 && event.pct !== undefined) {
-                  setCombineProgress(event.pct);
-                }
-                if (event.message) addLog(event.message);
+              if (status.status === "completed" && status.videoUrl) {
+                addLog(`✅ Video ${clipIdx}: Complete!`);
+                setClips((prev) => prev.map((c) => c.index === clipIdx ? { ...c, videoProgress: 100, videoDone: true, videoUrl: status.videoUrl!, error: "" } : c));
+                videoUrls.push(status.videoUrl);
+                clipSucceeded = true;
                 break;
+              }
 
-              case "video_error":
-                addLog(`Video ${event.index} failed: ${event.error}`);
-                setClips((prev) =>
-                  prev.map((c) => c.index === event.index ? { ...c, error: event.error || "Failed" } : c)
-                );
+              if (status.status === "failed") {
+                addLog(`⚠️ Video ${clipIdx} attempt ${attempt} failed: ${status.error || "Unknown error"}`);
+                setClips((prev) => prev.map((c) => c.index === clipIdx ? { ...c, videoProgress: 0, error: `Attempt ${attempt} failed: ${status.error || "Error"}` } : c));
                 break;
+              }
 
-              case "video_retry":
-                addLog(`🔄 Video ${event.index}: Retrying (${event.attempt}/${event.maxRetries})...`);
-                setClips((prev) =>
-                  prev.map((c) => c.index === event.index ? { ...c, error: `Retrying (${event.attempt}/${event.maxRetries})...`, videoProgress: 0 } : c)
-                );
-                break;
-
-              case "video_retry_failed":
-                addLog(`⚠️ Video ${event.index} attempt ${event.attempt} failed, retrying...`);
-                setClips((prev) =>
-                  prev.map((c) => c.index === event.index ? { ...c, error: `Attempt ${event.attempt} failed, retrying...` } : c)
-                );
-                break;
-
-              case "video_retry_success":
-                addLog(`✅ Video ${event.index}: Succeeded on attempt ${event.attempt}!`);
-                setClips((prev) =>
-                  prev.map((c) => c.index === event.index ? { ...c, error: "" } : c)
-                );
-                break;
-
-              case "merge_error":
-                addLog("Merge failed: " + event.error);
-                break;
-
-              case "done":
-                receivedTerminal = true;
-                setPipelineStep(3);
-                setCombineProgress(100);
-                addLog("Podcast complete!");
-                if (event.videoUrl) setFinalVideoUrl(event.videoUrl);
-                if (event.videoUrls) setFinalVideoUrls(event.videoUrls);
-                if (event.individualVideos) {
-                  setFinalVideoUrls(event.individualVideos);
-                }
-                setIsRunning(false);
-                setPipelineError("");
-                // Stop polling
-                if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
-                break;
-
-              case "error":
-                receivedTerminal = true;
-                setPipelineError(event.message || "Generation failed");
-                setIsRunning(false);
-                addLog("ERROR: " + (event.message || "Generation failed"));
-                if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
-                break;
+              // Still processing — update progress
+              setClips((prev) => prev.map((c) => c.index === clipIdx ? { ...c, videoProgress: pct } : c));
+              if (pollCount % 6 === 0) {
+                addLog(`⏳ Video ${clipIdx}: Still processing... (${Math.round(pollCount * POLL_VIDEO_INTERVAL / 1000)}s elapsed)`);
+              }
             }
-          } catch {
-            // Ignore malformed SSE
+
+            if (clipSucceeded) break;
+
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (msg === "AbortError") throw err;
+
+            if (attempt < MAX_RETRIES) {
+              addLog(`🔄 Video ${clipIdx}: Retrying (${attempt}/${MAX_RETRIES})...`);
+              setClips((prev) => prev.map((c) => c.index === clipIdx ? { ...c, error: `Retrying (${attempt}/${MAX_RETRIES})...`, videoProgress: 0 } : c));
+              const retryDelay = Math.min(20 + (attempt - 1) * 30, 300) * 1000;
+              addLog(`⏳ Waiting ${Math.round(retryDelay / 1000)}s before retry...`);
+              await sleep(retryDelay);
+            } else {
+              addLog(`❌ Video ${clipIdx}: All ${MAX_RETRIES} attempts failed.`);
+              setClips((prev) => prev.map((c) => c.index === clipIdx ? { ...c, error: `Failed after ${MAX_RETRIES} attempts` } : c));
+            }
           }
+        }
+
+        if (!clipSucceeded) {
+          throw new Error(`Video ${clipIdx} failed after ${MAX_RETRIES} retries`);
         }
       }
 
-      // If stream ended without terminal event — polling will handle it
-      if (!receivedTerminal && pollIntervalRef.current) {
-        addLog("SSE stream ended — status polling continues tracking...");
+      // ── Phase 2: Merge videos ─────────────────────────────────────
+      if (!pipelineRunningRef.current) throw new DOMException("Aborted", "AbortError");
+
+      setPipelineStep(2);
+      setCombineProgress(10);
+      addLog(`🔗 Submitting merge for ${videoUrls.length} videos...`);
+
+      const mergeResult = await submitMerge(videoUrls);
+
+      if (mergeResult.videoUrl) {
+        // Merge completed instantly
+        setPipelineStep(3);
+        setCombineProgress(100);
+        setFinalVideoUrl(mergeResult.videoUrl);
+        setFinalVideoUrls(videoUrls);
+        setIsRunning(false);
+        pipelineRunningRef.current = false;
+        addLog("Podcast complete!");
         return;
       }
 
-      if (!receivedTerminal && !pollIntervalRef.current) {
-        setPipelineError("Connection to server was lost");
-        setIsRunning(false);
-        addLog("ERROR: SSE stream ended without result and no polling active");
+      // Poll merge status
+      addLog(`📋 Merge submitted (requestId: ${mergeResult.requestId!.slice(0, 8)}...)`);
+      setCombineProgress(20);
+
+      let mergePollCount = 0;
+      while (true) {
+        if (!pipelineRunningRef.current) throw new DOMException("Aborted", "AbortError");
+        await sleep(POLL_MERGE_INTERVAL);
+        mergePollCount++;
+
+        const mergeStatus = await checkMergeStatus(mergeResult.requestId!);
+        const mergePct = Math.min(20 + Math.round((mergePollCount / 30) * 70), 95);
+        setCombineProgress(mergePct);
+
+        if (mergeStatus.status === "completed" && mergeStatus.videoUrl) {
+          setPipelineStep(3);
+          setCombineProgress(100);
+          setFinalVideoUrl(mergeStatus.videoUrl);
+          setFinalVideoUrls(videoUrls);
+          setIsRunning(false);
+          pipelineRunningRef.current = false;
+          addLog("Podcast complete!");
+          return;
+        }
+
+        if (mergeStatus.status === "failed") {
+          throw new Error(mergeStatus.error || "Merge failed");
+        }
+
+        if (mergePollCount % 6 === 0) {
+          addLog(`⏳ Merge still processing... (${Math.round(mergePollCount * POLL_MERGE_INTERVAL / 1000)}s elapsed)`);
+        }
       }
+
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg !== "AbortError") {
         setPipelineError(msg);
-        setIsRunning(false);
         addLog("ERROR: " + msg);
+      } else {
+        addLog("Pipeline cancelled");
       }
+      setIsRunning(false);
+      pipelineRunningRef.current = false;
     } finally {
-      if (abortRef.current) { abortRef.current = null; }
-      if (inactivityTimerRef.current) { clearInterval(inactivityTimerRef.current); inactivityTimerRef.current = null; }
+      abortRef.current = null;
     }
-  }, [isValid, isRunning, char1ImageUrl, char2ImageUrl, char1Dialogues, char2Dialogues, isAdmin, kieApiKey, falApiKey, addLog, startStatusPolling]);
+  }, [isValid, isRunning, char1ImageUrl, char2ImageUrl, char1Dialogues, char2Dialogues, isAdmin, kieApiKey, falApiKey, addLog]);
 
   // ─── Reset ───────────────────────────────────────────────────────────
   const resetAll = useCallback(() => {
@@ -741,9 +706,8 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
     setClips([]);
     setShowEditor(false);
     setEditorVideoUrl("");
+    pipelineRunningRef.current = false;
     if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
-    if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
-    if (inactivityTimerRef.current) { clearTimeout(inactivityTimerRef.current); inactivityTimerRef.current = null; }
   }, []);
 
   // ─── Video Editor: Open editor for generated video ────────────────────
