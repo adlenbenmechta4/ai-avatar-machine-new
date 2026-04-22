@@ -781,7 +781,7 @@ async function startHeartbeat(
 // ─── Pipeline Runner with SSE Streaming (Vercel-compatible) ──────────
 async function runPipelineSSE(
   avatarUrl: string,
-  validScenes: Array<{ description: string; script: string }>,
+  validScenes: Array<{ description: string; script: string; customFrameImage?: string }>,
   kieApiKey: string,
   falApiKey: string,
   useSceneFrames: boolean,
@@ -832,7 +832,38 @@ async function runPipelineSSE(
     const videoUrls: string[] = [];
 
     // STEP 1: Frames
-    if (useSceneFrames) {
+    const hasCustomFrames = validScenes.some(s => s.customFrameImage);
+
+    if (hasCustomFrames) {
+      // Custom frames mode — upload each scene's base64 image
+      sse(writer, { type: "progress", step: 1, pct: 0, message: `Uploading ${validScenes.length} custom frames...` });
+      addJobLog(jobId, `Uploading ${validScenes.length} custom frames...`);
+
+      for (let i = 0; i < validScenes.length; i++) {
+        const scene = validScenes[i];
+        sse(writer, { type: "progress", step: 1, pct: Math.round((i / validScenes.length) * 80), message: `Uploading frame ${i + 1}/${validScenes.length}...` });
+
+        let frameUrl: string;
+        if (scene.customFrameImage) {
+          try {
+            frameUrl = await uploadImageToKie(scene.customFrameImage, `scene_${i + 1}_frame.jpg`, kieApiKey);
+          } catch (uploadErr) {
+            const msg = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
+            addJobLog(jobId, `Frame ${i + 1} upload failed: ${msg}, using avatar as fallback`);
+            frameUrl = avatarUrl;
+          }
+        } else {
+          frameUrl = avatarUrl;
+        }
+
+        frameUrls.push(frameUrl);
+        updateScene(jobId, i, { frameDone: true, frameProgress: 100, frameUrl });
+        sse(writer, { type: "progress", step: 1, pct: Math.round(((i + 1) / validScenes.length) * 80), message: `Frame ${i + 1} ready!` });
+      }
+
+      sse(writer, { type: "progress", step: 1, pct: 85, message: "All custom frames uploaded!" });
+      addJobLog(jobId, "All custom frames uploaded!");
+    } else if (useSceneFrames) {
       sse(writer, { type: "progress", step: 1, pct: 0, message: `Generating frames for ${validScenes.length} scenes...` });
       addJobLog(jobId, `Generating ${validScenes.length} frames...`);
 
@@ -923,9 +954,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "avatarUrl is required. Please upload your avatar first." }, { status: 400 });
     }
 
-    const validScenes = (scenes as Array<{ description: string; script: string }>).filter(s => s.description?.trim() || s.script?.trim());
+    const validScenes = (scenes as Array<{ description: string; script: string; customFrameImage?: string }>).filter(s => s.description?.trim() || s.script?.trim() || s.customFrameImage);
     if (validScenes.length === 0) {
       return NextResponse.json({ error: "No valid scenes provided" }, { status: 400 });
+    }
+
+    // Validate custom frames
+    if (frameMode === "custom") {
+      for (let i = 0; i < validScenes.length; i++) {
+        if (!validScenes[i].customFrameImage) {
+          return NextResponse.json({ error: `Scene ${i + 1} is missing a custom frame image. Please upload an image for each scene.` }, { status: 400 });
+        }
+      }
     }
 
     const provider = (videoProvider as string) || "kie";
@@ -1014,7 +1054,7 @@ export async function POST(req: NextRequest) {
     runPipelineSSE(
       avatarUrl as string, validScenes,
       (kieApiKey as string) || "", falApiKey as string || "",
-      frameMode === "scenes",
+      frameMode === "scenes" || frameMode === "custom",
       provider, (heygenApiKey as string) || "", (heygenVoiceId as string) || "",
       writer, jobId,
     );

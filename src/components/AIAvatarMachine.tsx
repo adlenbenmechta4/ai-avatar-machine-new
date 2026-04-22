@@ -22,6 +22,7 @@ interface Scene {
   videoDone: boolean;
   frameUrl: string;
   videoUrl: string;
+  customFrameImage: string | null;
 }
 
 // ─── Colors (holystrips.com style) ────────────────────────────────────────────
@@ -565,7 +566,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
   const [avatarImage, setAvatarImage] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string>("");
   const [scenes, setScenes] = useState<Scene[]>([
-    { id: generateId(), description: "", script: "", framePrompt: "", videoPrompt: "", frameProgress: 0, frameDone: false, videoProgress: 0, videoDone: false, frameUrl: "", videoUrl: "" },
+    { id: generateId(), description: "", script: "", framePrompt: "", videoPrompt: "", frameProgress: 0, frameDone: false, videoProgress: 0, videoDone: false, frameUrl: "", videoUrl: "", customFrameImage: null },
   ]);
   const [pipelineStep, setPipelineStep] = useState<PipelineStep>(0);
   const [isRunning, setIsRunning] = useState(false);
@@ -574,7 +575,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
 
   // ── Mode State ──
   const [mode, setMode] = useState<"ai" | "manual">("ai");
-  const [frameMode, setFrameMode] = useState<"avatar" | "scenes">("avatar");
+  const [frameMode, setFrameMode] = useState<"avatar" | "scenes" | "custom">("avatar");
   const [aiTopic, setAiTopic] = useState("");
   const [aiDuration, setAiDuration] = useState(30);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
@@ -715,12 +716,47 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
     setAvatarUrl("");
   }, []);
 
+  // ─── Custom Scene Frame Upload ───────────────────────────────────────
+  const handleSceneFrameUpload = useCallback((sceneId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const maxDim = 1024;
+        const ratio = Math.min(maxDim / img.width, maxDim / img.height, 1);
+        canvas.width = Math.round(img.width * ratio);
+        canvas.height = Math.round(img.height * ratio);
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const compressedUrl = canvas.toDataURL("image/jpeg", 0.90);
+          setScenes((prev) =>
+            prev.map((s) => (s.id === sceneId ? { ...s, customFrameImage: compressedUrl } : s))
+          );
+        }
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  const removeSceneFrame = useCallback((sceneId: string) => {
+    setScenes((prev) =>
+      prev.map((s) => (s.id === sceneId ? { ...s, customFrameImage: null } : s))
+    );
+  }, []);
+
   // ─── Scene Management ─────────────────────────────────────────────────
   const addScene = useCallback(() => {
     if (scenes.length >= 10) return;
     setScenes((prev) => [
       ...prev,
-      { id: generateId(), description: "", script: "", framePrompt: "", videoPrompt: "", frameProgress: 0, frameDone: false, videoProgress: 0, videoDone: false, frameUrl: "", videoUrl: "" },
+      { id: generateId(), description: "", script: "", framePrompt: "", videoPrompt: "", frameProgress: 0, frameDone: false, videoProgress: 0, videoDone: false, frameUrl: "", videoUrl: "", customFrameImage: null },
     ]);
   }, [scenes.length]);
 
@@ -1113,6 +1149,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
           scenes: validScenes.map((s) => ({
             description: s.description,
             script: s.script,
+            customFrameImage: s.customFrameImage || undefined,
           })),
           kieApiKey,
           falApiKey,
@@ -1964,10 +2001,11 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
                     <label className="block text-xs font-bold uppercase tracking-wider mb-2" style={{ color: T.textMuted }}>
                       Frame Mode
                     </label>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                       {([
                         { value: "avatar" as const, label: "Avatar Only", emoji: "👤", desc: "Same avatar in all scenes" },
                         { value: "scenes" as const, label: "Scene Frames", emoji: "🖼️", desc: "Unique backgrounds per scene" },
+                        { value: "custom" as const, label: "Custom Frames", emoji: "📸", desc: "Upload image per scene" },
                       ]).map((fm) => (
                         <button
                           key={fm.value}
@@ -2326,6 +2364,52 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
                         </div>
 
                         <div className="space-y-3">
+                          {/* Per-Scene Start Frame Upload - always visible */}
+                          <div>
+                            <label className="block text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: T.textMuted }}>
+                              📸 Start Frame {frameMode !== "custom" && <span className="opacity-60 normal-case">(Optional)</span>}
+                            </label>
+                            {scene.customFrameImage ? (
+                              <div className="relative rounded-xl overflow-hidden border-2" style={{ borderColor: T.cyan }}>
+                                <img
+                                  src={scene.customFrameImage}
+                                  alt={`Scene ${i + 1} frame`}
+                                  className="w-full h-auto object-cover"
+                                  style={{ maxHeight: "200px" }}
+                                />
+                                <button
+                                  onClick={() => removeSceneFrame(scene.id)}
+                                  disabled={isRunning}
+                                  className="absolute top-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center transition-all cursor-pointer disabled:opacity-50"
+                                  style={{ backgroundColor: "rgba(239,68,68,0.9)", color: "#fff" }}
+                                  title="Remove frame"
+                                >
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                  </svg>
+                                </button>
+                              </div>
+                            ) : (
+                              <label
+                                className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed py-4 px-4 cursor-pointer transition-all hover:border-current"
+                                style={{ borderColor: T.cardBorder, backgroundColor: T.cardBg, color: T.textMuted }}
+                              >
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
+                                </svg>
+                                <span className="text-xs font-semibold">{frameMode === "custom" ? "Click to upload frame" : "Upload custom start frame (optional)"}</span>
+                                <span className="text-[10px] opacity-60">JPG, PNG (max 1024px)</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={(e) => handleSceneFrameUpload(scene.id, e)}
+                                  disabled={isRunning}
+                                  className="hidden"
+                                />
+                              </label>
+                            )}
+                          </div>
+
                           {/* Scene Description - HIDDEN when frameMode === "avatar" */}
                           {frameMode === "scenes" && (
                             <div>
@@ -2471,7 +2555,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
             {!isRunning && pipelineStep === 0 && (
               <button
                 onClick={runGeneration}
-                disabled={!avatarImage || (videoProvider === "heygen" ? !heygenScript.trim() : scenes.filter((s) => s.description.trim() || s.script.trim()).length === 0)}
+                disabled={!avatarImage || (frameMode === "custom" ? scenes.filter((s) => s.customFrameImage && s.script.trim()).length === 0 : (videoProvider === "heygen" ? !heygenScript.trim() : scenes.filter((s) => s.description.trim() || s.script.trim()).length === 0))}
                 className="px-8 py-4 rounded-2xl text-base font-black uppercase tracking-wider transition-all duration-300 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl"
                 style={{
                   backgroundColor: T.pink,
