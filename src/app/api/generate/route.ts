@@ -847,14 +847,14 @@ async function runPipelineSSE(
         let frameUrl: string;
         if (scene.customFrameImage) {
           try {
-            frameUrl = await uploadImageToKie(scene.customFrameImage, `scene_${i + 1}_frame.jpg`, kieApiKey);
+            frameUrl = await uploadImageToKie(scene.customFrameImage, `scene_${i + 1}_${jobId}_frame.jpg`, kieApiKey);
           } catch (uploadErr) {
             const msg = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
-            addJobLog(jobId, `Frame ${i + 1} upload failed: ${msg}, using avatar as fallback`);
-            frameUrl = avatarUrl;
+            addJobLog(jobId, `Frame ${i + 1} upload failed: ${msg}`);
+            throw new Error(`Failed to upload frame ${i + 1}: ${msg}`);
           }
         } else {
-          frameUrl = avatarUrl;
+          throw new Error(`Scene ${i + 1} is missing a custom frame image.`);
         }
 
         frameUrls.push(frameUrl);
