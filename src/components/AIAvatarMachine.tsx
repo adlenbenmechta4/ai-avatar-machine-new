@@ -2379,8 +2379,8 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
                                 <img
                                   src={scene.customFrameImage}
                                   alt={`Scene ${i + 1} frame`}
-                                  className="w-full h-auto object-cover"
-                                  style={{ maxHeight: "200px" }}
+                                  className="w-full aspect-[9/16] object-contain"
+                                  style={{ backgroundColor: isDark ? "#111" : "#F9FAFB" }}
                                 />
                                 <button
                                   onClick={() => removeSceneFrame(scene.id)}
@@ -2396,14 +2396,14 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
                               </div>
                             ) : (
                               <label
-                                className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed py-4 px-4 cursor-pointer transition-all hover:border-current"
+                                className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed aspect-[9/16] w-full cursor-pointer transition-all hover:border-current"
                                 style={{ borderColor: T.cardBorder, backgroundColor: T.cardBg, color: T.textMuted }}
                               >
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
                                 </svg>
                                 <span className="text-xs font-semibold">Click to upload frame</span>
-                                <span className="text-[10px] opacity-60">JPG, PNG (max 1024px)</span>
+                                <span className="text-[10px] opacity-60">9:16 Vertical</span>
                                 <input
                                   type="file"
                                   accept="image/*"
