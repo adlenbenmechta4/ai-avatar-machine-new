@@ -5,7 +5,6 @@ import { useAuth } from "@/providers/auth-provider";
 import AIAvatarMachine from "@/components/AIAvatarMachine";
 import MainMenu from "@/components/MainMenu";
 import CarouselView from "@/components/CarouselView";
-import PodcastMachineView from "@/components/PodcastMachineView";
 import UserProfilePanel from "@/components/UserProfilePanel";
 
 // ─── Colors (matching the existing design) ────────────────────────────────────
@@ -295,13 +294,13 @@ function SubscriptionScreen({ userData, onComplete }: {
 export default function Home() {
   const { user, loading, signOut } = useAuth();
   const [showSubscription, setShowSubscription] = useState(false);
-  const [currentView, setCurrentView] = useState<"menu" | "avatar" | "carousel" | "podcast">("menu");
+  const [currentView, setCurrentView] = useState<"menu" | "avatar" | "carousel">("menu");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
 
   // Redirect to menu if user logs out while on avatar view
   useEffect(() => {
-    if (!loading && !user && (currentView === "avatar" || currentView === "carousel" || currentView === "podcast")) {
+    if (!loading && !user && (currentView === "avatar" || currentView === "carousel")) {
       setCurrentView("menu");
     }
   }, [user, loading, currentView]);
@@ -338,8 +337,6 @@ export default function Home() {
             setCurrentView("avatar");
           } else if (dest === "ai-viral-carousel") {
             setCurrentView("carousel");
-          } else if (dest === "ai-podcast-machine") {
-            setCurrentView("podcast");
           }
         }}
       />
@@ -349,11 +346,6 @@ export default function Home() {
   // AI Carousel view
   if (currentView === "carousel") {
     return <CarouselView onBack={() => setCurrentView("menu")} isAdmin={!!isAdmin} />;
-  }
-
-  // AI Podcast Machine view
-  if (currentView === "podcast") {
-    return <PodcastMachineView onBack={() => setCurrentView("menu")} isAdmin={!!isAdmin} />;
   }
 
   // AI Avatar Machine view — only for authenticated users

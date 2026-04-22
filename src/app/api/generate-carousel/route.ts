@@ -192,9 +192,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Use admin-provided key from client (if admin), or fall back to hardcoded default / env variable
-    const DEFAULT_KIE_API_KEY = "c3c2c049248d4691059d1d36734ceb34";
-    const finalApiKey = (kieApiKey && kieApiKey.length >= 10) ? kieApiKey : (process.env.KIE_API_KEY || DEFAULT_KIE_API_KEY);
+    // Use admin-provided key from client (if admin), or fall back to server env variable
+    const finalApiKey = (kieApiKey && kieApiKey.length >= 10) ? kieApiKey : process.env.KIE_API_KEY;
 
     if (!finalApiKey || finalApiKey.length < 10) {
       return NextResponse.json(
