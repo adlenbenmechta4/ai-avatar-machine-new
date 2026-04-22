@@ -781,9 +781,16 @@ async function heyGenPollVideoStatus(
 // SSE Streaming Pipeline (Vercel-compatible)
 // ═══════════════════════════════════════════════════════════════════════
 
-// ─── SSE Helper ──────────────────────────────────────────────────────
-function sse(writer: WritableStreamDefaultWriter<Uint8Array>, event: Record<string, unknown>) {
-  writer.write(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`));
+// ─── SSE Helper (error-safe: never throws, keeps pipeline alive when client disconnects) ──
+let sseWriterDead = false;
+function sse(writer: WritableStreamDefaultWriter<Uint8Array> | null, event: Record<string, unknown>) {
+  if (!writer || sseWriterDead) return;
+  try {
+    writer.write(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`));
+  } catch {
+    sseWriterDead = true;
+    console.warn("[SSE] Writer is closed/broken, stopping SSE output (pipeline continues)");
+  }
 }
 
 // ─── Heartbeat: keeps SSE connection alive during long operations ────
@@ -794,6 +801,10 @@ async function startHeartbeat(
   while (!stopSignal.stopped) {
     await sleep(8000);
     if (!stopSignal.stopped) {
+      if (sseWriterDead) {
+        stopSignal.stopped = true;
+        break;
+      }
       try {
         sse(writer, { type: "ping", t: Date.now() });
       } catch {
@@ -817,6 +828,7 @@ async function runPipelineSSE(
   jobId: string,
 ) {
   const heartbeatStop = { stopped: false };
+  sseWriterDead = false; // Reset for each new pipeline run
 
   // Start heartbeat in parallel to keep SSE connection alive
   startHeartbeat(writer, heartbeatStop);

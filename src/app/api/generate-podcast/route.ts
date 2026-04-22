@@ -10,9 +10,16 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const DEFAULT_KIE_API_KEY = "e80261e40f242ed38ce14f4beb6e6f15";
 const DEFAULT_FAL_API_KEY = "9bf7d3b9-a407-4b19-979d-f438ebf738e2:5dbedfec1d01434a997480bd5dab5803";
 
-// ─── SSE Helper ────────────────────────────────────────────────────────────
-function sse(writer: WritableStreamDefaultWriter<Uint8Array>, event: Record<string, unknown>) {
-  writer.write(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`));
+// ─── SSE Helper (error-safe: never throws, keeps pipeline alive when client disconnects) ──
+let sseWriterDead = false;
+function sse(writer: WritableStreamDefaultWriter<Uint8Array> | null, event: Record<string, unknown>) {
+  if (!writer || sseWriterDead) return;
+  try {
+    writer.write(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`));
+  } catch {
+    sseWriterDead = true; // Mark as dead so we stop trying
+    console.warn("[SSE] Writer is closed/broken, stopping SSE output (pipeline continues in background)");
+  }
 }
 
 // ─── Heartbeat: keeps SSE alive during long operations ─────────────────────
@@ -23,6 +30,10 @@ async function startHeartbeat(
   while (!stopSignal.stopped) {
     await sleep(8000);
     if (!stopSignal.stopped) {
+      if (sseWriterDead) {
+        stopSignal.stopped = true;
+        break;
+      }
       try {
         sse(writer, { type: "ping", t: Date.now() });
       } catch {
@@ -309,6 +320,7 @@ async function runPodcastPipelineSSE(
   writer: WritableStreamDefaultWriter<Uint8Array>,
   jobId: string,
 ) {
+  sseWriterDead = false; // Reset for each new pipeline run
   const heartbeatStop = { stopped: false };
   startHeartbeat(writer, heartbeatStop);
 
