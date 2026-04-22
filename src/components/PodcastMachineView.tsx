@@ -522,12 +522,16 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
           if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
         }
 
-        // Handle error
-        if (job.status === "error" && !isRunning) {
-          setPipelineError(job.error || "Pipeline failed");
-          setIsRunning(false);
-          addLog("ERROR: " + (job.error || "Pipeline failed"));
-          if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
+        // Handle error — check regardless of isRunning (pipeline may still be running after SSE dropped)
+        if (job.status === "error") {
+          // Only stop if all scenes are done or errored (pipeline truly finished)
+          const allScenesDone = job.scenes?.every((s: { videoDone?: boolean; error?: string }) => s.videoDone || s.error);
+          if (allScenesDone) {
+            setPipelineError(job.error || "Pipeline failed");
+            setIsRunning(false);
+            addLog("ERROR: " + (job.error || "Pipeline failed"));
+            if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
+          }
         }
       } catch {
         // Ignore polling errors
