@@ -342,6 +342,10 @@ export default function Home() {
             setCurrentView("podcast");
           }
         }}
+        onOpenLibrary={() => {
+          setCurrentView("avatar");
+          setOpenLibraryKey((k) => k + 1);
+        }}
       />
     );
   }
