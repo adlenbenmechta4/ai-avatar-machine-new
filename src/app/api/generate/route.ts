@@ -790,6 +790,7 @@ async function runPipelineSSE(
   heygenVoiceId: string,
   writer: WritableStreamDefaultWriter<Uint8Array>,
   jobId: string,
+  userId: string,
 ) {
   const heartbeatStop = { stopped: false };
 
@@ -1059,7 +1060,7 @@ export async function POST(req: NextRequest) {
       (kieApiKey as string) || "", falApiKey as string || "",
       frameMode === "scenes" || frameMode === "custom",
       provider, (heygenApiKey as string) || "", (heygenVoiceId as string) || "",
-      writer, jobId,
+      writer, jobId, userId || "anonymous",
     );
 
     return new Response(stream.readable, {
