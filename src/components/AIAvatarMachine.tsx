@@ -2364,11 +2364,12 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
                         </div>
 
                         <div className="space-y-3">
-                          {/* Per-Scene Start Frame Upload - always visible */}
-                          <div>
-                            <label className="block text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: T.textMuted }}>
-                              📸 Start Frame {frameMode !== "custom" && <span className="opacity-60 normal-case">(Optional)</span>}
-                            </label>
+                          {/* Per-Scene Start Frame Upload - only in Custom Frames mode */}
+                          {frameMode === "custom" && (
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: T.textMuted }}>
+                                📸 Start Frame
+                              </label>
                             {scene.customFrameImage ? (
                               <div className="relative rounded-xl overflow-hidden border-2" style={{ borderColor: T.cyan }}>
                                 <img
@@ -2397,7 +2398,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
                                 </svg>
-                                <span className="text-xs font-semibold">{frameMode === "custom" ? "Click to upload frame" : "Upload custom start frame (optional)"}</span>
+                                <span className="text-xs font-semibold">Click to upload frame</span>
                                 <span className="text-[10px] opacity-60">JPG, PNG (max 1024px)</span>
                                 <input
                                   type="file"
@@ -2409,6 +2410,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
                               </label>
                             )}
                           </div>
+                          )}
 
                           {/* Scene Description - HIDDEN when frameMode === "avatar" */}
                           {frameMode === "scenes" && (
