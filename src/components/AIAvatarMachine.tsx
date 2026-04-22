@@ -1059,7 +1059,8 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
       return;
     }
 
-    if (!avatarImage) {
+    // In custom frames mode, avatar is not required
+    if (frameMode !== "custom" && !avatarImage) {
       alert("Please upload an avatar image first.");
       return;
     }
@@ -1131,11 +1132,14 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
     abortRef.current = abortController;
 
     try {
-      // Step 1: Upload avatar
-      addLog("Uploading avatar to server...");
-      const uploadedUrl = await uploadAvatarToServer(avatarImage, kieApiKey, abortController.signal);
-      setAvatarUrl(uploadedUrl);
-      addLog("Avatar uploaded successfully!");
+      // Step 1: Upload avatar (not needed in custom frames mode)
+      let uploadedUrl = avatarUrl || "";
+      if (frameMode !== "custom" && avatarImage) {
+        addLog("Uploading avatar to server...");
+        uploadedUrl = await uploadAvatarToServer(avatarImage, kieApiKey, abortController.signal);
+        setAvatarUrl(uploadedUrl);
+        addLog("Avatar uploaded successfully!");
+      }
 
       // Step 2: Start SSE pipeline
       addLog("Starting generation pipeline...");
