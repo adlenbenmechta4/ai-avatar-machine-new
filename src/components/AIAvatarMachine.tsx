@@ -855,7 +855,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
 
     pollIntervalRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`/api/status?jobId=${encodeURIComponent(jobId)}`);
+        const res = await authFetch(`/api/status?jobId=${encodeURIComponent(jobId)}`);
         if (!res.ok) return;
         const job = await res.json();
 

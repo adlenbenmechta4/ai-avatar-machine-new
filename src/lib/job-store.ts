@@ -11,6 +11,7 @@ export interface SceneState {
 
 export interface JobState {
   id: string;
+  userId: string;     // Owner of this job — prevents cross-user data mixing
   status: "running" | "done" | "error";
   step: number;        // 0=upload, 1=frames/avatar, 2=videos, 3=merge, 4=done
   message: string;
@@ -32,9 +33,10 @@ const jobs = new Map<string, JobState>();
 // The SSE streaming is the primary communication channel; this store is for /api/status fallback.
 // Cleanup is handled on read (lazy cleanup below).
 
-export function createJob(id: string, sceneCount: number, provider: string): JobState {
+export function createJob(id: string, sceneCount: number, provider: string, userId: string = "anonymous"): JobState {
   const job: JobState = {
     id,
+    userId,
     status: "running",
     step: 0,
     message: "Starting pipeline...",
@@ -56,7 +58,7 @@ export function createJob(id: string, sceneCount: number, provider: string): Job
   return job;
 }
 
-export function getJob(id: string): JobState | undefined {
+export function getJob(id: string, requestingUserId?: string): JobState | undefined {
   // Lazy cleanup: remove jobs older than 60 minutes
   const now = Date.now();
   for (const [jobId, job] of jobs) {
@@ -64,7 +66,12 @@ export function getJob(id: string): JobState | undefined {
       jobs.delete(jobId);
     }
   }
-  return jobs.get(id);
+  const job = jobs.get(id);
+  // Security: verify requesting user owns this job
+  if (job && requestingUserId && job.userId && job.userId !== "anonymous" && requestingUserId !== job.userId) {
+    return undefined; // Don't expose another user's job
+  }
+  return job;
 }
 
 export function updateJob(id: string, update: Partial<JobState>): void {

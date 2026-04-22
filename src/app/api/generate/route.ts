@@ -798,7 +798,7 @@ async function runPipelineSSE(
 
   try {
     // Also create job for /api/status fallback
-    createJob(jobId, validScenes.length, provider);
+    createJob(jobId, validScenes.length, provider, userId || "anonymous");
     addJobLog(jobId, "Pipeline started");
     sse(writer, { type: "started", jobId, message: "Pipeline started" });
 
