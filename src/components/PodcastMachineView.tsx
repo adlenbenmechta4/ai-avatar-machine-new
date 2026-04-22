@@ -398,8 +398,9 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
   const [savedToLibrary, setSavedToLibrary] = useState(false);
   const [view, setView] = useState<"create" | "library">("create");
 
-  // ─── Video Editor State ─────────────────────────────────────────
+  // ─── Video Editor State (works for both create & library views) ─
   const [showEditor, setShowEditor] = useState(false);
+  const [editorVideoUrl, setEditorVideoUrl] = useState("");
 
   const { user } = useAuth();
 
@@ -714,13 +715,23 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
     setLogs([]);
     setClips([]);
     setShowEditor(false);
+    setEditorVideoUrl("");
     if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
     if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
     if (inactivityTimerRef.current) { clearTimeout(inactivityTimerRef.current); inactivityTimerRef.current = null; }
   }, []);
 
-  // ─── Video Editor: Open editor ────────────────────────────────────────
+  // ─── Video Editor: Open editor for generated video ────────────────────
   const openEditor = useCallback(() => {
+    if (finalVideoUrl) {
+      setEditorVideoUrl(finalVideoUrl);
+      setShowEditor(true);
+    }
+  }, [finalVideoUrl]);
+
+  // ─── Video Editor: Open editor for library video ────────────────────────
+  const openEditorForUrl = useCallback((videoUrl: string) => {
+    setEditorVideoUrl(videoUrl);
     setShowEditor(true);
   }, []);
 
@@ -844,7 +855,7 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
         {/* ─── Library View ──────────────────────────────────── */}
         {view === "library" && (
           <div className="mb-10 sm:mb-14">
-            <PodcastVideoLibrary user={user} onViewCreate={() => setView("create")} />
+            <PodcastVideoLibrary user={user} onViewCreate={() => setView("create")} onEditVideo={openEditorForUrl} />
           </div>
         )}
 
@@ -1280,17 +1291,6 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
         )}
 
         {/* ═══════════════════════════════════════════════════════════
-            VIDEO EDITOR (CapCut-like Timeline Editor)
-        ═══════════════════════════════════════════════════════════ */}
-        {showEditor && finalVideoUrl && (
-          <VideoEditor
-            videoUrl={finalVideoUrl}
-            onClose={() => setShowEditor(false)}
-            accentColor={C.gold}
-          />
-        )}
-
-        {/* ═══════════════════════════════════════════════════════════
             GENERATION LOGS (same style as AI Avatar Machine)
         ═══════════════════════════════════════════════════════════ */}
         {logs.length > 0 && (
@@ -1339,6 +1339,19 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
         </React.Fragment>
         )}
       </main>
+
+      {/* ═══════════════════════════════════════════════════════════
+          VIDEO EDITOR (CapCut-like Timeline Editor) - Available for both create & library views
+      ═══════════════════════════════════════════════════════════ */}
+      {showEditor && editorVideoUrl && (
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-8 sm:pb-12">
+          <VideoEditor
+            videoUrl={editorVideoUrl}
+            onClose={() => { setShowEditor(false); setEditorVideoUrl(""); }}
+            accentColor={C.gold}
+          />
+        </div>
+      )}
     </div>
   );
 }
