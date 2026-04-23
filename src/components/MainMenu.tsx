@@ -34,27 +34,56 @@ function CarouselImageDisplay() {
     "/carousel/5.jpeg",
   ];
 
-  // 6 copies = 30 images. Animation moves -16.67% = exactly 1 full set (5 images). Seamless.
+  // 3 copies = 15 images. When we scroll past 1 set (5), we teleport back by that amount.
   const allImages = [
     ...carouselImages, ...carouselImages, ...carouselImages,
-    ...carouselImages, ...carouselImages, ...carouselImages,
   ];
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const offsetRef = useRef(0);
+  const animRef = useRef<number>(0);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    // Calculate width of one full set (5 images + 4 gaps)
+    const oneSetWidth = 5 * 140 + 4 * 8; // 140px img + 8px gap
+
+    let lastTime = performance.now();
+
+    function tick(now: number) {
+      if (!container) return;
+      const delta = (now - lastTime) / 1000;
+      lastTime = now;
+
+      offsetRef.current += delta * 80; // 80px per second = fast smooth scroll
+
+      // When scrolled past one full set, teleport back instantly (invisible jump)
+      if (offsetRef.current >= oneSetWidth) {
+        offsetRef.current -= oneSetWidth;
+      }
+
+      container.style.transform = "translateX(" + (-offsetRef.current) + "px)";
+      animRef.current = requestAnimationFrame(tick);
+    }
+
+    animRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (animRef.current) cancelAnimationFrame(animRef.current);
+    };
+  }, []);
 
   return (
     <div className="relative z-10 mt-2 w-full">
       <div className="relative w-full overflow-hidden">
-        <div
-          className="flex gap-2"
-          style={{ animation: "carouselLoopScroll 15s linear infinite" }}
-        >
+        <div ref={containerRef} className="flex gap-2">
           {allImages.map((src, i) => (
             <div
               key={i}
               className="flex-shrink-0 rounded-xl overflow-hidden shadow-lg"
-              style={{
-                width: "140px",
-                height: "185px",
-              }}
+              style={{ width: "140px", height: "185px" }}
             >
               <img
                 src={src}
@@ -66,12 +95,6 @@ function CarouselImageDisplay() {
           ))}
         </div>
       </div>
-      <style
-        dangerouslySetInnerHTML={{
-          __html:
-            "@keyframes carouselLoopScroll { 0% { transform: translateX(0); } 100% { transform: translateX(-16.6667%); } }",
-        }}
-      />
     </div>
   );
 }
