@@ -34,9 +34,8 @@ function CarouselImageDisplay() {
     "/carousel/5.jpeg",
   ];
 
-  // Use many copies for a truly seamless infinite loop
+  // 4 copies: animation moves -25% (exactly one full set of 5 images) for seamless loop
   const allImages = [
-    ...carouselImages,
     ...carouselImages,
     ...carouselImages,
     ...carouselImages,
@@ -44,14 +43,14 @@ function CarouselImageDisplay() {
   ];
 
   return (
-    <div className="relative z-10 mt-2 w-full h-48 sm:h-56">
+    <div className="relative z-10 mt-2 w-full">
       <div
-        className="relative w-full h-full overflow-hidden rounded-xl"
+        className="relative w-full overflow-hidden rounded-xl"
         style={{ perspective: "800px" }}
       >
         <div
-          className="flex gap-2 h-full"
-          style={{ animation: "carouselLoopScroll 8s linear infinite", alignItems: "center" }}
+          className="flex gap-2"
+          style={{ animation: "carouselLoopScroll 12s linear infinite", alignItems: "center" }}
         >
           {allImages.map((src, i) => {
             const angle = ((i % carouselImages.length) - 2) * 10;
@@ -60,9 +59,8 @@ function CarouselImageDisplay() {
                 key={i}
                 className="flex-shrink-0 rounded-lg overflow-hidden shadow-md"
                 style={{
-                  width: "160px",
-                  height: "100%",
-                  maxWidth: "70vw",
+                  width: "90px",
+                  height: "120px",
                   transform: "rotateY(" + angle + "deg)",
                   transformOrigin: "center center",
                 }}
@@ -81,7 +79,7 @@ function CarouselImageDisplay() {
       <style
         dangerouslySetInnerHTML={{
           __html:
-            "@keyframes carouselLoopScroll { 0% { transform: translateX(0); } 100% { transform: translateX(-20%); } }",
+            "@keyframes carouselLoopScroll { 0% { transform: translateX(0); } 100% { transform: translateX(-25%); } }",
         }}
       />
     </div>
