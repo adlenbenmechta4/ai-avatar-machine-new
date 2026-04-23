@@ -398,6 +398,31 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
   const [savedToLibrary, setSavedToLibrary] = useState(false);
   const [view, setView] = useState<"create" | "library">("create");
 
+  // ─── Auto Subtitle State (fal.ai) ──
+  const [subtitleVideoUrl, setSubtitleVideoUrl] = useState<string>("");
+  const [isGeneratingSubtitles, setIsGeneratingSubtitles] = useState(false);
+  const [subtitleProgress, setSubtitleProgress] = useState("");
+  const [subtitleError, setSubtitleError] = useState("");
+  const [subtitleDone, setSubtitleDone] = useState(false);
+  const [subtitleTranscription, setSubtitleTranscription] = useState("");
+  const [subtitleCount, setSubtitleCount] = useState(0);
+  const [showSubtitlePanel, setShowSubtitlePanel] = useState(false);
+
+  // Subtitle customization
+  const [subLanguage, setSubLanguage] = useState("ar");
+  const [subFontName, setSubFontName] = useState("Cairo");
+  const [subFontSize, setSubFontSize] = useState(100);
+  const [subFontWeight, setSubFontWeight] = useState<"normal" | "bold" | "black">("bold");
+  const [subFontColor, setSubFontColor] = useState("white");
+  const [subHighlightColor, setSubHighlightColor] = useState("yellow");
+  const [subStrokeWidth, setSubStrokeWidth] = useState(3);
+  const [subPosition, setSubPosition] = useState<"top" | "center" | "bottom">("bottom");
+  const [subYOffset, setSubYOffset] = useState(75);
+  const [subWordsPerLine, setSubWordsPerLine] = useState(3);
+  const [subAnimation, setSubAnimation] = useState(true);
+  const [subBgColor, setSubBgColor] = useState("none");
+  const [subBgOpacity, setSubBgOpacity] = useState(0);
+
   // ─── Video Editor State (works for both create & library views) ─
   const [showEditor, setShowEditor] = useState(false);
   const [editorVideoUrl, setEditorVideoUrl] = useState("");
@@ -692,6 +717,68 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
       abortRef.current = null;
     }
   }, [isValid, isRunning, char1ImageUrl, char2ImageUrl, char1Dialogues, char2Dialogues, isAdmin, kieApiKey, falApiKey, addLog]);
+
+  // ─── Auto Subtitle via fal.ai ──────────────────────────────────────────
+  const generateSubtitles = useCallback(async () => {
+    if (!finalVideoUrl || isGeneratingSubtitles) return;
+
+    setIsGeneratingSubtitles(true);
+    setSubtitleProgress("Sending video to fal.ai...");
+    setSubtitleError("");
+    setSubtitleDone(false);
+    setSubtitleVideoUrl("");
+    setSubtitleTranscription("");
+    setSubtitleCount(0);
+
+    try {
+      const res = await fetch("/api/auto-subtitle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          video_url: finalVideoUrl,
+          language: subLanguage,
+          font_name: subFontName,
+          font_size: subFontSize,
+          font_weight: subFontWeight,
+          font_color: subFontColor,
+          highlight_color: subHighlightColor,
+          stroke_width: subStrokeWidth,
+          stroke_color: "black",
+          position: subPosition,
+          y_offset: subYOffset,
+          words_per_subtitle: subWordsPerLine,
+          enable_animation: subAnimation,
+          background_color: subBgColor,
+          background_opacity: subBgOpacity,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error((errData as Record<string, string>).error || "Failed to generate subtitles");
+      }
+
+      const data = await res.json() as Record<string, unknown>;
+
+      if ((data.video_url as string)) {
+        setSubtitleVideoUrl(data.video_url as string);
+        setSubtitleTranscription((data.transcription as string) || "");
+        setSubtitleCount((data.subtitle_count as number) || 0);
+        setSubtitleDone(true);
+        setSubtitleProgress("Done!");
+        addLog("Auto-subtitle generated! " + ((data.subtitle_count as number) || 0) + " subtitles added.");
+      } else {
+        throw new Error("No video URL returned from fal.ai");
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setSubtitleError(msg);
+      setSubtitleProgress("Failed");
+      addLog("ERROR: Auto-subtitle failed - " + msg);
+    } finally {
+      setIsGeneratingSubtitles(false);
+    }
+  }, [finalVideoUrl, isGeneratingSubtitles, subLanguage, subFontName, subFontSize, subFontWeight, subFontColor, subHighlightColor, subStrokeWidth, subPosition, subYOffset, subWordsPerLine, subAnimation, subBgColor, subBgOpacity, addLog]);
 
   // ─── Reset ───────────────────────────────────────────────────────────
   const resetAll = useCallback(() => {
@@ -1207,55 +1294,239 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
                 </h2>
               </div>
 
-              <div className="max-w-lg mx-auto mb-6">
-                <div className="rounded-2xl overflow-hidden border-2 shadow-lg" style={{ borderColor: C.pink }}>
+              <div className="max-w-lg mx-auto mb-4">
+                <div className="rounded-2xl overflow-hidden border-2 shadow-lg relative" style={{ borderColor: subtitleDone ? C.cyan : C.pink }}>
                   <video
-                    src={finalVideoUrl}
+                    key={subtitleDone ? subtitleVideoUrl : finalVideoUrl}
+                    src={subtitleDone ? subtitleVideoUrl : finalVideoUrl}
                     controls
                     autoPlay
                     className="w-full"
                     preload="metadata"
                   />
+                  {subtitleDone && (
+                    <div className="absolute top-3 left-3 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 z-10" style={{ backgroundColor: "rgba(0,0,0,0.7)", color: "#16B1DE", backdropFilter: "blur(8px)" }}>
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "#16B1DE" }} />
+                      Subtitled
+                    </div>
+                  )}
                 </div>
               </div>
 
+              {/* Auto Subtitle Button */}
+              <div className="max-w-lg mx-auto mb-4">
+                <button
+                  onClick={() => setShowSubtitlePanel(!showSubtitlePanel)}
+                  className="w-full py-3.5 rounded-2xl text-sm font-black uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-2.5"
+                  style={{
+                    backgroundColor: showSubtitlePanel ? C.dark : "rgba(0,0,0,0.04)",
+                    color: showSubtitlePanel ? C.white : C.text,
+                    border: "2px solid " + (showSubtitlePanel ? C.dark : "#E5E7EB"),
+                  }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+                  </svg>
+                  Auto Subtitles (fal.ai)
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} style={{ transform: showSubtitlePanel ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Subtitle Customization Panel */}
+              {showSubtitlePanel && (
+                <div className="max-w-lg mx-auto mb-6 rounded-2xl p-5 space-y-4" style={{ backgroundColor: "#FAFAFA", border: "1.5px solid #E5E7EB" }}>
+
+                  {/* Language */}
+                  <div className="flex items-center gap-3">
+                    <label className="text-[10px] font-bold uppercase tracking-widest min-w-[60px]" style={{ color: C.textMuted }}>Language</label>
+                    <select value={subLanguage} onChange={(e) => setSubLanguage(e.target.value)} className="flex-1 px-3 py-2 rounded-lg text-xs font-bold outline-none cursor-pointer" style={{ backgroundColor: C.white, border: "1.5px solid #E5E7EB", color: C.text }}>
+                      <option value="ar">Arabic</option>
+                      <option value="en">English</option>
+                      <option value="fr">French</option>
+                      <option value="es">Spanish</option>
+                      <option value="de">German</option>
+                      <option value="tr">Turkish</option>
+                      <option value="ur">Urdu</option>
+                      <option value="hi">Hindi</option>
+                      <option value="zh">Chinese</option>
+                      <option value="ja">Japanese</option>
+                      <option value="ko">Korean</option>
+                      <option value="pt">Portuguese</option>
+                      <option value="it">Italian</option>
+                      <option value="ru">Russian</option>
+                    </select>
+                  </div>
+
+                  {/* Position + Y Offset */}
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <label className="text-[10px] font-bold uppercase tracking-widest min-w-[60px]" style={{ color: C.textMuted }}>Position</label>
+                    {(["top", "center", "bottom"] as const).map((pos) => (
+                      <button key={pos} onClick={() => setSubPosition(pos)} className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02]" style={{ backgroundColor: subPosition === pos ? C.pink : "rgba(0,0,0,0.05)", color: subPosition === pos ? C.white : C.textMuted, border: "1.5px solid " + (subPosition === pos ? C.pink : "#E5E7EB") }}>
+                        {pos === "top" ? "Top" : pos === "center" ? "Center" : "Bottom"}
+                      </button>
+                    ))}
+                    <span className="text-[10px] font-bold uppercase tracking-widest ml-2" style={{ color: C.textMuted }}>Y:</span>
+                    <input type="range" min="-200" max="200" value={subYOffset} onChange={(e) => setSubYOffset(parseInt(e.target.value))} className="w-20 h-1.5 rounded-full appearance-none cursor-pointer" style={{ accentColor: C.pink }} />
+                    <span className="text-[10px] font-mono font-bold min-w-[30px]" style={{ color: C.textMuted }}>{subYOffset}</span>
+                  </div>
+
+                  {/* Font Size */}
+                  <div className="flex items-center gap-3">
+                    <label className="text-[10px] font-bold uppercase tracking-widest min-w-[60px]" style={{ color: C.textMuted }}>Size</label>
+                    <input type="range" min="30" max="150" value={subFontSize} onChange={(e) => setSubFontSize(parseInt(e.target.value))} className="w-40 h-1.5 rounded-full appearance-none cursor-pointer" style={{ accentColor: C.cyan }} />
+                    <span className="text-[10px] font-mono font-bold min-w-[30px]" style={{ color: C.textMuted }}>{subFontSize}</span>
+                  </div>
+
+                  {/* Words Per Line */}
+                  <div className="flex items-center gap-3">
+                    <label className="text-[10px] font-bold uppercase tracking-widest min-w-[60px]" style={{ color: C.textMuted }}>Words/L</label>
+                    <input type="range" min="1" max="12" value={subWordsPerLine} onChange={(e) => setSubWordsPerLine(parseInt(e.target.value))} className="w-40 h-1.5 rounded-full appearance-none cursor-pointer" style={{ accentColor: C.dark }} />
+                    <span className="text-[10px] font-mono font-bold min-w-[20px]" style={{ color: C.textMuted }}>{subWordsPerLine}</span>
+                  </div>
+
+                  {/* Font Weight */}
+                  <div className="flex items-center gap-3">
+                    <label className="text-[10px] font-bold uppercase tracking-widest min-w-[60px]" style={{ color: C.textMuted }}>Weight</label>
+                    {(["normal", "bold", "black"] as const).map((w) => (
+                      <button key={w} onClick={() => setSubFontWeight(w)} className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02]" style={{ backgroundColor: subFontWeight === w ? C.dark : "rgba(0,0,0,0.05)", color: subFontWeight === w ? C.white : C.textMuted, border: "1.5px solid " + (subFontWeight === w ? C.dark : "#E5E7EB"), fontWeight: w === "normal" ? 400 : w === "bold" ? 700 : 900 }}>
+                        {w}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Colors */}
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <label className="text-[10px] font-bold uppercase tracking-widest min-w-[60px]" style={{ color: C.textMuted }}>Colors</label>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[9px] uppercase" style={{ color: C.textMuted }}>Text:</span>
+                      {["white", "black", "yellow", "red", "cyan", "lime"].map((c) => (
+                        <button key={c} onClick={() => setSubFontColor(c)} className="w-6 h-6 rounded-full border-2 transition-all hover:scale-110 cursor-pointer" style={{ backgroundColor: c, borderColor: subFontColor === c ? C.pink : "transparent", transform: subFontColor === c ? "scale(1.15)" : "scale(1)" }} />
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-1.5 ml-2">
+                      <span className="text-[9px] uppercase" style={{ color: C.textMuted }}>HL:</span>
+                      {["yellow", "cyan", "lime", "pink", "white", "orange"].map((c) => (
+                        <button key={c} onClick={() => setSubHighlightColor(c)} className="w-6 h-6 rounded-full border-2 transition-all hover:scale-110 cursor-pointer" style={{ backgroundColor: c === "pink" ? "#E461AD" : c === "lime" ? "#9AFF01" : c === "orange" ? "#F59E0B" : c, borderColor: subHighlightColor === c ? C.dark : "transparent", transform: subHighlightColor === c ? "scale(1.15)" : "scale(1)" }} />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Stroke */}
+                  <div className="flex items-center gap-3">
+                    <label className="text-[10px] font-bold uppercase tracking-widest min-w-[60px]" style={{ color: C.textMuted }}>Stroke</label>
+                    <input type="range" min="0" max="10" value={subStrokeWidth} onChange={(e) => setSubStrokeWidth(parseInt(e.target.value))} className="w-40 h-1.5 rounded-full appearance-none cursor-pointer" style={{ accentColor: "#E5E7EB" }} />
+                    <span className="text-[10px] font-mono font-bold min-w-[20px]" style={{ color: C.textMuted }}>{subStrokeWidth}</span>
+                    <span className="text-[10px] uppercase ml-2" style={{ color: C.textMuted }}>BG:</span>
+                    <button onClick={() => setSubBgColor(subBgColor === "none" ? "black" : "none")} className="px-3 py-1 rounded-lg text-[10px] font-bold uppercase transition-all cursor-pointer" style={{ backgroundColor: subBgColor !== "none" ? C.dark : "rgba(0,0,0,0.05)", color: subBgColor !== "none" ? C.white : C.textMuted, border: "1.5px solid " + (subBgColor !== "none" ? C.dark : "#E5E7EB") }}>
+                      {subBgColor !== "none" ? "ON" : "OFF"}
+                    </button>
+                    {subBgColor !== "none" && (
+                      <>
+                        <input type="range" min="0" max="100" value={Math.round(subBgOpacity * 100)} onChange={(e) => setSubBgOpacity(parseInt(e.target.value) / 100)} className="w-20 h-1.5 rounded-full appearance-none cursor-pointer" style={{ accentColor: C.dark }} />
+                        <span className="text-[10px] font-mono" style={{ color: C.textMuted }}>{Math.round(subBgOpacity * 100)}%</span>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Animation + Font */}
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <label className="text-[10px] font-bold uppercase tracking-widest min-w-[60px]" style={{ color: C.textMuted }}>Animate</label>
+                    <button onClick={() => setSubAnimation(!subAnimation)} className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02]" style={{ backgroundColor: subAnimation ? "#22C55E" : "rgba(0,0,0,0.05)", color: subAnimation ? C.white : C.textMuted, border: "1.5px solid " + (subAnimation ? "#22C55E" : "#E5E7EB") }}>
+                      {subAnimation ? "ON" : "OFF"}
+                    </button>
+                    <span className="text-[10px] font-bold uppercase tracking-widest ml-2" style={{ color: C.textMuted }}>Font:</span>
+                    <select value={subFontName} onChange={(e) => setSubFontName(e.target.value)} className="px-3 py-1.5 rounded-lg text-xs font-bold outline-none cursor-pointer" style={{ backgroundColor: C.white, border: "1.5px solid #E5E7EB", color: C.text }}>
+                      <option value="Cairo">Cairo</option>
+                      <option value="Tajawal">Tajawal</option>
+                      <option value="Noto Sans Arabic">Noto Sans Arabic</option>
+                      <option value="Montserrat">Montserrat</option>
+                      <option value="Poppins">Poppins</option>
+                      <option value="Inter">Inter</option>
+                      <option value="Roboto">Roboto</option>
+                      <option value="Oswald">Oswald</option>
+                      <option value="Bebas Neue">Bebas Neue</option>
+                      <option value="Anton">Anton</option>
+                    </select>
+                  </div>
+
+                  {/* Generate Button */}
+                  <button onClick={generateSubtitles} disabled={isGeneratingSubtitles} className="w-full py-3.5 rounded-2xl text-sm font-black uppercase tracking-widest transition-all disabled:opacity-50 cursor-pointer" style={{ backgroundColor: isGeneratingSubtitles ? "#E5E7EB" : C.cyan, color: isGeneratingSubtitles ? C.textMuted : C.white, boxShadow: isGeneratingSubtitles ? "none" : "0 8px 30px " + C.cyan + "30" }}>
+                    {isGeneratingSubtitles ? (
+                      <span className="inline-flex items-center gap-3">
+                        <div className="w-5 h-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                        {subtitleProgress || "Processing..."}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-2">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                        </svg>
+                        Generate Auto Subtitles ($0.03/min)
+                      </span>
+                    )}
+                  </button>
+
+                  {subtitleError && (
+                    <div className="rounded-xl p-3 text-xs" style={{ backgroundColor: "#FEF2F2", border: "1.5px solid #FECACA", color: "#DC2626" }}>
+                      {subtitleError}
+                    </div>
+                  )}
+
+                  {subtitleDone && (
+                    <div className="rounded-xl p-3 text-xs space-y-1" style={{ backgroundColor: "#F0FDF4", border: "1.5px solid #BBF7D0", color: "#16A34A" }}>
+                      <p className="font-bold">Subtitles added successfully!</p>
+                      <p>{subtitleCount} subtitle segments generated</p>
+                      {subtitleTranscription && (
+                        <details className="mt-2">
+                          <summary className="cursor-pointer font-bold text-[10px] uppercase">Transcription</summary>
+                          <p className="mt-1 text-[11px] opacity-80 max-h-24 overflow-y-auto">{subtitleTranscription}</p>
+                        </details>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="flex flex-wrap items-center justify-center gap-3">
                 <a
-                  href={finalVideoUrl}
-                  download={`podcast-video-${Date.now()}.mp4`}
+                  href={subtitleDone ? subtitleVideoUrl : finalVideoUrl}
+                  download={subtitleDone ? "subtitled-podcast-" + Date.now() + ".mp4" : "podcast-video-" + Date.now() + ".mp4"}
                   className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                  style={{ backgroundColor: C.dark, color: C.white }}
+                  style={{ backgroundColor: subtitleDone ? C.cyan : C.dark, color: C.white }}
                 >
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
                   </svg>
-                  Download Video
+                  {subtitleDone ? "Download Subtitled" : "Download Video"}
                 </a>
-                <button
-                  onClick={openEditor}
-                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                  style={{ backgroundColor: C.gold, color: C.white, boxShadow: `0 4px 16px ${C.gold}40` }}
-                >
+                {subtitleDone && (
+                  <a
+                    href={finalVideoUrl}
+                    download={"podcast-video-" + Date.now() + ".mp4"}
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                    style={{ backgroundColor: C.dark, color: C.white }}
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                    </svg>
+                    Download Original
+                  </a>
+                )}
+                <button onClick={openEditor} className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]" style={{ backgroundColor: C.gold, color: C.white, boxShadow: "0 4px 16px " + C.gold + "40" }}>
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                   </svg>
                   Edit Your Video
                 </button>
-                <button
-                  onClick={() => setView("library")}
-                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                  style={{ backgroundColor: savedToLibrary ? "#22C55E" : C.cyan, color: C.white }}
-                >
+                <button onClick={() => setView("library")} className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]" style={{ backgroundColor: savedToLibrary ? "#22C55E" : C.cyan, color: C.white }}>
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
                   </svg>
                   {savedToLibrary ? "Saved to Library" : "Save to Library"}
                 </button>
-                <button
-                  onClick={resetAll}
-                  className="px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer border-2 hover:bg-gray-50"
-                  style={{ borderColor: "#E5E7EB", color: C.textMuted }}
-                >
+                <button onClick={resetAll} className="px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer border-2 hover:bg-gray-50" style={{ borderColor: "#E5E7EB", color: C.textMuted }}>
                   Create Another
                 </button>
               </div>
