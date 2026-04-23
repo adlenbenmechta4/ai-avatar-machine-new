@@ -34,9 +34,8 @@ function CarouselImageDisplay() {
     "/carousel/5.jpeg",
   ];
 
-  // 4 copies: animation moves -25% (exactly one full set of 5 images) for seamless loop
+  // 3 copies: animation moves -33.33% (exactly one full set of 5 images) for seamless loop
   const allImages = [
-    ...carouselImages,
     ...carouselImages,
     ...carouselImages,
     ...carouselImages,
@@ -45,23 +44,25 @@ function CarouselImageDisplay() {
   return (
     <div className="relative z-10 mt-2 w-full">
       <div
-        className="relative w-full overflow-hidden rounded-xl"
-        style={{ perspective: "800px" }}
+        className="relative w-full overflow-hidden"
       >
         <div
-          className="flex gap-2"
-          style={{ animation: "carouselLoopScroll 12s linear infinite", alignItems: "center" }}
+          className="flex gap-3"
+          style={{ animation: "carouselLoopScroll 14s linear infinite" }}
         >
           {allImages.map((src, i) => {
-            const angle = ((i % carouselImages.length) - 2) * 10;
+            // Create a gentle arc: edges tilt outward, center is straight
+            const posInSet = i % carouselImages.length; // 0-4
+            const arcAngles = [-6, -3, 0, 3, 6];
+            const yOffsets = [4, 1, 0, 1, 4];
             return (
               <div
                 key={i}
-                className="flex-shrink-0 rounded-lg overflow-hidden shadow-md"
+                className="flex-shrink-0 rounded-xl overflow-hidden shadow-lg"
                 style={{
-                  width: "90px",
-                  height: "120px",
-                  transform: "rotateY(" + angle + "deg)",
+                  width: "110px",
+                  height: "145px",
+                  transform: "rotateY(" + arcAngles[posInSet] + "deg) translateY(" + yOffsets[posInSet] + "px)",
                   transformOrigin: "center center",
                 }}
               >
@@ -79,7 +80,7 @@ function CarouselImageDisplay() {
       <style
         dangerouslySetInnerHTML={{
           __html:
-            "@keyframes carouselLoopScroll { 0% { transform: translateX(0); } 100% { transform: translateX(-25%); } }",
+            "@keyframes carouselLoopScroll { 0% { transform: translateX(0); } 100% { transform: translateX(-33.33%); } }",
         }}
       />
     </div>
