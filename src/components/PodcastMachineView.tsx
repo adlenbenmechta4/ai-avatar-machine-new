@@ -3,6 +3,7 @@
 import React, { useState, useRef, useCallback } from "react";
 import PodcastVideoLibrary from "@/components/PodcastVideoLibrary";
 import VideoEditor from "@/components/VideoEditor";
+import CaptionPanelModal from "@/components/CaptionPanelModal";
 import { saveVideoToStorage } from "@/lib/video-store";
 import { useAuth } from "@/providers/auth-provider";
 
@@ -427,6 +428,10 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
   const [showEditor, setShowEditor] = useState(false);
   const [editorVideoUrl, setEditorVideoUrl] = useState("");
 
+  // ─── Library Caption Modal State ──
+  const [captionVideoUrl, setCaptionVideoUrl] = useState<string>("");
+  const [showCaptionModal, setShowCaptionModal] = useState(false);
+
   const { user } = useAuth();
 
   // ─── Save to Library ─────────────────────────────────────────────────
@@ -811,6 +816,12 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
     setShowEditor(true);
   }, []);
 
+  // ─── Library Caption: Open caption modal for library video ─────────────
+  const openCaptionForUrl = useCallback((videoUrl: string) => {
+    setCaptionVideoUrl(videoUrl);
+    setShowCaptionModal(true);
+  }, []);
+
   // ─── Download ────────────────────────────────────────────────────────
   const downloadVideo = async (url: string, filename: string) => {
     try {
@@ -931,7 +942,7 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
         {/* ─── Library View ──────────────────────────────────── */}
         {view === "library" && (
           <div className="mb-10 sm:mb-14">
-            <PodcastVideoLibrary user={user} onViewCreate={() => setView("create")} onEditVideo={openEditorForUrl} />
+            <PodcastVideoLibrary user={user} onViewCreate={() => setView("create")} onEditVideo={openEditorForUrl} onCaptionVideo={openCaptionForUrl} />
           </div>
         )}
 
@@ -1611,6 +1622,17 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
             accentColor={C.gold}
           />
         </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          LIBRARY CAPTION MODAL - Add auto captions to library videos
+      ═══════════════════════════════════════════════════════════ */}
+      {showCaptionModal && captionVideoUrl && (
+        <CaptionPanelModal
+          videoUrl={captionVideoUrl}
+          onClose={() => { setShowCaptionModal(false); setCaptionVideoUrl(""); }}
+          accentColor={C.cyan}
+        />
       )}
     </div>
   );

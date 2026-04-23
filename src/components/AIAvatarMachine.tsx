@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/providers/auth-provider";
 import VideoLibrary from "@/components/VideoLibrary";
 import VideoEditor from "@/components/VideoEditor";
+import CaptionPanelModal from "@/components/CaptionPanelModal";
 // Auto-subtitle via fal.ai
 import { saveVideoToStorage } from "@/lib/video-store";
 
@@ -1654,6 +1655,14 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
     setShowEditor(true);
   }, []);
 
+  // ─── Library Caption: Open caption modal for library video ─────────────
+  const [captionVideoUrl, setCaptionVideoUrl] = useState<string>("");
+  const [showCaptionModal, setShowCaptionModal] = useState(false);
+  const openCaptionForUrl = useCallback((videoUrl: string) => {
+    setCaptionVideoUrl(videoUrl);
+    setShowCaptionModal(true);
+  }, []);
+
   // ─── Render ───────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: T.white }}>
@@ -1745,7 +1754,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
           {/* ─── Library View ────────────────────────────────────────── */}
           {view === "library" && (
             <div className="mb-10 sm:mb-14">
-              <VideoLibrary onViewCreate={() => setView("create")} onEditVideo={openEditorForUrl} theme={theme} />
+              <VideoLibrary onViewCreate={() => setView("create")} onEditVideo={openEditorForUrl} onCaptionVideo={openCaptionForUrl} theme={theme} />
             </div>
           )}
 
@@ -3225,6 +3234,15 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
             videoUrl={editorVideoUrl}
             onClose={() => { setShowEditor(false); setEditorVideoUrl(""); }}
             accentColor={T.lime}
+          />
+        )}
+
+        {/* ─── Library Caption Modal ── */}
+        {showCaptionModal && captionVideoUrl && (
+          <CaptionPanelModal
+            videoUrl={captionVideoUrl}
+            onClose={() => { setShowCaptionModal(false); setCaptionVideoUrl(""); }}
+            accentColor={T.pink}
           />
         )}
       </main>
