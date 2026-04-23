@@ -34,33 +34,26 @@ function CarouselImageDisplay() {
     "/carousel/5.jpeg",
   ];
 
-  // 8 copies for very long seamless scroll - moves 1 set = -12.5%
+  // 6 copies = 30 images. Animation moves -16.67% = exactly 1 full set (5 images). Seamless.
   const allImages = [
-    ...carouselImages, ...carouselImages, ...carouselImages, ...carouselImages,
-    ...carouselImages, ...carouselImages, ...carouselImages, ...carouselImages,
+    ...carouselImages, ...carouselImages, ...carouselImages,
+    ...carouselImages, ...carouselImages, ...carouselImages,
   ];
 
   return (
     <div className="relative z-10 mt-2 w-full">
-      <div
-        className="relative w-full overflow-hidden"
-        style={{ perspective: "800px", perspectiveOrigin: "50% 100%" }}
-      >
+      <div className="relative w-full overflow-hidden">
         <div
-          className="flex gap-3"
-          style={{
-            animation: "carouselLoopScroll 20s linear infinite",
-            transformStyle: "preserve-3d",
-            transform: "rotateX(-6deg)",
-          }}
+          className="flex gap-2"
+          style={{ animation: "carouselLoopScroll 15s linear infinite" }}
         >
           {allImages.map((src, i) => (
             <div
               key={i}
               className="flex-shrink-0 rounded-xl overflow-hidden shadow-lg"
               style={{
-                width: "130px",
-                height: "170px",
+                width: "140px",
+                height: "185px",
               }}
             >
               <img
@@ -76,7 +69,7 @@ function CarouselImageDisplay() {
       <style
         dangerouslySetInnerHTML={{
           __html:
-            "@keyframes carouselLoopScroll { 0% { transform: rotateX(-6deg) translateX(0); } 100% { transform: rotateX(-6deg) translateX(-12.5%); } }",
+            "@keyframes carouselLoopScroll { 0% { transform: translateX(0); } 100% { transform: translateX(-16.6667%); } }",
         }}
       />
     </div>
