@@ -4,8 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/providers/auth-provider";
 import VideoLibrary from "@/components/VideoLibrary";
 import VideoEditor from "@/components/VideoEditor";
-import VideoCaptionPlayer from "@/components/VideoCaptionPlayer";
-import { autoGenerateCaptions, parseSubtitleFile, exportToSRT, type CaptionCue } from "@/lib/caption-utils";
+// Auto-subtitle via fal.ai
 import { saveVideoToStorage } from "@/lib/video-store";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -634,12 +633,33 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
   const [logs, setLogs] = useState<string[]>([]);
   const [showLogs, setShowLogs] = useState(false);
   const [pipelineError, setPipelineError] = useState<string>("");
-  const [captionStyle, setCaptionStyle] = useState<"bold" | "outline" | "karaoke" | "minimal">("karaoke");
-  const [captionPosition, setCaptionPosition] = useState<"top" | "center" | "bottom">("bottom");
-  const [captionSize, setCaptionSize] = useState<"small" | "medium" | "large" | "xl">("medium");
-  const [captionCues, setCaptionCues] = useState<CaptionCue[]>([]);
-  const [captionOffset, setCaptionOffset] = useState(0);
-  const [captionSource, setCaptionSource] = useState<"none" | "srt" | "auto">("none");
+
+  // ── Auto Subtitle State (fal.ai) ──
+  const [subtitleVideoUrl, setSubtitleVideoUrl] = useState<string>("");
+  const [isGeneratingSubtitles, setIsGeneratingSubtitles] = useState(false);
+  const [subtitleProgress, setSubtitleProgress] = useState("");
+  const [subtitleError, setSubtitleError] = useState("");
+  const [subtitleDone, setSubtitleDone] = useState(false);
+  const [subtitleTranscription, setSubtitleTranscription] = useState("");
+  const [subtitleCount, setSubtitleCount] = useState(0);
+  const [showSubtitlePanel, setShowSubtitlePanel] = useState(false);
+
+  // Subtitle customization options
+  const [subLanguage, setSubLanguage] = useState("ar");
+  const [subFontName, setSubFontName] = useState("Cairo");
+  const [subFontSize, setSubFontSize] = useState(100);
+  const [subFontWeight, setSubFontWeight] = useState<"normal" | "bold" | "black">("bold");
+  const [subFontColor, setSubFontColor] = useState("white");
+  const [subHighlightColor, setSubHighlightColor] = useState("yellow");
+  const [subStrokeWidth, setSubStrokeWidth] = useState(3);
+  const [subStrokeColor, setSubStrokeColor] = useState("black");
+  const [subPosition, setSubPosition] = useState<"top" | "center" | "bottom">("bottom");
+  const [subYOffset, setSubYOffset] = useState(75);
+  const [subWordsPerLine, setSubWordsPerLine] = useState(3);
+  const [subAnimation, setSubAnimation] = useState(true);
+  const [subBgColor, setSubBgColor] = useState("none");
+  const [subBgOpacity, setSubBgOpacity] = useState(0);
+
   const autoRetryCountRef = useRef<number>(0);
   const MAX_AUTO_RETRIES = 3;
 
@@ -1557,6 +1577,68 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
       alert("Failed to save to library: " + msg);
     }
   }, [finalVideoUrl, finalFrameUrls, totalDuration, videoProvider, scenes.length, authFetch, savedToLibrary, user?.email]);
+
+  // ─── Auto Subtitle via fal.ai ──────────────────────────────────────────
+  const generateSubtitles = useCallback(async () => {
+    if (!finalVideoUrl || isGeneratingSubtitles) return;
+
+    setIsGeneratingSubtitles(true);
+    setSubtitleProgress("Sending video to fal.ai...");
+    setSubtitleError("");
+    setSubtitleDone(false);
+    setSubtitleVideoUrl("");
+    setSubtitleTranscription("");
+    setSubtitleCount(0);
+
+    try {
+      const res = await fetch("/api/auto-subtitle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          video_url: finalVideoUrl,
+          language: subLanguage,
+          font_name: subFontName,
+          font_size: subFontSize,
+          font_weight: subFontWeight,
+          font_color: subFontColor,
+          highlight_color: subHighlightColor,
+          stroke_width: subStrokeWidth,
+          stroke_color: subStrokeColor,
+          position: subPosition,
+          y_offset: subYOffset,
+          words_per_subtitle: subWordsPerLine,
+          enable_animation: subAnimation,
+          background_color: subBgColor,
+          background_opacity: subBgOpacity,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error((errData as Record<string, string>).error || "Failed to generate subtitles");
+      }
+
+      const data = await res.json() as Record<string, unknown>;
+
+      if ((data.video_url as string)) {
+        setSubtitleVideoUrl(data.video_url as string);
+        setSubtitleTranscription((data.transcription as string) || "");
+        setSubtitleCount((data.subtitle_count as number) || 0);
+        setSubtitleDone(true);
+        setSubtitleProgress("Done!");
+        addLog("Auto-subtitle generated successfully! " + ((data.subtitle_count as number) || 0) + " subtitles added.");
+      } else {
+        throw new Error("No video URL returned from fal.ai");
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setSubtitleError(msg);
+      setSubtitleProgress("Failed");
+      addLog("ERROR: Auto-subtitle failed — " + msg);
+    } finally {
+      setIsGeneratingSubtitles(false);
+    }
+  }, [finalVideoUrl, isGeneratingSubtitles, subLanguage, subFontName, subFontSize, subFontWeight, subFontColor, subHighlightColor, subStrokeWidth, subStrokeColor, subPosition, subYOffset, subWordsPerLine, subAnimation, subBgColor, subBgOpacity, addLog]);
 
   // ─── Video Editor: Open editor for generated video ──────────────────
   const openEditor = useCallback(() => {
@@ -2639,238 +2721,344 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
                 </div>
 
                 <div className="max-w-lg mx-auto mb-4">
-                  <div className="rounded-2xl overflow-hidden border-2 shadow-lg" style={{ borderColor: T.lime }}>
+                  <div className="rounded-2xl overflow-hidden border-2 shadow-lg relative" style={{ borderColor: subtitleDone ? T.cyan : T.lime }}>
                     <video
-                      src={finalVideoUrl}
+                      key={subtitleDone ? subtitleVideoUrl : finalVideoUrl}
+                      src={subtitleDone ? subtitleVideoUrl : finalVideoUrl}
                       controls
                       autoPlay
                       className="w-full rounded-2xl"
                       preload="metadata"
-                      style={{ display: captionSource !== "none" ? "none" : "block" }}
                     />
-                    {captionSource !== "none" && captionCues.length > 0 && (
-                      <VideoCaptionPlayer
-                        videoUrl={finalVideoUrl}
-                        captions={captionCues}
-                        captionStyle={captionStyle}
-                        captionPosition={captionPosition}
-                        captionSize={captionSize}
-                        captionOffset={captionOffset}
-                        className="w-full"
-                      />
+                    {subtitleDone && (
+                      <div className="absolute top-3 left-3 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 z-10" style={{ backgroundColor: "rgba(0,0,0,0.7)", color: "#16B1DE", backdropFilter: "blur(8px)" }}>
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "#16B1DE" }} />
+                        Subtitled
+                      </div>
                     )}
                   </div>
                 </div>
 
-                {/* Caption controls */}
-                <div className="max-w-lg mx-auto mb-6 space-y-3">
-                  {/* Row 1: Source selector - Upload SRT or Auto-generate */}
-                  <div className="flex items-center justify-center gap-2 flex-wrap">
-                    <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: T.textMuted }}>Captions:</span>
-                    <button
-                      onClick={() => { setCaptionSource("none"); setCaptionCues([]); }}
-                      className="px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02]"
-                      style={{
-                        backgroundColor: captionSource === "none" ? T.cardBorder : "rgba(0,0,0,0.05)",
-                        color: captionSource === "none" ? T.white : T.textMuted,
-                        border: "1.5px solid " + (captionSource === "none" ? T.dark : T.cardBorder),
-                      }}
-                    >
-                      Off
-                    </button>
-                    <label className="px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] inline-flex items-center gap-1.5"
-                      style={{
-                        backgroundColor: captionSource === "srt" ? T.cyan : "rgba(0,0,0,0.05)",
-                        color: captionSource === "srt" ? T.white : T.textMuted,
-                        border: "1.5px solid " + (captionSource === "srt" ? T.cyan : T.cardBorder),
-                      }}
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
-                      </svg>
-                      Upload SRT
-                      <input
-                        type="file"
-                        accept=".srt,.vtt"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          const reader = new FileReader();
-                          reader.onload = (ev) => {
-                            const content = ev.target?.result as string;
-                            const cues = parseSubtitleFile(content, file.name);
-                            if (cues.length > 0) {
-                              setCaptionCues(cues);
-                              setCaptionSource("srt");
-                            } else {
-                              alert("No valid captions found in file. Make sure it's a valid SRT or VTT file.");
-                            }
-                          };
-                          reader.readAsText(file);
-                          e.target.value = "";
-                        }}
-                      />
-                    </label>
-                    <button
-                      onClick={() => {
-                        const video = document.querySelector("video");
-                        if (video && video.duration > 0) {
-                          const validScenes = scenes.filter((s) => s.script?.trim()).map((s) => ({ script: s.script }));
-                          if (validScenes.length === 0) {
-                            alert("No scene scripts available for auto-generation.");
-                            return;
-                          }
-                          const cues = autoGenerateCaptions(validScenes, video.duration);
-                          setCaptionCues(cues);
-                          setCaptionSource("auto");
-                          setCaptionOffset(0);
-                        }
-                      }}
-                      className="px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] inline-flex items-center gap-1.5"
-                      style={{
-                        backgroundColor: captionSource === "auto" ? T.pink : "rgba(0,0,0,0.05)",
-                        color: captionSource === "auto" ? T.white : T.textMuted,
-                        border: "1.5px solid " + (captionSource === "auto" ? T.pink : T.cardBorder),
-                      }}
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
-                      </svg>
-                      Auto Generate
-                    </button>
+                {/* Auto Subtitle Button */}
+                <div className="max-w-lg mx-auto mb-4">
+                  <button
+                    onClick={() => setShowSubtitlePanel(!showSubtitlePanel)}
+                    className="w-full py-3.5 rounded-2xl text-sm font-black uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-2.5"
+                    style={{
+                      backgroundColor: showSubtitlePanel ? T.dark : "rgba(0,0,0,0.04)",
+                      color: showSubtitlePanel ? T.white : T.text,
+                      border: "2px solid " + (showSubtitlePanel ? T.dark : T.cardBorder),
+                    }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+                    </svg>
+                    Auto Subtitles (fal.ai)
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} style={{ transform: showSubtitlePanel ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                    </svg>
+                  </button>
+                </div>
 
-                    {/* Download SRT */}
-                    {captionSource !== "none" && captionCues.length > 0 && (
-                      <button
-                        onClick={() => {
-                          const srt = exportToSRT(captionCues);
-                          const blob = new Blob([srt], { type: "text/plain" });
-                          const url = URL.createObjectURL(blob);
-                          const a = document.createElement("a");
-                          a.href = url;
-                          a.download = "captions.srt";
-                          a.click();
-                          URL.revokeObjectURL(url);
-                        }}
-                        className="px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] inline-flex items-center gap-1.5"
-                        style={{
-                          backgroundColor: "rgba(0,0,0,0.05)",
-                          color: T.textMuted,
-                          border: "1.5px solid " + T.cardBorder,
-                        }}
-                        title="Download SRT file"
+                {/* Subtitle Customization Panel */}
+                {showSubtitlePanel && (
+                  <div className="max-w-lg mx-auto mb-6 rounded-2xl p-5 space-y-4" style={{ backgroundColor: isDark ? T.inputBg : "#FAFAFA", border: "1.5px solid " + T.cardBorder }}>
+
+                    {/* Language */}
+                    <div className="flex items-center gap-3">
+                      <label className="text-[10px] font-bold uppercase tracking-widest min-w-[60px]" style={{ color: T.textMuted }}>Language</label>
+                      <select
+                        value={subLanguage}
+                        onChange={(e) => setSubLanguage(e.target.value)}
+                        className="flex-1 px-3 py-2 rounded-lg text-xs font-bold outline-none cursor-pointer"
+                        style={{ backgroundColor: T.cardBg, border: "1.5px solid " + T.inputBorder, color: T.text }}
                       >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                        </svg>
-                        SRT
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Auto-generate notice */}
-                  {captionSource === "auto" && (
-                    <div className="text-center">
-                      <p className="text-[10px] italic" style={{ color: T.textMuted }}>
-                        Auto-generated timing is estimated. For perfect sync, upload an SRT file.
-                      </p>
+                        <option value="ar">Arabic</option>
+                        <option value="en">English</option>
+                        <option value="fr">French</option>
+                        <option value="es">Spanish</option>
+                        <option value="de">German</option>
+                        <option value="tr">Turkish</option>
+                        <option value="ur">Urdu</option>
+                        <option value="hi">Hindi</option>
+                        <option value="zh">Chinese</option>
+                        <option value="ja">Japanese</option>
+                        <option value="ko">Korean</option>
+                        <option value="pt">Portuguese</option>
+                        <option value="it">Italian</option>
+                        <option value="ru">Russian</option>
+                      </select>
                     </div>
-                  )}
 
-                  {/* Row 2: Style */}
-                  {captionSource !== "none" && (
-                    <div className="flex items-center justify-center gap-2 flex-wrap">
-                      <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: T.textMuted }}>Style:</span>
-                      {(["karaoke", "bold", "outline", "minimal"] as const).map((s) => (
-                        <button
-                          key={s}
-                          onClick={() => setCaptionStyle(s)}
-                          className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02]"
-                          style={{
-                            backgroundColor: captionStyle === s ? T.dark : "rgba(0,0,0,0.05)",
-                            color: captionStyle === s ? T.white : T.textMuted,
-                            border: "1.5px solid " + (captionStyle === s ? T.dark : T.cardBorder),
-                          }}
-                        >
-                          {s}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Row 3: Position */}
-                  {captionSource !== "none" && (
-                    <div className="flex items-center justify-center gap-2 flex-wrap">
-                      <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: T.textMuted }}>Position:</span>
+                    {/* Position + Y Offset */}
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <label className="text-[10px] font-bold uppercase tracking-widest min-w-[60px]" style={{ color: T.textMuted }}>Position</label>
                       {(["top", "center", "bottom"] as const).map((pos) => (
                         <button
                           key={pos}
-                          onClick={() => setCaptionPosition(pos)}
+                          onClick={() => setSubPosition(pos)}
                           className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02]"
                           style={{
-                            backgroundColor: captionPosition === pos ? T.pink : "rgba(0,0,0,0.05)",
-                            color: captionPosition === pos ? T.white : T.textMuted,
-                            border: "1.5px solid " + (captionPosition === pos ? T.pink : T.cardBorder),
+                            backgroundColor: subPosition === pos ? T.pink : "rgba(0,0,0,0.05)",
+                            color: subPosition === pos ? T.white : T.textMuted,
+                            border: "1.5px solid " + (subPosition === pos ? T.pink : T.cardBorder),
                           }}
                         >
                           {pos === "top" ? "Top" : pos === "center" ? "Center" : "Bottom"}
                         </button>
                       ))}
+                      <span className="text-[10px] font-bold uppercase tracking-widest ml-2" style={{ color: T.textMuted }}>Y:</span>
+                      <input
+                        type="range"
+                        min="-200"
+                        max="200"
+                        value={subYOffset}
+                        onChange={(e) => setSubYOffset(parseInt(e.target.value))}
+                        className="w-20 h-1.5 rounded-full appearance-none cursor-pointer"
+                        style={{ accentColor: T.pink }}
+                      />
+                      <span className="text-[10px] font-mono font-bold min-w-[30px]" style={{ color: T.textMuted }}>{subYOffset}</span>
+                    </div>
 
-                      <span className="mx-1 text-[10px]" style={{ color: T.cardBorder }}>|</span>
+                    {/* Font Size */}
+                    <div className="flex items-center gap-3">
+                      <label className="text-[10px] font-bold uppercase tracking-widest min-w-[60px]" style={{ color: T.textMuted }}>Size</label>
+                      <input
+                        type="range"
+                        min="30"
+                        max="150"
+                        value={subFontSize}
+                        onChange={(e) => setSubFontSize(parseInt(e.target.value))}
+                        className="w-40 h-1.5 rounded-full appearance-none cursor-pointer"
+                        style={{ accentColor: T.cyan }}
+                      />
+                      <span className="text-[10px] font-mono font-bold min-w-[30px]" style={{ color: T.textMuted }}>{subFontSize}</span>
+                    </div>
 
-                      <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: T.textMuted }}>Size:</span>
-                      {(["small", "medium", "large", "xl"] as const).map((sz) => (
+                    {/* Words Per Line */}
+                    <div className="flex items-center gap-3">
+                      <label className="text-[10px] font-bold uppercase tracking-widest min-w-[60px]" style={{ color: T.textMuted }}>Words/L</label>
+                      <input
+                        type="range"
+                        min="1"
+                        max="12"
+                        value={subWordsPerLine}
+                        onChange={(e) => setSubWordsPerLine(parseInt(e.target.value))}
+                        className="w-40 h-1.5 rounded-full appearance-none cursor-pointer"
+                        style={{ accentColor: T.dark }}
+                      />
+                      <span className="text-[10px] font-mono font-bold min-w-[20px]" style={{ color: T.textMuted }}>{subWordsPerLine}</span>
+                    </div>
+
+                    {/* Font Weight */}
+                    <div className="flex items-center gap-3">
+                      <label className="text-[10px] font-bold uppercase tracking-widest min-w-[60px]" style={{ color: T.textMuted }}>Weight</label>
+                      {(["normal", "bold", "black"] as const).map((w) => (
                         <button
-                          key={sz}
-                          onClick={() => setCaptionSize(sz)}
+                          key={w}
+                          onClick={() => setSubFontWeight(w)}
                           className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02]"
                           style={{
-                            backgroundColor: captionSize === sz ? T.dark : "rgba(0,0,0,0.05)",
-                            color: captionSize === sz ? T.white : T.textMuted,
-                            border: "1.5px solid " + (captionSize === sz ? T.dark : T.cardBorder),
+                            backgroundColor: subFontWeight === w ? T.dark : "rgba(0,0,0,0.05)",
+                            color: subFontWeight === w ? T.white : T.textMuted,
+                            border: "1.5px solid " + (subFontWeight === w ? T.dark : T.cardBorder),
+                            fontWeight: w === "normal" ? 400 : w === "bold" ? 700 : 900,
                           }}
                         >
-                          {sz === "small" ? "S" : sz === "medium" ? "M" : sz === "large" ? "L" : "XL"}
+                          {w}
                         </button>
                       ))}
                     </div>
-                  )}
 
-                  {/* Row 4: Offset slider for fine-tuning sync */}
-                  {captionSource !== "none" && (
-                    <div className="flex items-center justify-center gap-3">
-                      <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: T.textMuted }}>Sync:</span>
+                    {/* Colors Row */}
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <label className="text-[10px] font-bold uppercase tracking-widest min-w-[60px]" style={{ color: T.textMuted }}>Colors</label>
+
+                      {/* Font Color */}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] uppercase" style={{ color: T.textMuted }}>Text:</span>
+                        {["white", "black", "yellow", "red", "cyan", "lime"].map((c) => (
+                          <button
+                            key={c}
+                            onClick={() => setSubFontColor(c)}
+                            className="w-6 h-6 rounded-full border-2 transition-all hover:scale-110 cursor-pointer"
+                            style={{
+                              backgroundColor: c,
+                              borderColor: subFontColor === c ? T.pink : "transparent",
+                              transform: subFontColor === c ? "scale(1.15)" : "scale(1)",
+                            }}
+                          />
+                        ))}
+                      </div>
+
+                      {/* Highlight Color */}
+                      <div className="flex items-center gap-1.5 ml-2">
+                        <span className="text-[9px] uppercase" style={{ color: T.textMuted }}>HL:</span>
+                        {["yellow", "cyan", "lime", "pink", "white", "orange"].map((c) => (
+                          <button
+                            key={c}
+                            onClick={() => setSubHighlightColor(c)}
+                            className="w-6 h-6 rounded-full border-2 transition-all hover:scale-110 cursor-pointer"
+                            style={{
+                              backgroundColor: c === "pink" ? "#E461AD" : c === "lime" ? "#9AFF01" : c === "orange" ? "#F59E0B" : c,
+                              borderColor: subHighlightColor === c ? T.dark : "transparent",
+                              transform: subHighlightColor === c ? "scale(1.15)" : "scale(1)",
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Stroke Width */}
+                    <div className="flex items-center gap-3">
+                      <label className="text-[10px] font-bold uppercase tracking-widest min-w-[60px]" style={{ color: T.textMuted }}>Stroke</label>
                       <input
                         type="range"
-                        min="-5"
-                        max="5"
-                        step="0.1"
-                        value={captionOffset}
-                        onChange={(e) => setCaptionOffset(parseFloat(e.target.value))}
-                        className="w-32 h-1.5 rounded-full appearance-none cursor-pointer"
-                        style={{ accentColor: T.cyan, backgroundColor: T.cardBorder }}
+                        min="0"
+                        max="10"
+                        value={subStrokeWidth}
+                        onChange={(e) => setSubStrokeWidth(parseInt(e.target.value))}
+                        className="w-40 h-1.5 rounded-full appearance-none cursor-pointer"
+                        style={{ accentColor: T.cardBorder }}
                       />
-                      <span className="text-[10px] font-mono font-bold min-w-[40px] text-center" style={{ color: T.textMuted }}>
-                        {captionOffset > 0 ? "+" : ""}{captionOffset.toFixed(1)}s
-                      </span>
+                      <span className="text-[10px] font-mono font-bold min-w-[20px]" style={{ color: T.textMuted }}>{subStrokeWidth}</span>
+                      <span className="text-[10px] uppercase ml-2" style={{ color: T.textMuted }}>BG:</span>
+                      <button
+                        onClick={() => setSubBgColor(subBgColor === "none" ? "black" : "none")}
+                        className="px-3 py-1 rounded-lg text-[10px] font-bold uppercase transition-all cursor-pointer"
+                        style={{
+                          backgroundColor: subBgColor !== "none" ? T.dark : "rgba(0,0,0,0.05)",
+                          color: subBgColor !== "none" ? T.white : T.textMuted,
+                          border: "1.5px solid " + (subBgColor !== "none" ? T.dark : T.cardBorder),
+                        }}
+                      >
+                        {subBgColor !== "none" ? "ON" : "OFF"}
+                      </button>
+                      {subBgColor !== "none" && (
+                        <>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={Math.round(subBgOpacity * 100)}
+                            onChange={(e) => setSubBgOpacity(parseInt(e.target.value) / 100)}
+                            className="w-20 h-1.5 rounded-full appearance-none cursor-pointer"
+                            style={{ accentColor: T.dark }}
+                          />
+                          <span className="text-[10px] font-mono" style={{ color: T.textMuted }}>{Math.round(subBgOpacity * 100)}%</span>
+                        </>
+                      )}
                     </div>
-                  )}
-                </div>
+
+                    {/* Animation + Font Name */}
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <label className="text-[10px] font-bold uppercase tracking-widest min-w-[60px]" style={{ color: T.textMuted }}>Animate</label>
+                      <button
+                        onClick={() => setSubAnimation(!subAnimation)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02]"
+                        style={{
+                          backgroundColor: subAnimation ? T.lime : "rgba(0,0,0,0.05)",
+                          color: subAnimation ? T.dark : T.textMuted,
+                          border: "1.5px solid " + (subAnimation ? T.lime : T.cardBorder),
+                        }}
+                      >
+                        {subAnimation ? "ON" : "OFF"}
+                      </button>
+
+                      <span className="text-[10px] font-bold uppercase tracking-widest ml-2" style={{ color: T.textMuted }}>Font:</span>
+                      <select
+                        value={subFontName}
+                        onChange={(e) => setSubFontName(e.target.value)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-bold outline-none cursor-pointer"
+                        style={{ backgroundColor: T.cardBg, border: "1.5px solid " + T.inputBorder, color: T.text }}
+                      >
+                        <option value="Cairo">Cairo</option>
+                        <option value="Tajawal">Tajawal</option>
+                        <option value="Noto Sans Arabic">Noto Sans Arabic</option>
+                        <option value="Montserrat">Montserrat</option>
+                        <option value="Poppins">Poppins</option>
+                        <option value="Inter">Inter</option>
+                        <option value="Roboto">Roboto</option>
+                        <option value="Oswald">Oswald</option>
+                        <option value="Bebas Neue">Bebas Neue</option>
+                        <option value="Anton">Anton</option>
+                      </select>
+                    </div>
+
+                    {/* Generate Button */}
+                    <button
+                      onClick={generateSubtitles}
+                      disabled={isGeneratingSubtitles}
+                      className="w-full py-3.5 rounded-2xl text-sm font-black uppercase tracking-widest transition-all disabled:opacity-50 cursor-pointer"
+                      style={{
+                        backgroundColor: isGeneratingSubtitles ? T.cardBorder : T.cyan,
+                        color: isGeneratingSubtitles ? T.textMuted : T.white,
+                        boxShadow: isGeneratingSubtitles ? "none" : "0 8px 30px " + T.cyan + "30",
+                      }}
+                    >
+                      {isGeneratingSubtitles ? (
+                        <span className="inline-flex items-center gap-3">
+                          <div className="w-5 h-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                          {subtitleProgress || "Processing..."}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-2">
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                          </svg>
+                          Generate Auto Subtitles ($0.03/min)
+                        </span>
+                      )}
+                    </button>
+
+                    {/* Error */}
+                    {subtitleError && (
+                      <div className="rounded-xl p-3 text-xs" style={{ backgroundColor: isDark ? "#2D1A1A" : "#FEF2F2", border: "1.5px solid #FECACA", color: "#DC2626" }}>
+                        {subtitleError}
+                      </div>
+                    )}
+
+                    {/* Success info */}
+                    {subtitleDone && (
+                      <div className="rounded-xl p-3 text-xs space-y-1" style={{ backgroundColor: isDark ? "#1A2E1A" : "#F0FDF4", border: "1.5px solid #BBF7D0", color: "#16A34A" }}>
+                        <p className="font-bold">Subtitles added successfully!</p>
+                        <p>{subtitleCount} subtitle segments generated</p>
+                        {subtitleTranscription && (
+                          <details className="mt-2">
+                            <summary className="cursor-pointer font-bold text-[10px] uppercase">Transcription</summary>
+                            <p className="mt-1 text-[11px] opacity-80 max-h-24 overflow-y-auto">{subtitleTranscription}</p>
+                          </details>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex flex-wrap items-center justify-center gap-3">
                   <a
-                    href={finalVideoUrl}
-                    download={`ai-avatar-video-${Date.now()}.mp4`}
+                    href={subtitleDone ? subtitleVideoUrl : finalVideoUrl}
+                    download={subtitleDone ? "subtitled-video-" + Date.now() + ".mp4" : "ai-avatar-video-" + Date.now() + ".mp4"}
                     className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                    style={{ backgroundColor: T.dark, color: T.white }}
+                    style={{ backgroundColor: subtitleDone ? T.cyan : T.dark, color: T.white }}
                   >
                     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
                     </svg>
-                    Download Video
+                    {subtitleDone ? "Download Subtitled" : "Download Video"}
                   </a>
+                  {subtitleDone && (
+                    <a
+                      href={finalVideoUrl}
+                      download={"ai-avatar-video-" + Date.now() + ".mp4"}
+                      className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                      style={{ backgroundColor: T.dark, color: T.white }}
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                      </svg>
+                      Download Original
+                    </a>
+                  )}
                   <button
                     onClick={saveToLibrary}
                     disabled={savedToLibrary}
