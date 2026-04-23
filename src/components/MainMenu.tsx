@@ -719,7 +719,6 @@ function PlansSection({ onGetStarted }: { onGetStarted: () => void }) {
 
 const CARD_VIDEOS = ["/videos/1.mp4", "/videos/2.mp4", "/videos/3.mp4", "/videos/4.mp4", "/videos/5.mp4"];
 const PODCAST_VIDEO = "/videos/podcast-preview.mp4";
-const CAROUSEL_IMAGES = ["/videos/1.mp4", "/videos/2.mp4", "/videos/3.mp4", "/videos/4.mp4", "/videos/5.mp4"];
 
 function VideoCardDisplay({ isHovered }: { isHovered: boolean }) {
   const [currentIdx, setCurrentIdx] = useState(() => Math.floor(Math.random() * CARD_VIDEOS.length));
@@ -1115,128 +1114,6 @@ function PodcastVideoCardDisplay({ isHovered }: { isHovered: boolean }) {
   );
 }
 
-// ─── Carousel Images Display (Looped Slideshow) ──────────────────────────
-
-function CarouselImagesDisplay({ isHovered }: { isHovered: boolean }) {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [fading, setFading] = useState(false);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setFading(true);
-      setTimeout(() => {
-        setCurrentIndex((prev) => (prev + 1) % CAROUSEL_IMAGES.length);
-        setFading(false);
-      }, 400);
-    }, 3000);
-    return () => clearInterval(interval);
-  }, []);
-
-  return (
-    <div
-      className="relative flex flex-col items-center"
-      style={{
-        transition: "transform 0.6s cubic-bezier(0.23, 1, 0.32, 1)",
-        transform: isHovered ? "scale(1.03)" : "scale(1)",
-      }}
-    >
-      {/* Phone Frame */}
-      <div
-        className="relative"
-        style={{
-          width: 140,
-          height: Math.round(140 * (16 / 9)),
-          borderRadius: "22px",
-          background: "linear-gradient(145deg, #2D2418 0%, #1A1510 100%)",
-          padding: "4px",
-          boxShadow: isHovered
-            ? `0 12px 40px rgba(201,169,110,0.35), 0 4px 12px rgba(0,0,0,0.3), inset 0 0 0 1px rgba(201,169,110,0.2)`
-            : `0 6px 24px rgba(0,0,0,0.2), inset 0 0 0 1px rgba(255,255,255,0.08)`,
-          transition: "box-shadow 0.5s ease",
-        }}
-      >
-        {/* Inner screen */}
-        <div
-          className="relative w-full h-full overflow-hidden"
-          style={{ borderRadius: "18px", background: "#000" }}
-        >
-          {/* Video/Image slideshow */}
-          <video
-            key={currentIndex}
-            autoPlay
-            loop
-            muted
-            playsInline
-            className="absolute inset-0 w-full h-full"
-            style={{
-              objectFit: "cover",
-              borderRadius: "18px",
-              objectPosition: "center center",
-              opacity: fading ? 0 : 1,
-              transition: "opacity 0.4s ease",
-            }}
-          >
-            <source src={CAROUSEL_IMAGES[currentIndex]} type="video/mp4" />
-          </video>
-
-          {/* Top gradient overlay */}
-          <div
-            className="absolute top-0 left-0 right-0 z-10 pointer-events-none"
-            style={{
-              height: "30%",
-              background: "linear-gradient(180deg, rgba(0,0,0,0.5) 0%, transparent 100%)",
-            }}
-          />
-
-          {/* Carousel indicator dots */}
-          <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1">
-            {CAROUSEL_IMAGES.map((_, i) => (
-              <div
-                key={i}
-                style={{
-                  width: i === currentIndex ? 12 : 5,
-                  height: 5,
-                  borderRadius: 3,
-                  backgroundColor: i === currentIndex ? C.gold : "rgba(255,255,255,0.35)",
-                  transition: "all 0.3s ease",
-                }}
-              />
-            ))}
-          </div>
-
-          {/* Carousel label */}
-          <div
-            className="absolute top-2.5 left-3 z-10 flex items-center gap-1.5 px-2 py-0.5 rounded-full"
-            style={{
-              backgroundColor: "rgba(201,169,110,0.9)",
-              backdropFilter: "blur(8px)",
-            }}
-          >
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="white">
-              <path d="M4 6h16M4 12h16M4 18h10" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
-            </svg>
-            <span className="text-[8px] font-bold uppercase tracking-widest text-white">
-              Carousel
-            </span>
-          </div>
-
-          {/* Hover shimmer */}
-          {isHovered && (
-            <div
-              className="absolute inset-0 z-10 pointer-events-none"
-              style={{
-                background: "linear-gradient(105deg, transparent 30%, rgba(201,169,110,0.1) 50%, transparent 70%)",
-                animation: "cardShimmer 2s ease-in-out infinite",
-                borderRadius: "18px",
-              }}
-            />
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── MainMenu Component ─────────────────────────────────────────────────────
 
 interface MainMenuProps {
@@ -1572,12 +1449,11 @@ export default function MainMenu({
               {menuItems.map((item, index) => {
                 const isVideoCard = !item.disabled && item.id === "ai-avatar-machine";
                 const isPodcastCard = !item.disabled && item.id === "ai-podcast-machine";
-                const isCarouselCard = !item.disabled && item.id === "ai-viral-carousel";
                 const isHovered = activeCard === index && !item.disabled;
                 return (
                 <div
                   key={item.id}
-                  className={`transition-all duration-700 ${item.disabled ? "cursor-default" : "cursor-pointer"} ${(isVideoCard || isPodcastCard || isCarouselCard) ? "sm:col-span-1 lg:col-span-1" : ""}`}
+                  className={`transition-all duration-700 ${item.disabled ? "cursor-default" : "cursor-pointer"} ${isVideoCard ? "sm:col-span-1 lg:col-span-1" : ""}`}
                   style={{
                     opacity: mounted ? 1 : 0,
                     transform: mounted ? "translateY(0)" : "translateY(40px)",
@@ -1588,11 +1464,11 @@ export default function MainMenu({
                   onClick={() => !item.disabled && handleCardClick(item.id)}
                 >
                   <div
-                    className={`relative overflow-hidden rounded-2xl sm:rounded-3xl h-full transition-all duration-500 ${(isVideoCard || isPodcastCard || isCarouselCard) ? "p-5 sm:p-6 flex flex-col items-center" : "p-6 sm:p-7"}`}
+                    className={`relative overflow-hidden rounded-2xl sm:rounded-3xl h-full transition-all duration-500 ${(isVideoCard || isPodcastCard) ? "p-5 sm:p-6 flex flex-col items-center" : "p-6 sm:p-7"}`}
                     style={{
                       background: item.disabled
                         ? "rgba(255,255,255,0.06)"
-                        : (isVideoCard || isPodcastCard || isCarouselCard)
+                        : (isVideoCard || isPodcastCard)
                           ? "linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.85) 100%)"
                           : C.cardBg,
                       border: `1.5px solid ${
@@ -1606,12 +1482,12 @@ export default function MainMenu({
                       WebkitBackdropFilter: "blur(20px)",
                       boxShadow:
                         isHovered
-                          ? (isVideoCard || isPodcastCard || isCarouselCard)
+                          ? (isVideoCard || isPodcastCard)
                             ? `0 25px 60px ${item.accentColor}30, 0 8px 30px rgba(0,0,0,0.2)`
                             : `0 20px 60px ${item.accentColor}20, 0 8px 24px rgba(0,0,0,0.1)`
                           : "0 4px 24px rgba(0,0,0,0.06)",
                       transform: isHovered
-                        ? (isVideoCard || isPodcastCard || isCarouselCard)
+                        ? (isVideoCard || isPodcastCard)
                           ? "translateY(-8px) scale(1.02)"
                           : "translateY(-6px) scale(1.02)"
                         : "translateY(0) scale(1)",
@@ -1642,15 +1518,8 @@ export default function MainMenu({
                       </div>
                     )}
 
-                    {/* Looped images display for AI Viral Carousel Machine card */}
-                    {isCarouselCard && (
-                      <div className="relative z-10 mb-5">
-                        <CarouselImagesDisplay isHovered={isHovered} />
-                      </div>
-                    )}
-
                     {/* Icon - only show for non-video cards */}
-                    {!isVideoCard && !isPodcastCard && !isCarouselCard && (
+                    {!isVideoCard && !isPodcastCard && (
                     <div className="relative z-10 mb-5">
                       <div
                         className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center transition-all duration-300"
@@ -1666,8 +1535,8 @@ export default function MainMenu({
                     )}
 
                     {/* Title */}
-                    <div className={`relative z-10 ${(isVideoCard || isPodcastCard || isCarouselCard) ? "text-center w-full" : ""}`}>
-                      <div className={`items-center gap-2 mb-1.5 ${(isVideoCard || isPodcastCard || isCarouselCard) ? "flex justify-center" : "flex"}`}>
+                    <div className={`relative z-10 ${(isVideoCard || isPodcastCard) ? "text-center w-full" : ""}`}>
+                      <div className={`items-center gap-2 mb-1.5 ${(isVideoCard || isPodcastCard) ? "flex justify-center" : "flex"}`}>
                         <h3
                           className="text-base sm:text-lg font-bold uppercase tracking-wide"
                           style={{
@@ -1699,7 +1568,7 @@ export default function MainMenu({
                       )}
 
                       <p
-                        className={`text-xs sm:text-sm leading-relaxed ${(isVideoCard || isPodcastCard || isCarouselCard) ? "max-w-[200px] mx-auto" : ""}`}
+                        className={`text-xs sm:text-sm leading-relaxed ${(isVideoCard || isPodcastCard) ? "max-w-[200px] mx-auto" : ""}`}
                         style={{
                           color: item.disabled ? "rgba(255,255,255,0.3)" : "#6B7280",
                         }}
@@ -1710,7 +1579,7 @@ export default function MainMenu({
 
                     {/* CTA Arrow */}
                     {!item.disabled && (
-                      <div className={`relative z-10 mt-5 flex items-center gap-2 ${(isVideoCard || isPodcastCard || isCarouselCard) ? "justify-center" : ""}`}>
+                      <div className={`relative z-10 mt-5 flex items-center gap-2 ${(isVideoCard || isPodcastCard) ? "justify-center" : ""}`}>
                         <span
                           className="text-xs font-bold uppercase tracking-wider"
                           style={{
