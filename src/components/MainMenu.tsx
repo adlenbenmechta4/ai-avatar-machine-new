@@ -44,24 +44,25 @@ function CarouselImageDisplay() {
   ];
 
   return (
-    <div className="relative z-10 mt-3 w-full">
+    <div className="relative z-10 mt-2 w-full h-48 sm:h-56">
       <div
-        className="relative w-full overflow-hidden rounded-xl"
+        className="relative w-full h-full overflow-hidden rounded-xl"
         style={{ perspective: "800px" }}
       >
         <div
-          className="flex gap-2"
-          style={{ animation: "carouselLoopScroll 10s linear infinite" }}
+          className="flex gap-2 h-full"
+          style={{ animation: "carouselLoopScroll 8s linear infinite", alignItems: "center" }}
         >
           {allImages.map((src, i) => {
-            const angle = ((i % carouselImages.length) - 2) * 8;
+            const angle = ((i % carouselImages.length) - 2) * 10;
             return (
               <div
                 key={i}
                 className="flex-shrink-0 rounded-lg overflow-hidden shadow-md"
                 style={{
-                  width: "120px",
-                  height: "160px",
+                  width: "160px",
+                  height: "100%",
+                  maxWidth: "70vw",
                   transform: "rotateY(" + angle + "deg)",
                   transformOrigin: "center center",
                 }}
