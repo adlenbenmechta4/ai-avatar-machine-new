@@ -23,6 +23,63 @@ const C = {
   cardBorder: "rgba(228, 97, 173, 0.25)",
 };
 
+// ─── Carousel Image Display (looped curved scroll) ──────────────────────────
+
+function CarouselImageDisplay() {
+  const carouselImages = [
+    "/carousel/1.jpeg",
+    "/carousel/2.jpeg",
+    "/carousel/3.jpeg",
+    "/carousel/4.jpeg",
+    "/carousel/5.jpeg",
+  ];
+
+  const allImages = [...carouselImages, ...carouselImages, ...carouselImages];
+
+  return (
+    <div className="relative z-10 mb-5 w-full">
+      <div
+        className="relative w-full overflow-hidden rounded-xl"
+        style={{ perspective: "800px" }}
+      >
+        <div
+          className="flex gap-3"
+          style={{ animation: "carouselLoopScroll 12s linear infinite" }}
+        >
+          {allImages.map((src, i) => {
+            const angle = ((i % carouselImages.length) - 2) * 8;
+            return (
+              <div
+                key={i}
+                className="flex-shrink-0 rounded-lg overflow-hidden shadow-md"
+                style={{
+                  width: "90px",
+                  height: "120px",
+                  transform: "rotateY(" + angle + "deg)",
+                  transformOrigin: "center center",
+                }}
+              >
+                <img
+                  src={src}
+                  alt={"Carousel slide " + (i + 1)}
+                  className="w-full h-full object-cover"
+                  draggable={false}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <style
+        dangerouslySetInnerHTML={{
+          __html:
+            "@keyframes carouselLoopScroll { 0% { transform: translateX(0); } 100% { transform: translateX(-33.33%); } }",
+        }}
+      />
+    </div>
+  );
+}
+
 // ─── Cursor Effect ──────────────────────────────────────────────────────────
 
 function CursorEffect() {
@@ -1449,6 +1506,8 @@ export default function MainMenu({
               {menuItems.map((item, index) => {
                 const isVideoCard = !item.disabled && item.id === "ai-avatar-machine";
                 const isPodcastCard = !item.disabled && item.id === "ai-podcast-machine";
+                const isCarouselCard = !item.disabled && item.id === "ai-viral-carousel";
+                const isFeatured = isVideoCard || isPodcastCard || isCarouselCard;
                 const isHovered = activeCard === index && !item.disabled;
                 return (
                 <div
@@ -1464,11 +1523,11 @@ export default function MainMenu({
                   onClick={() => !item.disabled && handleCardClick(item.id)}
                 >
                   <div
-                    className={`relative overflow-hidden rounded-2xl sm:rounded-3xl h-full transition-all duration-500 ${(isVideoCard || isPodcastCard) ? "p-5 sm:p-6 flex flex-col items-center" : "p-6 sm:p-7"}`}
+                    className={`relative overflow-hidden rounded-2xl sm:rounded-3xl h-full transition-all duration-500 ${isFeatured ? "p-5 sm:p-6 flex flex-col items-center" : "p-6 sm:p-7"}`}
                     style={{
                       background: item.disabled
                         ? "rgba(255,255,255,0.06)"
-                        : (isVideoCard || isPodcastCard)
+                        : isFeatured
                           ? "linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.85) 100%)"
                           : C.cardBg,
                       border: `1.5px solid ${
@@ -1482,12 +1541,12 @@ export default function MainMenu({
                       WebkitBackdropFilter: "blur(20px)",
                       boxShadow:
                         isHovered
-                          ? (isVideoCard || isPodcastCard)
+                          ? isFeatured
                             ? `0 25px 60px ${item.accentColor}30, 0 8px 30px rgba(0,0,0,0.2)`
                             : `0 20px 60px ${item.accentColor}20, 0 8px 24px rgba(0,0,0,0.1)`
                           : "0 4px 24px rgba(0,0,0,0.06)",
                       transform: isHovered
-                        ? (isVideoCard || isPodcastCard)
+                        ? isFeatured
                           ? "translateY(-8px) scale(1.02)"
                           : "translateY(-6px) scale(1.02)"
                         : "translateY(0) scale(1)",
@@ -1518,8 +1577,11 @@ export default function MainMenu({
                       </div>
                     )}
 
-                    {/* Icon - only show for non-video cards */}
-                    {!isVideoCard && !isPodcastCard && (
+                    {/* Carousel image display - looped curved scroll */}
+                    {isCarouselCard && <CarouselImageDisplay />}
+
+                    {/* Icon - only show for non-featured cards */}
+                    {!isFeatured && (
                     <div className="relative z-10 mb-5">
                       <div
                         className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center transition-all duration-300"
@@ -1535,8 +1597,8 @@ export default function MainMenu({
                     )}
 
                     {/* Title */}
-                    <div className={`relative z-10 ${(isVideoCard || isPodcastCard) ? "text-center w-full" : ""}`}>
-                      <div className={`items-center gap-2 mb-1.5 ${(isVideoCard || isPodcastCard) ? "flex justify-center" : "flex"}`}>
+                    <div className={`relative z-10 ${isFeatured ? "text-center w-full" : ""}`}>
+                      <div className={`items-center gap-2 mb-1.5 ${isFeatured ? "flex justify-center" : "flex"}`}>
                         <h3
                           className="text-base sm:text-lg font-bold uppercase tracking-wide"
                           style={{
@@ -1568,7 +1630,7 @@ export default function MainMenu({
                       )}
 
                       <p
-                        className={`text-xs sm:text-sm leading-relaxed ${(isVideoCard || isPodcastCard) ? "max-w-[200px] mx-auto" : ""}`}
+                        className={`text-xs sm:text-sm leading-relaxed ${isFeatured ? "max-w-[200px] mx-auto" : ""}`}
                         style={{
                           color: item.disabled ? "rgba(255,255,255,0.3)" : "#6B7280",
                         }}
@@ -1579,7 +1641,7 @@ export default function MainMenu({
 
                     {/* CTA Arrow */}
                     {!item.disabled && (
-                      <div className={`relative z-10 mt-5 flex items-center gap-2 ${(isVideoCard || isPodcastCard) ? "justify-center" : ""}`}>
+                      <div className={`relative z-10 mt-5 flex items-center gap-2 ${isFeatured ? "justify-center" : ""}`}>
                         <span
                           className="text-xs font-bold uppercase tracking-wider"
                           style={{
