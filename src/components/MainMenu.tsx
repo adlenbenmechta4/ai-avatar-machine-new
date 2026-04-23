@@ -34,17 +34,24 @@ function CarouselImageDisplay() {
     "/carousel/5.jpeg",
   ];
 
-  const allImages = [...carouselImages, ...carouselImages, ...carouselImages];
+  // Use many copies for a truly seamless infinite loop
+  const allImages = [
+    ...carouselImages,
+    ...carouselImages,
+    ...carouselImages,
+    ...carouselImages,
+    ...carouselImages,
+  ];
 
   return (
-    <div className="relative z-10 mb-5 w-full">
+    <div className="relative z-10 mt-5 w-full">
       <div
         className="relative w-full overflow-hidden rounded-xl"
         style={{ perspective: "800px" }}
       >
         <div
-          className="flex gap-3"
-          style={{ animation: "carouselLoopScroll 12s linear infinite" }}
+          className="flex gap-2"
+          style={{ animation: "carouselLoopScroll 20s linear infinite" }}
         >
           {allImages.map((src, i) => {
             const angle = ((i % carouselImages.length) - 2) * 8;
@@ -53,8 +60,8 @@ function CarouselImageDisplay() {
                 key={i}
                 className="flex-shrink-0 rounded-lg overflow-hidden shadow-md"
                 style={{
-                  width: "90px",
-                  height: "120px",
+                  width: "80px",
+                  height: "107px",
                   transform: "rotateY(" + angle + "deg)",
                   transformOrigin: "center center",
                 }}
@@ -73,7 +80,7 @@ function CarouselImageDisplay() {
       <style
         dangerouslySetInnerHTML={{
           __html:
-            "@keyframes carouselLoopScroll { 0% { transform: translateX(0); } 100% { transform: translateX(-33.33%); } }",
+            "@keyframes carouselLoopScroll { 0% { transform: translateX(0); } 100% { transform: translateX(-20%); } }",
         }}
       />
     </div>
@@ -1577,9 +1584,6 @@ export default function MainMenu({
                       </div>
                     )}
 
-                    {/* Carousel image display - looped curved scroll */}
-                    {isCarouselCard && <CarouselImageDisplay />}
-
                     {/* Icon - only show for non-featured cards */}
                     {!isFeatured && (
                     <div className="relative z-10 mb-5">
@@ -1665,6 +1669,9 @@ export default function MainMenu({
                         </svg>
                       </div>
                     )}
+
+                    {/* Carousel image display - looped curved scroll below text */}
+                    {isCarouselCard && <CarouselImageDisplay />}
                   </div>
                 </div>
               );})}
