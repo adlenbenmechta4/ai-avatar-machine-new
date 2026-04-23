@@ -83,7 +83,7 @@ function CarouselImageDisplay() {
             <div
               key={i}
               className="flex-shrink-0 rounded-xl overflow-hidden shadow-lg"
-              style={{ width: "140px", height: "185px" }}
+              style={{ width: "140px", height: "230px" }}
             >
               <img
                 src={src}
