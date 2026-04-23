@@ -4,7 +4,8 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/providers/auth-provider";
 import VideoLibrary from "@/components/VideoLibrary";
 import VideoEditor from "@/components/VideoEditor";
-import VideoWithCaptions from "@/components/VideoWithCaptions";
+import VideoCaptionPlayer from "@/components/VideoCaptionPlayer";
+import { autoGenerateCaptions, parseSubtitleFile, exportToSRT, type CaptionCue } from "@/lib/caption-utils";
 import { saveVideoToStorage } from "@/lib/video-store";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -633,10 +634,12 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
   const [logs, setLogs] = useState<string[]>([]);
   const [showLogs, setShowLogs] = useState(false);
   const [pipelineError, setPipelineError] = useState<string>("");
-  const [showCaptions, setShowCaptions] = useState(true);
   const [captionStyle, setCaptionStyle] = useState<"bold" | "outline" | "karaoke" | "minimal">("karaoke");
   const [captionPosition, setCaptionPosition] = useState<"top" | "center" | "bottom">("bottom");
-  const [captionSize, setCaptionSize] = useState<"small" | "medium" | "large">("medium");
+  const [captionSize, setCaptionSize] = useState<"small" | "medium" | "large" | "xl">("medium");
+  const [captionCues, setCaptionCues] = useState<CaptionCue[]>([]);
+  const [captionOffset, setCaptionOffset] = useState(0);
+  const [captionSource, setCaptionSource] = useState<"none" | "srt" | "auto">("none");
   const autoRetryCountRef = useRef<number>(0);
   const MAX_AUTO_RETRIES = 3;
 
@@ -2637,66 +2640,167 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
 
                 <div className="max-w-lg mx-auto mb-4">
                   <div className="rounded-2xl overflow-hidden border-2 shadow-lg" style={{ borderColor: T.lime }}>
-                    {showCaptions ? (
-                      <VideoWithCaptions
+                    <video
+                      src={finalVideoUrl}
+                      controls
+                      autoPlay
+                      className="w-full rounded-2xl"
+                      preload="metadata"
+                      style={{ display: captionSource !== "none" ? "none" : "block" }}
+                    />
+                    {captionSource !== "none" && captionCues.length > 0 && (
+                      <VideoCaptionPlayer
                         videoUrl={finalVideoUrl}
-                        scenes={scenes.filter((s) => s.script?.trim()).map((s) => ({ script: s.script }))}
+                        captions={captionCues}
                         captionStyle={captionStyle}
                         captionPosition={captionPosition}
                         captionSize={captionSize}
+                        captionOffset={captionOffset}
                         className="w-full"
-                      />
-                    ) : (
-                      <video
-                        src={finalVideoUrl}
-                        controls
-                        autoPlay
-                        className="w-full rounded-2xl"
-                        preload="metadata"
                       />
                     )}
                   </div>
                 </div>
 
                 {/* Caption controls */}
-                <div className="max-w-lg mx-auto mb-6 space-y-2">
-                  {/* Row 1: ON/OFF + Style */}
+                <div className="max-w-lg mx-auto mb-6 space-y-3">
+                  {/* Row 1: Source selector - Upload SRT or Auto-generate */}
                   <div className="flex items-center justify-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: T.textMuted }}>Captions:</span>
                     <button
-                      onClick={() => setShowCaptions(!showCaptions)}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02]"
+                      onClick={() => { setCaptionSource("none"); setCaptionCues([]); }}
+                      className="px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02]"
                       style={{
-                        backgroundColor: showCaptions ? T.pink : "rgba(0,0,0,0.08)",
-                        color: showCaptions ? T.white : T.textMuted,
-                        border: "1.5px solid " + (showCaptions ? T.pink : T.cardBorder),
+                        backgroundColor: captionSource === "none" ? T.cardBorder : "rgba(0,0,0,0.05)",
+                        color: captionSource === "none" ? T.white : T.textMuted,
+                        border: "1.5px solid " + (captionSource === "none" ? T.dark : T.cardBorder),
                       }}
                     >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
-                      </svg>
-                      {showCaptions ? "ON" : "OFF"}
+                      Off
                     </button>
-                    {showCaptions && (
-                      <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: T.textMuted }}>Style:</span>
-                    )}
-                    {showCaptions && (["karaoke", "bold", "outline", "minimal"] as const).map((s) => (
-                      <button
-                        key={s}
-                        onClick={() => setCaptionStyle(s)}
-                        className="px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02]"
-                        style={{
-                          backgroundColor: captionStyle === s ? T.dark : "rgba(0,0,0,0.05)",
-                          color: captionStyle === s ? T.white : T.textMuted,
-                          border: "1.5px solid " + (captionStyle === s ? T.dark : T.cardBorder),
+                    <label className="px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] inline-flex items-center gap-1.5"
+                      style={{
+                        backgroundColor: captionSource === "srt" ? T.cyan : "rgba(0,0,0,0.05)",
+                        color: captionSource === "srt" ? T.white : T.textMuted,
+                        border: "1.5px solid " + (captionSource === "srt" ? T.cyan : T.cardBorder),
+                      }}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+                      </svg>
+                      Upload SRT
+                      <input
+                        type="file"
+                        accept=".srt,.vtt"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = (ev) => {
+                            const content = ev.target?.result as string;
+                            const cues = parseSubtitleFile(content, file.name);
+                            if (cues.length > 0) {
+                              setCaptionCues(cues);
+                              setCaptionSource("srt");
+                            } else {
+                              alert("No valid captions found in file. Make sure it's a valid SRT or VTT file.");
+                            }
+                          };
+                          reader.readAsText(file);
+                          e.target.value = "";
                         }}
+                      />
+                    </label>
+                    <button
+                      onClick={() => {
+                        const video = document.querySelector("video");
+                        if (video && video.duration > 0) {
+                          const validScenes = scenes.filter((s) => s.script?.trim()).map((s) => ({ script: s.script }));
+                          if (validScenes.length === 0) {
+                            alert("No scene scripts available for auto-generation.");
+                            return;
+                          }
+                          const cues = autoGenerateCaptions(validScenes, video.duration);
+                          setCaptionCues(cues);
+                          setCaptionSource("auto");
+                          setCaptionOffset(0);
+                        }
+                      }}
+                      className="px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] inline-flex items-center gap-1.5"
+                      style={{
+                        backgroundColor: captionSource === "auto" ? T.pink : "rgba(0,0,0,0.05)",
+                        color: captionSource === "auto" ? T.white : T.textMuted,
+                        border: "1.5px solid " + (captionSource === "auto" ? T.pink : T.cardBorder),
+                      }}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
+                      </svg>
+                      Auto Generate
+                    </button>
+
+                    {/* Download SRT */}
+                    {captionSource !== "none" && captionCues.length > 0 && (
+                      <button
+                        onClick={() => {
+                          const srt = exportToSRT(captionCues);
+                          const blob = new Blob([srt], { type: "text/plain" });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = "captions.srt";
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        }}
+                        className="px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] inline-flex items-center gap-1.5"
+                        style={{
+                          backgroundColor: "rgba(0,0,0,0.05)",
+                          color: T.textMuted,
+                          border: "1.5px solid " + T.cardBorder,
+                        }}
+                        title="Download SRT file"
                       >
-                        {s}
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                        </svg>
+                        SRT
                       </button>
-                    ))}
+                    )}
                   </div>
 
-                  {/* Row 2: Position + Size */}
-                  {showCaptions && (
+                  {/* Auto-generate notice */}
+                  {captionSource === "auto" && (
+                    <div className="text-center">
+                      <p className="text-[10px] italic" style={{ color: T.textMuted }}>
+                        Auto-generated timing is estimated. For perfect sync, upload an SRT file.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Row 2: Style */}
+                  {captionSource !== "none" && (
+                    <div className="flex items-center justify-center gap-2 flex-wrap">
+                      <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: T.textMuted }}>Style:</span>
+                      {(["karaoke", "bold", "outline", "minimal"] as const).map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => setCaptionStyle(s)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02]"
+                          style={{
+                            backgroundColor: captionStyle === s ? T.dark : "rgba(0,0,0,0.05)",
+                            color: captionStyle === s ? T.white : T.textMuted,
+                            border: "1.5px solid " + (captionStyle === s ? T.dark : T.cardBorder),
+                          }}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Row 3: Position */}
+                  {captionSource !== "none" && (
                     <div className="flex items-center justify-center gap-2 flex-wrap">
                       <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: T.textMuted }}>Position:</span>
                       {(["top", "center", "bottom"] as const).map((pos) => (
@@ -2717,7 +2821,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
                       <span className="mx-1 text-[10px]" style={{ color: T.cardBorder }}>|</span>
 
                       <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: T.textMuted }}>Size:</span>
-                      {(["small", "medium", "large"] as const).map((sz) => (
+                      {(["small", "medium", "large", "xl"] as const).map((sz) => (
                         <button
                           key={sz}
                           onClick={() => setCaptionSize(sz)}
@@ -2728,9 +2832,29 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
                             border: "1.5px solid " + (captionSize === sz ? T.dark : T.cardBorder),
                           }}
                         >
-                          {sz === "small" ? "S" : sz === "medium" ? "M" : "L"}
+                          {sz === "small" ? "S" : sz === "medium" ? "M" : sz === "large" ? "L" : "XL"}
                         </button>
                       ))}
+                    </div>
+                  )}
+
+                  {/* Row 4: Offset slider for fine-tuning sync */}
+                  {captionSource !== "none" && (
+                    <div className="flex items-center justify-center gap-3">
+                      <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: T.textMuted }}>Sync:</span>
+                      <input
+                        type="range"
+                        min="-5"
+                        max="5"
+                        step="0.1"
+                        value={captionOffset}
+                        onChange={(e) => setCaptionOffset(parseFloat(e.target.value))}
+                        className="w-32 h-1.5 rounded-full appearance-none cursor-pointer"
+                        style={{ accentColor: T.cyan, backgroundColor: T.cardBorder }}
+                      />
+                      <span className="text-[10px] font-mono font-bold min-w-[40px] text-center" style={{ color: T.textMuted }}>
+                        {captionOffset > 0 ? "+" : ""}{captionOffset.toFixed(1)}s
+                      </span>
                     </div>
                   )}
                 </div>
