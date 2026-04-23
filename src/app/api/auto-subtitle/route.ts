@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
       const errText = await submitRes.text();
       console.error("FAL submit error:", submitRes.status, errText);
       return NextResponse.json(
-        { error: "Failed to submit to fal.ai: " + errText.slice(0, 300) },
+        { error: "Failed to submit subtitle job: " + errText.slice(0, 300) },
         { status: submitRes.status }
       );
     }
@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
       try {
         data = JSON.parse(text);
       } catch {
-        return NextResponse.json({ error: "Unexpected response from fal.ai" }, { status: 502 });
+        return NextResponse.json({ error: "Unexpected response from subtitle service" }, { status: 502 });
       }
     } else {
       data = await submitRes.json();
@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
 
         if (statusData.status === "FAILED") {
           return NextResponse.json(
-            { error: "fal.ai processing failed: " + JSON.stringify(statusData.error || "Unknown error") },
+            { error: "Subtitle processing failed: " + JSON.stringify(statusData.error || "Unknown error") },
             { status: 500 }
           );
         }
@@ -136,7 +136,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: "Unexpected response from fal.ai: " + JSON.stringify(data).slice(0, 200) },
+      { error: "Unexpected response from subtitle service: " + JSON.stringify(data).slice(0, 200) },
       { status: 502 }
     );
   } catch (err: unknown) {

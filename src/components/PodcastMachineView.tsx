@@ -488,15 +488,29 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
   }, []);
 
   // ─── Pipeline API helpers ──────────────────────────────────────────
-  const submitVideo = async (imageUrl: string, dialogueText: string): Promise<string> => {
+  const submitVideo = async (imageUrl: string, dialogueText: string, promptStyle?: number): Promise<string> => {
     const res = await fetch("/api/podcast/video", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ imageUrl, dialogueText, apiKey: isAdmin ? kieApiKey.trim() : "" }),
+      body: JSON.stringify({ imageUrl, dialogueText, apiKey: isAdmin ? kieApiKey.trim() : "", promptStyle }),
     });
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || "Failed to submit video");
     return data.taskId;
+  };
+
+  // ── Smart prompt style variation for retries (dialogue text stays EXACTLY the same) ──
+  const varyPrompt = (text: string, attempt: number): string => {
+    // Always return the original text — never modify what the user wrote
+    return text;
+  };
+
+  const getPromptStyle = (attempt: number): number => {
+    // Cycle through different visual descriptions, keeping dialogue text intact
+    if (attempt <= 1) return 0; // original style
+    if (attempt === 2) return 1; // "natural body language..."
+    if (attempt === 3) return 2; // "subtle head and hand..."
+    return 3;                    // "calm confident..."
   };
 
   const checkVideoStatus = async (taskId: string): Promise<{ status: string; videoUrl?: string; error?: string }> => {
@@ -530,7 +544,7 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
   const runGeneration = useCallback(async () => {
     if (!isValid || isRunning) return;
 
-    const MAX_RETRIES = 10;
+    const MAX_RETRIES = 4;
     const POLL_VIDEO_INTERVAL = 8000;
     const POLL_MERGE_INTERVAL = 5000;
 
@@ -593,8 +607,12 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
           if (!pipelineRunningRef.current) throw new DOMException("Aborted", "AbortError");
 
           try {
-            // Submit
-            const taskId = await submitVideo(imageUrl, clip.text);
+            // Submit — use different visual prompt style on retries, dialogue text stays EXACTLY the same
+            const style = getPromptStyle(attempt);
+            if (attempt > 1) {
+              addLog(`📝 Video ${clipIdx}: Retry ${attempt} — trying different visual style (dialogue unchanged)`);
+            }
+            const taskId = await submitVideo(imageUrl, clip.text, style);
             addLog(`📋 Video ${clipIdx}: Submitted (taskId: ${taskId.slice(0, 8)}..., attempt ${attempt})`);
             setClips((prev) => prev.map((c) => c.index === clipIdx ? { ...c, videoProgress: 20, error: "" } : c));
 
@@ -636,9 +654,9 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
             if (msg === "AbortError") throw err;
 
             if (attempt < MAX_RETRIES) {
-              addLog(`🔄 Video ${clipIdx}: Retrying (${attempt}/${MAX_RETRIES})...`);
+              addLog(`🔄 Video ${clipIdx}: Retrying with different visual style (${attempt}/${MAX_RETRIES})...`);
               setClips((prev) => prev.map((c) => c.index === clipIdx ? { ...c, error: `Retrying (${attempt}/${MAX_RETRIES})...`, videoProgress: 0 } : c));
-              const retryDelay = Math.min(20 + (attempt - 1) * 30, 300) * 1000;
+              const retryDelay = Math.min(15 + (attempt - 1) * 20, 120) * 1000;
               addLog(`⏳ Waiting ${Math.round(retryDelay / 1000)}s before retry...`);
               await sleep(retryDelay);
             } else {
@@ -728,7 +746,7 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
     if (!finalVideoUrl || isGeneratingSubtitles) return;
 
     setIsGeneratingSubtitles(true);
-    setSubtitleProgress("Sending video to fal.ai...");
+    setSubtitleProgress("Processing subtitles, please wait...");
     setSubtitleError("");
     setSubtitleDone(false);
     setSubtitleVideoUrl("");
@@ -773,7 +791,7 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
         setSubtitleProgress("Done!");
         addLog("Auto-subtitle generated! " + ((data.subtitle_count as number) || 0) + " subtitles added.");
       } else {
-        throw new Error("No video URL returned from fal.ai");
+        throw new Error("Subtitle generation failed. Please try again.");
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1077,7 +1095,7 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: C.textMuted }}>
-                  kie.ai API Key
+                  Image Generation API Key
                 </label>
                 <div className="relative">
                   <input
@@ -1100,7 +1118,7 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
               </div>
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: C.textMuted }}>
-                  fal.ai API Key
+                  Auto Subtitle API Key
                 </label>
                 <div className="relative">
                   <input
@@ -1338,7 +1356,7 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
                   </svg>
-                  Auto Subtitles (fal.ai)
+                  Auto Subtitles
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} style={{ transform: showSubtitlePanel ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                   </svg>

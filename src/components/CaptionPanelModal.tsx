@@ -302,7 +302,7 @@ export default function CaptionPanelModal({
                   Add Auto Captions
                 </h2>
                 <p className="text-[11px]" style={{ color: C.textMuted }}>
-                  $0.03/min via fal.ai
+                  $0.03/min for auto captions
                 </p>
               </div>
             </div>

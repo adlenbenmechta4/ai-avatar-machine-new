@@ -9,7 +9,7 @@ const DEFAULT_KIE_API_KEY = "e80261e40f242ed38ce14f4beb6e6f15";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { imageUrl, dialogueText, apiKey } = body;
+    const { imageUrl, dialogueText, apiKey, promptStyle } = body;
 
     if (!imageUrl || !dialogueText) {
       return NextResponse.json({ error: "imageUrl and dialogueText are required" }, { status: 400 });
@@ -19,7 +19,16 @@ export async function POST(req: NextRequest) {
       ? apiKey
       : (process.env.KIE_API_KEY || DEFAULT_KIE_API_KEY);
 
-    const videoPrompt = `realistic arm movements, the woman/man says exactly with direct clear energy: "${dialogueText}"`;
+    // Keep dialogue text EXACTLY as provided — only vary the visual description on retry
+    const visualStyles = [
+      `realistic arm movements, the woman/man says exactly with direct clear energy: "${dialogueText}"`,
+      `natural body language and expressive gestures while speaking clearly: "${dialogueText}"`,
+      `subtle head and hand movements while talking naturally: "${dialogueText}"`,
+      `calm confident speaking with slight facial expressions: "${dialogueText}"`,
+    ];
+    const styleIndex = (typeof promptStyle === "number" && promptStyle >= 0 && promptStyle < visualStyles.length)
+      ? promptStyle : 0;
+    const videoPrompt = visualStyles[styleIndex];
 
     const res = await fetch("https://api.kie.ai/api/v1/veo/generate", {
       method: "POST",
@@ -30,7 +39,7 @@ export async function POST(req: NextRequest) {
         model: "veo3_lite",
         generationType: "FIRST_AND_LAST_FRAMES_2_VIDEO",
         aspect_ratio: "9:16",
-        enableTranslation: true,
+        enableTranslation: false,
       }),
     });
 
@@ -76,19 +85,27 @@ export async function GET(req: NextRequest) {
     const successFlag = d?.successFlag;
     const errorMsg = d?.errorMessage || d?.error || d?.failMsg || d?.message || "";
 
-    // Detect failure
+    // Debug: log full API response for troubleshooting
+    console.log(`[Video Status] taskId=${taskId?.slice(0,8)} code=${json.code} successFlag=${successFlag} status=${statusStr} errorMsg=${errorMsg?.slice(0,100)} hasVideoUrl=${!!d?.response?.resultUrls?.[0] || !!d?.response?.originUrls?.[0]}`);
+
+    // Detect failure — also check for error message about "unable to generate"
     const isFailed =
       successFlag === 2 || successFlag === 3 ||
       statusStr === "failed" || statusStr === "fail" || statusStr === "failure" ||
       statusStr === "error" || statusStr === "rejected" || statusStr === "cancelled" ||
-      (json.code !== 200 && json.code !== 0 && statusStr.includes("fail"));
+      (json.code !== 200 && json.code !== 0 && statusStr.includes("fail")) ||
+      (typeof errorMsg === "string" && errorMsg.includes("unable to generate"));
 
     if (isFailed) {
       return NextResponse.json({ status: "failed", error: errorMsg || "Video generation failed" });
     }
 
-    // Detect success
-    if (json.code === 200 && (successFlag === 1 || statusStr === "success")) {
+    // Detect success — require BOTH code=200 AND (successFlag=1 OR explicit "success" status)
+    const isCompleted =
+      json.code === 200 &&
+      (successFlag === 1 || statusStr === "success" || statusStr === "succeeded" || statusStr === "complete" || statusStr === "completed");
+
+    if (isCompleted) {
       let resp = d.response || d.result || d;
       if (typeof resp === "string") { try { resp = JSON.parse(resp); } catch {} }
       let videoUrl = resp?.resultUrls?.[0] || resp?.originUrls?.[0] || resp?.url || d.resultUrls?.[0] || d.videoUrl || d.video_url;
