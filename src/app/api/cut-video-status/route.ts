@@ -5,8 +5,7 @@ const VIDOPI_BASE = "https://api.vidopi.com";
 
 export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
-    const taskId = searchParams.get("taskId");
+    const taskId = req.nextUrl.searchParams.get("taskId");
 
     if (!taskId) {
       return NextResponse.json(
@@ -15,26 +14,36 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const response = await fetch(
-      `${VIDOPI_BASE}/task-status/${encodeURIComponent(taskId)}`,
-      {
-        method: "GET",
-        headers: {
-          "X-API-Key": VIDOPI_API_KEY,
-        },
-      }
-    );
+    // Poll vidopi API for task status
+    const response = await fetch(`${VIDOPI_BASE}/cut-video/${taskId}/`, {
+      method: "GET",
+      headers: {
+        "X-API-Key": VIDOPI_API_KEY,
+      },
+    });
 
     const data = await response.json();
 
     if (!response.ok) {
       return NextResponse.json(
-        { error: data.detail || data.message || "Failed to get task status" },
+        { error: data.detail || data.message || "Failed to check task status" },
         { status: response.status }
       );
     }
 
-    return NextResponse.json(data);
+    // Map vidopi status to our expected format
+    const status = data.status?.toLowerCase() || "processing";
+    const resultUrl = data.result_url || data.output_url || data.video_url || data.url || null;
+
+    return NextResponse.json({
+      status: status === "completed" || status === "done" || status === "finished"
+        ? "completed"
+        : status === "failed" || status === "error"
+          ? "failed"
+          : "processing",
+      result: resultUrl,
+      error: data.error || data.detail || null,
+    });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 500 });
