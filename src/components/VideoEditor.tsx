@@ -4,11 +4,15 @@ import React, { useState, useRef, useCallback, useEffect } from "react";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
+type ZoomType = "none" | "in" | "out";
+
 interface Segment {
   id: string;
   start: number;
   end: number;
   enabled: boolean;
+  zoom: ZoomType;
+  zoomLevel: number; // 1.0 to 2.0
 }
 
 interface VideoEditorProps {
@@ -49,7 +53,86 @@ const COLORS = {
   bg: "#FFF8F0",
   track: "#E5E7EB",
   trackDark: "#D1D5DB",
+  purple: "#8B5CF6",
+  purpleLight: "#F3F0FF",
+  cyan: "#16B1DE",
+  cyanLight: "#F0FBFD",
 };
+
+// ─── Zoom Icon SVGs ────────────────────────────────────────────────────
+
+function ZoomNoneIcon() {
+  return (
+    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" />
+      <path d="M21 21l-4.35-4.35" />
+      <path d="M11 8v6M8 11h6" />
+    </svg>
+  );
+}
+
+function ZoomInIcon() {
+  return (
+    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" />
+      <path d="M21 21l-4.35-4.35" />
+      <path d="M11 8v6M8 11h6" />
+    </svg>
+  );
+}
+
+function ZoomOutIcon() {
+  return (
+    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" />
+      <path d="M21 21l-4.35-4.35" />
+      <path d="M8 11h6" />
+    </svg>
+  );
+}
+
+// ─── ZoomLevel Slider ──────────────────────────────────────────────────
+
+function ZoomLevelSlider({ value, onChange, color }: { value: number; onChange: (v: number) => void; color: string }) {
+  const presets = [1.2, 1.4, 1.6, 1.8, 2.0];
+  return (
+    <div className="mt-2">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: COLORS.textMuted }}>Intensity</span>
+        <span className="text-[10px] font-black px-2 py-0.5 rounded-md" style={{ backgroundColor: `${color}18`, color }}>
+          {value.toFixed(1)}x
+        </span>
+      </div>
+      <input
+        type="range"
+        min="1.1"
+        max="2.0"
+        step="0.1"
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
+        style={{
+          background: `linear-gradient(to right, ${color} 0%, ${color} ${((value - 1.1) / 0.9) * 100}%, #E5E7EB ${((value - 1.1) / 0.9) * 100}%, #E5E7EB 100%)`,
+        }}
+      />
+      <div className="flex justify-between mt-1">
+        {presets.map((p) => (
+          <button
+            key={p}
+            onClick={() => onChange(p)}
+            className="px-1.5 py-0.5 rounded text-[8px] font-bold transition-all"
+            style={{
+              backgroundColor: value === p ? `${color}18` : "transparent",
+              color: value === p ? color : COLORS.textMuted,
+            }}
+          >
+            {p}x
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // ─── VideoEditor Component ──────────────────────────────────────────────
 
@@ -69,31 +152,49 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
   const [ffmpegLoading, setFfmpegLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [dragSplitId, setDragSplitId] = useState<string | null>(null);
+  const [liveZoomScale, setLiveZoomScale] = useState(1);
 
   const ffmpegRef = useRef<unknown>(null);
   const animFrameRef = useRef<number>(0);
   const progressCallbackRef = useRef<((msg: string) => void) | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // ─── Load Video Metadata ────────────────────────────────────────
   const handleVideoLoaded = useCallback(() => {
     const video = videoRef.current;
     if (video && video.duration && isFinite(video.duration)) {
       setDuration(video.duration);
-      setSegments([{ id: "seg-0", start: 0, end: video.duration, enabled: true }]);
+      setSegments([{ id: "seg-0", start: 0, end: video.duration, enabled: true, zoom: "none", zoomLevel: 1.5 }]);
     }
   }, []);
 
-  // ─── Time Update Loop ──────────────────────────────────────────
+  // ─── Time Update Loop + Live Zoom Preview ──────────────────────
   useEffect(() => {
     const update = () => {
       if (videoRef.current) {
-        setCurrentTime(videoRef.current.currentTime);
+        const t = videoRef.current.currentTime;
+        setCurrentTime(t);
+
+        // Calculate live zoom preview
+        if (isPlaying && duration > 0 && segments.length > 0) {
+          const seg = segments.find((s) => s.enabled && t >= s.start && t <= s.end);
+          if (seg && seg.zoom !== "none") {
+            const progress = (t - seg.start) / (seg.end - seg.start);
+            if (seg.zoom === "in") {
+              setLiveZoomScale(1 + progress * (seg.zoomLevel - 1));
+            } else {
+              setLiveZoomScale(seg.zoomLevel - progress * (seg.zoomLevel - 1));
+            }
+          } else {
+            setLiveZoomScale(1);
+          }
+        }
       }
       animFrameRef.current = requestAnimationFrame(update);
     };
     animFrameRef.current = requestAnimationFrame(update);
     return () => cancelAnimationFrame(animFrameRef.current);
-  }, []);
+  }, [isPlaying, duration, segments]);
 
   // ─── Play/Pause ────────────────────────────────────────────────
   const togglePlay = useCallback(() => {
@@ -115,7 +216,19 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
     const clampedTime = Math.max(0, Math.min(time, duration));
     video.currentTime = clampedTime;
     setCurrentTime(clampedTime);
-  }, [duration]);
+    // Update live zoom for seeked position
+    const seg = segments.find((s) => s.enabled && clampedTime >= s.start && clampedTime <= s.end);
+    if (seg && seg.zoom !== "none") {
+      const progress = (clampedTime - seg.start) / (seg.end - seg.start);
+      if (seg.zoom === "in") {
+        setLiveZoomScale(1 + progress * (seg.zoomLevel - 1));
+      } else {
+        setLiveZoomScale(seg.zoomLevel - progress * (seg.zoomLevel - 1));
+      }
+    } else {
+      setLiveZoomScale(1);
+    }
+  }, [duration, segments]);
 
   // ─── Timeline Click to Seek ────────────────────────────────────
   const handleTimelineClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -132,15 +245,13 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
     if (time <= 0.1 || time >= duration - 0.1) return;
 
     setSegments((prev) => {
-      // Find which segment the playhead is in
       const segIndex = prev.findIndex((s) => time > s.start + 0.05 && time < s.end - 0.05);
       if (segIndex === -1) return prev;
-
       const seg = prev[segIndex];
       const newSegs = [...prev];
       newSegs.splice(segIndex, 1,
         { ...seg, end: time, id: `seg-${Date.now()}-a` },
-        { ...seg, start: time, id: `seg-${Date.now()}-b`, enabled: seg.enabled },
+        { ...seg, start: time, id: `seg-${Date.now()}-b`, enabled: seg.enabled, zoom: seg.zoom, zoomLevel: seg.zoomLevel },
       );
       return newSegs;
     });
@@ -171,6 +282,26 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
   // ─── Get split points (internal boundaries) ───────────────────
   const splitPoints = segments.slice(1).map((s) => s.start);
 
+  // ─── Update Segment Zoom ───────────────────────────────────────
+  const updateSegmentZoom = useCallback((segId: string, zoom: ZoomType) => {
+    setSegments((prev) =>
+      prev.map((s) => (s.id === segId ? { ...s, zoom } : s))
+    );
+  }, []);
+
+  const updateSegmentZoomLevel = useCallback((segId: string, zoomLevel: number) => {
+    setSegments((prev) =>
+      prev.map((s) => (s.id === segId ? { ...s, zoomLevel } : s))
+    );
+  }, []);
+
+  // ─── Apply Zoom to All Segments ────────────────────────────────
+  const applyZoomToAll = useCallback((zoom: ZoomType) => {
+    setSegments((prev) =>
+      prev.map((s) => ({ ...s, zoom }))
+    );
+  }, []);
+
   // ─── Enable All Segments ───────────────────────────────────────
   const enableAll = useCallback(() => {
     setSegments((prev) => prev.map((s) => ({ ...s, enabled: true })));
@@ -179,7 +310,7 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
   // ─── Remove All Splits ─────────────────────────────────────────
   const removeAllSplits = useCallback(() => {
     if (!duration) return;
-    setSegments([{ id: "seg-0", start: 0, end: duration, enabled: true }]);
+    setSegments([{ id: "seg-0", start: 0, end: duration, enabled: true, zoom: "none", zoomLevel: 1.5 }]);
     setSelectedSegmentId(null);
   }, [duration]);
 
@@ -247,6 +378,15 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
     }
   }, [ffmpegLoaded, ffmpegLoading]);
 
+  // ─── Get Zoom Color ────────────────────────────────────────────
+  function getZoomColor(zoom: ZoomType): string {
+    switch (zoom) {
+      case "in": return COLORS.purple;
+      case "out": return COLORS.cyan;
+      default: return COLORS.green;
+    }
+  }
+
   // ─── Process & Export Video ─────────────────────────────────────
   const processVideo = useCallback(async () => {
     if (!duration || !ffmpegLoaded) return;
@@ -257,8 +397,11 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
       return;
     }
 
-    // If only one segment covering the full video, just provide the original
-    if (enabledSegs.length === 1 && enabledSegs[0].start < 0.1 && enabledSegs[0].end > duration - 0.1) {
+    // Check if there are any zoom effects
+    const hasZoom = enabledSegs.some((s) => s.zoom !== "none");
+
+    // If no edits needed (single full segment, no zoom), just provide the original
+    if (!hasZoom && enabledSegs.length === 1 && enabledSegs[0].start < 0.1 && enabledSegs[0].end > duration - 0.1) {
       setResultUrl(videoUrl);
       return;
     }
@@ -269,7 +412,12 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
     setProcessProgress("Downloading video file...");
 
     try {
-      const ffmpeg = ffmpegRef.current as { writeFile: (n: string, d: Uint8Array) => Promise<void>; exec: (args: string[]) => Promise<void>; readFile: (n: string) => Promise<Uint8Array>; on: (e: string, cb: (data: { progress?: number }) => void) => void };
+      const ffmpeg = ffmpegRef.current as {
+        writeFile: (n: string, d: Uint8Array) => Promise<void>;
+        exec: (args: string[]) => Promise<void>;
+        readFile: (n: string) => Promise<Uint8Array>;
+        on: (e: string, cb: (data: { progress?: number }) => void) => void;
+      };
 
       // Download video via proxy
       const proxyUrl = `/api/proxy-video?url=${encodeURIComponent(videoUrl)}`;
@@ -280,45 +428,80 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
       setProcessProgress("Loading video into editor...");
       await ffmpeg.writeFile("input.mp4", videoData);
 
-      // Build ffmpeg filter for extracting and concatenating segments
       setProcessProgress("Processing cuts...");
 
-      // Use output-side seeking (-ss AFTER -i) for exact frame-accurate cuts.
-      // Re-encode video (ultrafast) while copying audio to avoid:
-      //   - "audio only" bug from stream-copy misalignment
-      //   - "starts from beginning" bug from input-side seeking to distant keyframes
-      if (enabledSegs.length === 1) {
-        // Single segment — simple trim
-        const seg = enabledSegs[0];
+      // Step 1: Extract and optionally apply zoom to each segment
+      for (let i = 0; i < enabledSegs.length; i++) {
+        const seg = enabledSegs[i];
         const segDuration = (seg.end - seg.start).toFixed(2);
+        setProcessProgress(`Processing segment ${i + 1} of ${enabledSegs.length}...`);
+
         ffmpeg.on("progress", ({ progress }) => {
           if (progress !== undefined) {
-            setProcessProgress(`Processing... ${Math.round(progress * 100)}%`);
-          }
-        });
-        await ffmpeg.exec([
-          "-i", "input.mp4",
-          "-ss", seg.start.toFixed(2),
-          "-t", segDuration,
-          "-c:v", "libx264",
-          "-preset", "ultrafast",
-          "-crf", "28",
-          "-c:a", "copy",
-          "-movflags", "+faststart",
-          "output.mp4",
-        ]);
-      } else {
-        // Multiple segments — extract each then concat
-        ffmpeg.on("progress", ({ progress }) => {
-          if (progress !== undefined) {
-            setProcessProgress(`Processing segment... ${Math.round(progress * 100)}%`);
+            setProcessProgress(`Processing segment ${i + 1}... ${Math.round(progress * 100)}%`);
           }
         });
 
-        for (let i = 0; i < enabledSegs.length; i++) {
-          const seg = enabledSegs[i];
-          const segDuration = (seg.end - seg.start).toFixed(2);
-          setProcessProgress(`Processing segment ${i + 1} of ${enabledSegs.length}...`);
+        if (seg.zoom !== "none") {
+          // Apply zoompan filter for this segment
+          // zoompan: z = zoom factor expression, d = duration in frames, fps
+          // For zoom in: z starts at 1 and increases to zoomLevel
+          // For zoom out: z starts at zoomLevel and decreases to 1
+          const fps = 30;
+          const totalFrames = Math.round(parseFloat(segDuration) * fps);
+          const zl = seg.zoomLevel;
+
+          let zoomExpr: string;
+          if (seg.zoom === "in") {
+            // Gradually zoom from 1.0 to zoomLevel
+            zoomExpr = `min(1.0+(${zl}-1.0)*on/${totalFrames},${zl})`;
+          } else {
+            // Gradually zoom from zoomLevel to 1.0
+            zoomExpr = `max(${zl}-(${zl}-1.0)*on/${totalFrames},1.0)`;
+          }
+
+          // x,y center the zoom
+          const xExpr = "iw/2-(iw/zoom/2)";
+          const yExpr = "ih/2-(ih/zoom/2)";
+
+          // First extract the segment, then apply zoompan
+          await ffmpeg.exec([
+            "-i", "input.mp4",
+            "-ss", seg.start.toFixed(2),
+            "-t", segDuration,
+            "-vf", `zoompan=z='${zoomExpr}':d=${totalFrames}:x='${xExpr}':y='${yExpr}':s=1080x1920:fps=${fps}`,
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "28",
+            "-an",
+            "-movflags", "+faststart",
+            `part${i}.mp4`,
+          ]);
+
+          // Extract audio separately for this segment
+          await ffmpeg.exec([
+            "-i", "input.mp4",
+            "-ss", seg.start.toFixed(2),
+            "-t", segDuration,
+            "-vn",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            `audio${i}.aac`,
+          ]);
+
+          // Merge video and audio
+          await ffmpeg.exec([
+            "-i", `part${i}.mp4`,
+            "-i", `audio${i}.aac`,
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-shortest",
+            "-movflags", "+faststart",
+            `seg${i}.mp4`,
+          ]);
+        } else {
+          // No zoom — simple trim
           await ffmpeg.exec([
             "-i", "input.mp4",
             "-ss", seg.start.toFixed(2),
@@ -328,16 +511,25 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
             "-crf", "28",
             "-c:a", "copy",
             "-movflags", "+faststart",
-            `part${i}.mp4`,
+            `seg${i}.mp4`,
           ]);
         }
+      }
 
-        // Create concat file
-        const concatContent = enabledSegs.map((_, i) => `file 'part${i}.mp4'`).join("\n");
+      // Step 2: Concatenate all segments
+      if (enabledSegs.length === 1) {
+        // Only one segment — rename to output
+        if (hasZoom) {
+          await ffmpeg.exec(["-i", "seg0.mp4", "-c", "copy", "-movflags", "+faststart", "output.mp4"]);
+        } else {
+          await ffmpeg.exec(["-i", "seg0.mp4", "-c", "copy", "-movflags", "+faststart", "output.mp4"]);
+        }
+      } else {
+        setProcessProgress("Merging segments...");
+        const concatContent = enabledSegs.map((_, i) => `file 'seg${i}.mp4'`).join("\n");
         const encoder = new TextEncoder();
         await ffmpeg.writeFile("concat.txt", encoder.encode(concatContent));
 
-        setProcessProgress("Merging segments...");
         await ffmpeg.exec([
           "-f", "concat",
           "-safe", "0",
@@ -384,6 +576,12 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
   const keptDuration = segments.filter((s) => s.enabled).reduce((acc, s) => acc + (s.end - s.start), 0);
   const keptPercent = duration > 0 ? (keptDuration / duration) * 100 : 100;
 
+  // ─── Selected Segment ──────────────────────────────────────────
+  const selectedSegment = segments.find((s) => s.id === selectedSegmentId);
+
+  // ─── Count segments with zoom ──────────────────────────────────
+  const zoomCount = segments.filter((s) => s.zoom !== "none").length;
+
   // ═══════════════════════════════════════════════════════════════════
   // RENDER
   // ═══════════════════════════════════════════════════════════════════
@@ -410,7 +608,7 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
                 Edit Your Video
               </h2>
               <p className="text-[11px]" style={{ color: COLORS.textMuted }}>
-                Split, cut, and trim like a pro
+                Split, cut, zoom & trim like a pro
               </p>
             </div>
           </div>
@@ -425,21 +623,53 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
           </button>
         </div>
 
-        {/* ─── Video Player ─────────────────────────────────────── */}
+        {/* ─── Video Player with Zoom Preview ────────────────────── */}
         <div className="flex justify-center mb-5">
           <div
+            ref={containerRef}
             className="rounded-2xl overflow-hidden border-2 shadow-lg relative"
-            style={{ borderColor: accentColor, width: 'min(280px, 80vw)', aspectRatio: '9/16' }}
+            style={{
+              borderColor: accentColor,
+              width: "min(280px, 80vw)",
+              aspectRatio: "9/16",
+              transition: "border-color 0.3s ease",
+            }}
           >
-            <video
-              ref={videoRef}
-              src={videoUrl}
-              controls
-              onLoadedMetadata={handleVideoLoaded}
-              className="w-full h-full object-contain"
-              preload="metadata"
-              playsInline
-            />
+            <div
+              className="w-full h-full overflow-hidden"
+              style={{ transition: liveZoomScale !== 1 ? "none" : "transform 0.15s ease" }}
+            >
+              <video
+                ref={videoRef}
+                src={videoUrl}
+                controls
+                onLoadedMetadata={handleVideoLoaded}
+                className="w-full h-full object-cover"
+                preload="metadata"
+                playsInline
+                style={{
+                  transform: `scale(${liveZoomScale})`,
+                  transformOrigin: "center center",
+                }}
+              />
+            </div>
+
+            {/* Zoom indicator badge */}
+            {liveZoomScale !== 1 && (
+              <div
+                className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1"
+                style={{
+                  backgroundColor: "rgba(0,0,0,0.7)",
+                  color: COLORS.white,
+                  backdropFilter: "blur(8px)",
+                }}
+              >
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                  <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                </svg>
+                {liveZoomScale.toFixed(1)}x
+              </div>
+            )}
           </div>
         </div>
 
@@ -499,6 +729,11 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
                 <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={{ backgroundColor: `${accentColor}15`, color: accentColor }}>
                   {formatTimeShort(keptDuration)} kept ({Math.round(keptPercent)}%)
                 </span>
+                {zoomCount > 0 && (
+                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={{ backgroundColor: `${COLORS.purple}15`, color: COLORS.purple }}>
+                    {zoomCount} zoom
+                  </span>
+                )}
               </div>
               <span className="text-[9px] font-mono" style={{ color: COLORS.textMuted }}>{formatTimeShort(duration)}</span>
             </div>
@@ -514,6 +749,9 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
               {segments.map((seg) => {
                 const left = (seg.start / duration) * 100;
                 const width = ((seg.end - seg.start) / duration) * 100;
+                const isSelected = selectedSegmentId === seg.id;
+                const zoomColor = getZoomColor(seg.zoom);
+
                 return (
                   <div
                     key={seg.id}
@@ -521,24 +759,29 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
                     style={{
                       left: `${left}%`,
                       width: `${width}%`,
-                      backgroundColor: seg.enabled ? COLORS.green : COLORS.red,
+                      backgroundColor: seg.enabled ? zoomColor : COLORS.red,
                       borderRight: seg === segments[segments.length - 1] ? "none" : `1px solid ${COLORS.white}`,
+                      outline: isSelected ? `2px solid ${COLORS.dark}` : "none",
+                      outlineOffset: "-1px",
                     }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      toggleSegment(seg.id);
                       setSelectedSegmentId(seg.id);
                     }}
-                    title={seg.enabled ? "Click to remove" : "Click to keep"}
                   >
                     {/* Segment label */}
-                    <div className="flex items-center justify-center h-full">
+                    <div className="flex items-center justify-center h-full gap-1">
                       <span className="text-[8px] font-bold uppercase tracking-wider px-1 rounded" style={{ color: COLORS.white, backgroundColor: "rgba(0,0,0,0.25)" }}>
                         {seg.enabled ? "KEEP" : "CUT"}
                       </span>
+                      {seg.zoom !== "none" && seg.enabled && (
+                        <span className="text-[7px] font-black uppercase px-1 rounded" style={{ color: COLORS.white, backgroundColor: "rgba(0,0,0,0.35)" }}>
+                          {seg.zoom === "in" ? "ZOOM+" : "ZOOM-"}
+                        </span>
+                      )}
                     </div>
                     {/* Selected indicator */}
-                    {selectedSegmentId === seg.id && (
+                    {isSelected && (
                       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-4 h-0.5 rounded-full" style={{ backgroundColor: COLORS.white }} />
                     )}
                   </div>
@@ -620,15 +863,154 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
           </div>
         )}
 
+        {/* ─── Zoom Controls Panel ────────────────────────────────── */}
+        {duration > 0 && (
+          <div className="max-w-lg mx-auto mb-5">
+            <div
+              className="rounded-xl p-4 border-2"
+              style={{
+                backgroundColor: selectedSegment ? `${COLORS.purpleLight}30` : "#FAFAFA",
+                borderColor: selectedSegment ? `${COLORS.purple}30` : "#F3F4F6",
+              }}
+            >
+              {/* Zoom Section Header */}
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <div
+                    className="w-7 h-7 rounded-lg flex items-center justify-center"
+                    style={{ backgroundColor: `${COLORS.purple}18` }}
+                  >
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke={COLORS.purple} strokeWidth={2.5} strokeLinecap="round">
+                      <circle cx="11" cy="11" r="8" />
+                      <path d="M21 21l-4.35-4.35" />
+                      <path d="M11 8v6M8 11h6" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-black uppercase tracking-wider" style={{ color: COLORS.text }}>Zoom Effect</p>
+                    <p className="text-[9px]" style={{ color: COLORS.textMuted }}>
+                      {selectedSegment
+                        ? `Editing: ${formatTimeShort(selectedSegment.start)} - ${formatTimeShort(selectedSegment.end)}`
+                        : "Select a segment on the timeline to apply zoom"
+                      }
+                    </p>
+                  </div>
+                </div>
+
+                {/* Apply to All dropdown */}
+                {segments.length > 1 && (
+                  <div className="relative group">
+                    <button
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all"
+                      style={{ backgroundColor: "#F3F4F6", color: COLORS.textMuted }}
+                    >
+                      Apply All
+                      <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                        <path d="M6 9l6 6 6-6" />
+                      </svg>
+                    </button>
+                    <div className="absolute right-0 top-full mt-1 bg-white rounded-lg shadow-xl border border-gray-100 py-1 z-20 hidden group-hover:block min-w-[120px]">
+                      {(["none", "in", "out"] as ZoomType[]).map((z) => (
+                        <button
+                          key={z}
+                          onClick={() => applyZoomToAll(z)}
+                          className="w-full text-left px-3 py-1.5 text-[10px] font-bold transition-colors"
+                          style={{ color: COLORS.text }}
+                        >
+                          {z === "none" ? "No Zoom" : z === "in" ? "Zoom In" : "Zoom Out"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Zoom Type Selector (for selected segment) */}
+              {selectedSegment && selectedSegment.enabled && (
+                <div className="mb-2">
+                  <div className="flex items-center gap-2">
+                    {/* No Zoom */}
+                    <button
+                      onClick={() => updateSegmentZoom(selectedSegment.id, "none")}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all duration-200"
+                      style={{
+                        backgroundColor: selectedSegment.zoom === "none" ? `${COLORS.green}18` : "#F3F4F6",
+                        color: selectedSegment.zoom === "none" ? COLORS.green : COLORS.textMuted,
+                        boxShadow: selectedSegment.zoom === "none" ? `0 0 12px ${COLORS.green}20` : "none",
+                        border: `1.5px solid ${selectedSegment.zoom === "none" ? `${COLORS.green}40` : "transparent"}`,
+                      }}
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                        <circle cx="12" cy="12" r="3" />
+                        <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+                      </svg>
+                      None
+                    </button>
+
+                    {/* Zoom In */}
+                    <button
+                      onClick={() => updateSegmentZoom(selectedSegment.id, "in")}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all duration-200"
+                      style={{
+                        backgroundColor: selectedSegment.zoom === "in" ? `${COLORS.purple}18` : "#F3F4F6",
+                        color: selectedSegment.zoom === "in" ? COLORS.purple : COLORS.textMuted,
+                        boxShadow: selectedSegment.zoom === "in" ? `0 0 12px ${COLORS.purple}20` : "none",
+                        border: `1.5px solid ${selectedSegment.zoom === "in" ? `${COLORS.purple}40` : "transparent"}`,
+                      }}
+                    >
+                      <ZoomInIcon />
+                      Zoom In
+                    </button>
+
+                    {/* Zoom Out */}
+                    <button
+                      onClick={() => updateSegmentZoom(selectedSegment.id, "out")}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all duration-200"
+                      style={{
+                        backgroundColor: selectedSegment.zoom === "out" ? `${COLORS.cyan}18` : "#F3F4F6",
+                        color: selectedSegment.zoom === "out" ? COLORS.cyan : COLORS.textMuted,
+                        boxShadow: selectedSegment.zoom === "out" ? `0 0 12px ${COLORS.cyan}20` : "none",
+                        border: `1.5px solid ${selectedSegment.zoom === "out" ? `${COLORS.cyan}40` : "transparent"}`,
+                      }}
+                    >
+                      <ZoomOutIcon />
+                      Zoom Out
+                    </button>
+                  </div>
+
+                  {/* Zoom Level Slider */}
+                  {selectedSegment.zoom !== "none" && (
+                    <ZoomLevelSlider
+                      value={selectedSegment.zoomLevel}
+                      onChange={(v) => updateSegmentZoomLevel(selectedSegment.id, v)}
+                      color={getZoomColor(selectedSegment.zoom)}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* Quick info when no segment selected */}
+              {!selectedSegment && (
+                <div className="text-center py-2">
+                  <p className="text-[10px]" style={{ color: COLORS.textMuted }}>
+                    Click on a segment in the timeline to configure its zoom effect
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ─── Tips ─────────────────────────────────────────────── */}
         {!resultUrl && !isProcessing && (
           <div className="max-w-lg mx-auto mb-5 p-3.5 rounded-xl" style={{ backgroundColor: `${COLORS.goldLight}50` }}>
             <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: accentColor }}>Quick Tips</p>
             <ul className="text-[10px] space-y-1" style={{ color: COLORS.textMuted }}>
               <li>Play the video and press <kbd className="px-1 py-0.5 rounded text-[9px] font-mono font-bold" style={{ backgroundColor: "#F3F4F6", color: COLORS.text }}>S</kbd> or click Split to add a cut point</li>
-              <li>Click green segments to mark as CUT (red), click again to KEEP (green)</li>
+              <li>Click segments on the timeline to select, then choose <b style={{ color: COLORS.purple }}>Zoom In</b> or <b style={{ color: COLORS.cyan }}>Zoom Out</b></li>
+              <li><b style={{ color: COLORS.purple }}>Purple</b> segments = Zoom In &nbsp;|&nbsp; <b style={{ color: COLORS.cyan }}>Cyan</b> segments = Zoom Out</li>
+              <li>Preview zoom live by pressing play — watch the video zoom in real-time!</li>
               <li>Drag split handles to fine-tune cut positions</li>
-              <li>Click the X on split handles to remove splits</li>
               <li>Press <kbd className="px-1 py-0.5 rounded text-[9px] font-mono font-bold" style={{ backgroundColor: "#F3F4F6", color: COLORS.text }}>Space</kbd> to play/pause</li>
             </ul>
           </div>
@@ -653,7 +1035,8 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
                   </svg>
-                  Export Edited Video
+                  Export {zoomCount > 0 ? "with Zoom " : ""}
+                  Edited Video
                 </>
               ) : (
                 <>
