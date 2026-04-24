@@ -11,6 +11,9 @@ interface Segment {
   enabled: boolean;
 }
 
+type ZoomType = "in" | "out" | "kenburns";
+type ZoomSpeed = "slow" | "normal" | "fast";
+
 interface VideoEditorProps {
   videoUrl: string;
   onClose: () => void;
@@ -73,6 +76,14 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
   const ffmpegRef = useRef<unknown>(null);
   const animFrameRef = useRef<number>(0);
   const progressCallbackRef = useRef<((msg: string) => void) | null>(null);
+
+  // ─── Zoom Effects State ─────────────────────────────────────────
+  const [zoomEnabled, setZoomEnabled] = useState(false);
+  const [zoomType, setZoomType] = useState<ZoomType>("kenburns");
+  const [zoomIntensity, setZoomIntensity] = useState(1.3);
+  const [zoomSpeed, setZoomSpeed] = useState<ZoomSpeed>("normal");
+  const [zoomTarget, setZoomTarget] = useState<{ x: number; y: number }>({ x: 0.5, y: 0.4 });
+  const [settingZoomTarget, setSettingZoomTarget] = useState(false);
 
   // ─── Load Video Metadata ────────────────────────────────────────
   const handleVideoLoaded = useCallback(() => {
@@ -183,6 +194,50 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
     setSelectedSegmentId(null);
   }, [duration]);
 
+  // ─── Build Zoompan Filter String ───────────────────────────────
+  const buildZoompanFilter = useCallback((segDuration: number): string | null => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) return null;
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    const fps = 30;
+
+    const speedMap: Record<ZoomSpeed, number> = { slow: 0.0004, normal: 0.001, fast: 0.002 };
+    const increment = speedMap[zoomSpeed];
+    const maxZ = zoomIntensity;
+    const tx = zoomTarget.x;
+    const ty = zoomTarget.y;
+    const halfFrames = Math.round((segDuration * fps) / 2);
+
+    let zExpr: string;
+    switch (zoomType) {
+      case "in":
+        zExpr = `min(zoom+${increment},${maxZ})`;
+        break;
+      case "out":
+        zExpr = `if(eq(on,1),${maxZ},max(zoom-${increment},1.0))`;
+        break;
+      case "kenburns":
+        zExpr = `if(lt(on,${halfFrames}),min(zoom+${increment},${maxZ}),max(zoom-${increment},1.0))`;
+        break;
+    }
+
+    const xExpr = `max(0,min(iw*${tx}-iw/zoom/2,iw-iw/zoom))`;
+    const yExpr = `max(0,min(ih*${ty}-ih/zoom/2,ih-ih/zoom))`;
+
+    return `zoompan=z='${zExpr}':x='${xExpr}':y='${yExpr}':d=1:s=${w}x${h}:fps=${fps}`;
+  }, [zoomType, zoomIntensity, zoomSpeed, zoomTarget]);
+
+  // ─── Click Video to Set Zoom Target ────────────────────────────
+  const handleVideoClickForTarget = useCallback((e: React.MouseEvent<HTMLVideoElement>) => {
+    if (!settingZoomTarget) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    setZoomTarget({ x, y });
+    setSettingZoomTarget(false);
+  }, [settingZoomTarget]);
+
   // ─── Handle Split Drag ─────────────────────────────────────────
   const handleSplitMouseDown = useCallback((e: React.MouseEvent, splitTime: number) => {
     e.stopPropagation();
@@ -280,56 +335,76 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
       setProcessProgress("Loading video into editor...");
       await ffmpeg.writeFile("input.mp4", videoData);
 
+      // Build zoompan filter if zoom is enabled
+      const needsZoom = zoomEnabled;
+      const zoomFilter = needsZoom ? buildZoompanFilter(duration) : null;
+
+      if (needsZoom && !zoomFilter) {
+        throw new Error("Could not build zoom filter. Make sure the video is loaded.");
+      }
+
       // Build ffmpeg filter for extracting and concatenating segments
-      setProcessProgress("Processing cuts...");
+      setProcessProgress(needsZoom ? "Applying zoom effects..." : "Processing cuts...");
 
       // Use output-side seeking (-ss AFTER -i) for exact frame-accurate cuts.
       // Re-encode video (ultrafast) while copying audio to avoid:
       //   - "audio only" bug from stream-copy misalignment
       //   - "starts from beginning" bug from input-side seeking to distant keyframes
       if (enabledSegs.length === 1) {
-        // Single segment — simple trim
+        // Single segment — simple trim (with optional zoom)
         const seg = enabledSegs[0];
         const segDuration = (seg.end - seg.start).toFixed(2);
         ffmpeg.on("progress", ({ progress }) => {
           if (progress !== undefined) {
-            setProcessProgress(`Processing... ${Math.round(progress * 100)}%`);
+            setProcessProgress(needsZoom ? `Applying zoom... ${Math.round(progress * 100)}%` : `Processing... ${Math.round(progress * 100)}%`);
           }
         });
-        await ffmpeg.exec([
-          "-i", "input.mp4",
-          "-ss", seg.start.toFixed(2),
-          "-t", segDuration,
-          "-c:v", "libx264",
-          "-preset", "ultrafast",
-          "-crf", "28",
-          "-c:a", "copy",
+        const args = ["-i", "input.mp4"];
+        if (!needsZoom) {
+          args.push("-ss", seg.start.toFixed(2), "-t", segDuration);
+        } else {
+          // For zoom, we need to process the full segment through zoompan
+          args.push("-ss", seg.start.toFixed(2), "-t", segDuration);
+        }
+        if (zoomFilter) {
+          args.push("-vf", zoomFilter);
+        }
+        args.push(
+          "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+          "-c:a", "aac", "-b:a", "128k",
           "-movflags", "+faststart",
           "output.mp4",
-        ]);
+        );
+        await ffmpeg.exec(args);
       } else {
         // Multiple segments — extract each then concat
         ffmpeg.on("progress", ({ progress }) => {
           if (progress !== undefined) {
-            setProcessProgress(`Processing segment... ${Math.round(progress * 100)}%`);
+            setProcessProgress(needsZoom ? `Applying zoom to segment... ${Math.round(progress * 100)}%` : `Processing segment... ${Math.round(progress * 100)}%`);
           }
         });
 
         for (let i = 0; i < enabledSegs.length; i++) {
           const seg = enabledSegs[i];
           const segDuration = (seg.end - seg.start).toFixed(2);
-          setProcessProgress(`Processing segment ${i + 1} of ${enabledSegs.length}...`);
-          await ffmpeg.exec([
-            "-i", "input.mp4",
-            "-ss", seg.start.toFixed(2),
-            "-t", segDuration,
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-crf", "28",
-            "-c:a", "copy",
+          setProcessProgress(needsZoom ? `Applying zoom to segment ${i + 1} of ${enabledSegs.length}...` : `Processing segment ${i + 1} of ${enabledSegs.length}...`);
+
+          // Build per-segment zoom filter with correct duration
+          const segZoomFilter = zoomFilter
+            ? buildZoompanFilter(parseFloat(segDuration))
+            : null;
+
+          const args = ["-i", "input.mp4", "-ss", seg.start.toFixed(2), "-t", segDuration];
+          if (segZoomFilter) {
+            args.push("-vf", segZoomFilter);
+          }
+          args.push(
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+            "-c:a", "aac", "-b:a", "128k",
             "-movflags", "+faststart",
             `part${i}.mp4`,
-          ]);
+          );
+          await ffmpeg.exec(args);
         }
 
         // Create concat file
@@ -360,7 +435,7 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
     } finally {
       setIsProcessing(false);
     }
-  }, [duration, segments, ffmpegLoaded, videoUrl]);
+  }, [duration, segments, ffmpegLoaded, videoUrl, zoomEnabled, buildZoompanFilter]);
 
   // ─── Keyboard Shortcuts ────────────────────────────────────────
   useEffect(() => {
@@ -436,10 +511,32 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
               src={videoUrl}
               controls
               onLoadedMetadata={handleVideoLoaded}
+              onClick={handleVideoClickForTarget}
               className="w-full"
               preload="metadata"
               playsInline
+              style={{ cursor: settingZoomTarget ? "crosshair" : "default" }}
             />
+            {/* Zoom Target Indicator */}
+            {zoomEnabled && (
+              <div className="absolute pointer-events-none" style={{
+                left: `${zoomTarget.x * 100}%`,
+                top: `${zoomTarget.y * 100}%`,
+                transform: "translate(-50%, -50%)",
+              }}>
+                <div className="w-6 h-6 rounded-full border-2 flex items-center justify-center" style={{ borderColor: accentColor, backgroundColor: `${accentColor}30` }}>
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: accentColor }} />
+                </div>
+              </div>
+            )}
+            {/* Setting Target Overlay */}
+            {settingZoomTarget && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="px-3 py-1.5 rounded-full text-xs font-bold" style={{ backgroundColor: "rgba(0,0,0,0.7)", color: COLORS.white }}>
+                  Click to set zoom target
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -616,6 +713,139 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
                   </button>
                 )}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ─── Zoom Effects Panel ──────────────────────────────── */}
+        {duration > 0 && (
+          <div className="max-w-lg mx-auto mb-5">
+            <div className="rounded-2xl p-4" style={{ backgroundColor: "#F9FAFB", border: `2px solid ${zoomEnabled ? accentColor : "#E5E7EB"}` }}>
+              {/* Header Row */}
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  {/* Zoom Icon */}
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke={accentColor} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    <line x1="11" y1="8" x2="11" y2="14" />
+                    <line x1="8" y1="11" x2="14" y2="11" />
+                  </svg>
+                  <span className="text-xs font-black uppercase tracking-wider" style={{ color: COLORS.text }}>Zoom Effects</span>
+                </div>
+                {/* Toggle */}
+                <button
+                  onClick={() => setZoomEnabled(!zoomEnabled)}
+                  className="relative w-11 h-6 rounded-full transition-colors duration-200 cursor-pointer"
+                  style={{ backgroundColor: zoomEnabled ? accentColor : "#D1D5DB" }}
+                >
+                  <div className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200" style={{ left: zoomEnabled ? "22px" : "2px" }} />
+                </button>
+              </div>
+
+              {zoomEnabled && (
+                <div className="space-y-3 animate-fade-in">
+                  {/* Zoom Type */}
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider block mb-1.5" style={{ color: COLORS.textMuted }}>Type</span>
+                    <div className="flex gap-1.5">
+                      {([
+                        { value: "in" as ZoomType, label: "Zoom In", icon: "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" },
+                        { value: "out" as ZoomType, label: "Zoom Out", icon: "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" },
+                        { value: "kenburns" as ZoomType, label: "Ken Burns", icon: "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" },
+                      ]).map((zt) => (
+                        <button
+                          key={zt.value}
+                          onClick={() => setZoomType(zt.value)}
+                          className="flex-1 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wide transition-all cursor-pointer"
+                          style={{
+                            backgroundColor: zoomType === zt.value ? accentColor : "#F3F4F6",
+                            color: zoomType === zt.value ? COLORS.white : COLORS.textMuted,
+                          }}
+                        >
+                          {zt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Intensity */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: COLORS.textMuted }}>Intensity</span>
+                      <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: `${accentColor}15`, color: accentColor }}>
+                        {zoomIntensity.toFixed(1)}x
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="1.1"
+                      max="2.0"
+                      step="0.1"
+                      value={zoomIntensity}
+                      onChange={(e) => setZoomIntensity(parseFloat(e.target.value))}
+                      className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
+                      style={{ backgroundColor: "#E5E7EB", accentColor }}
+                    />
+                    <div className="flex justify-between mt-0.5">
+                      <span className="text-[8px]" style={{ color: COLORS.textMuted }}>1.1x</span>
+                      <span className="text-[8px]" style={{ color: COLORS.textMuted }}>2.0x</span>
+                    </div>
+                  </div>
+
+                  {/* Speed */}
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider block mb-1.5" style={{ color: COLORS.textMuted }}>Speed</span>
+                    <div className="flex gap-1.5">
+                      {(["slow", "normal", "fast"] as ZoomSpeed[]).map((sp) => (
+                        <button
+                          key={sp}
+                          onClick={() => setZoomSpeed(sp)}
+                          className="flex-1 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wide transition-all cursor-pointer"
+                          style={{
+                            backgroundColor: zoomSpeed === sp ? accentColor : "#F3F4F6",
+                            color: zoomSpeed === sp ? COLORS.white : COLORS.textMuted,
+                          }}
+                        >
+                          {sp}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Zoom Target */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: COLORS.textMuted }}>Zoom Target</span>
+                      <span className="text-[9px] font-mono" style={{ color: COLORS.textMuted }}>
+                        {Math.round(zoomTarget.x * 100)}%, {Math.round(zoomTarget.y * 100)}%
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setSettingZoomTarget(true)}
+                      className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wide transition-all cursor-pointer border-2"
+                      style={{
+                        borderColor: settingZoomTarget ? accentColor : "#E5E7EB",
+                        backgroundColor: settingZoomTarget ? `${accentColor}10` : "transparent",
+                        color: settingZoomTarget ? accentColor : COLORS.textMuted,
+                      }}
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                        <circle cx="12" cy="12" r="3" />
+                        <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+                      </svg>
+                      {settingZoomTarget ? "Click on the video..." : "Set Target on Video"}
+                    </button>
+                  </div>
+
+                  {/* Zoom Note */}
+                  <div className="rounded-lg p-2.5" style={{ backgroundColor: `${accentColor}08` }}>
+                    <p className="text-[9px] leading-relaxed" style={{ color: COLORS.textMuted }}>
+                      Zoom effect requires full video re-encoding. Processing may take longer than normal trimming. Best results with clips under 60 seconds.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
