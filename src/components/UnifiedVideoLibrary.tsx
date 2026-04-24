@@ -78,7 +78,6 @@ function getProviderColor(provider: string): string {
 }
 
 function getProviderAspect(provider: string): string {
-  if (provider === "podcast") return "16/9";
   if (provider === "carousel") return "1/1";
   return "9/16";
 }
