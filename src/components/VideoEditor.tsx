@@ -426,17 +426,17 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
         </div>
 
         {/* ─── Video Player ─────────────────────────────────────── */}
-        <div className="max-w-lg mx-auto mb-5">
+        <div className="flex justify-center mb-5">
           <div
             className="rounded-2xl overflow-hidden border-2 shadow-lg relative"
-            style={{ borderColor: accentColor }}
+            style={{ borderColor: accentColor, width: 'min(280px, 80vw)', aspectRatio: '9/16' }}
           >
             <video
               ref={videoRef}
               src={videoUrl}
               controls
               onLoadedMetadata={handleVideoLoaded}
-              className="w-full"
+              className="w-full h-full object-contain"
               preload="metadata"
               playsInline
             />
