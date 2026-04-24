@@ -215,6 +215,18 @@
   background: #D1D5DB;
 }
 
+/* ─── Custom Cursor — Luxe Black Arrow ────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'><path d='M3 1L3 19 7.5 13.5 12 19 14 17.5 9.5 12 16 9.5 3 1Z' fill='%230A0A0A' stroke='%23FFFFFF' stroke-width='0.5' stroke-linejoin='round'/></svg>") 3 1, auto;
+}
+
+a, button, [role='button'], input[type='checkbox'], input[type='radio'], select, summary, [onclick] {
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'><path d='M3 1L3 19 7.5 13.5 12 19 14 17.5 9.5 12 16 9.5 3 1Z' fill='%23E461AD' stroke='%23FFFFFF' stroke-width='0.5' stroke-linejoin='round'/></svg>") 3 1, pointer;
+}
+
 /* ─── Selection ─────────────────────────────────────────────────── */
 
 ::selection {
