@@ -152,10 +152,13 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
   const [ffmpegLoading, setFfmpegLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [dragSplitId, setDragSplitId] = useState<string | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const liveZoomScaleRef = useRef(1);
   const [liveZoomScale, setLiveZoomScale] = useState(1);
 
   const ffmpegRef = useRef<unknown>(null);
   const animFrameRef = useRef<number>(0);
+  const drawFrameRef = useRef<number>(0);
   const progressCallbackRef = useRef<((msg: string) => void) | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -168,33 +171,73 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
     }
   }, []);
 
-  // ─── Time Update Loop + Live Zoom Preview ──────────────────────
+  // ─── Canvas-based zoom preview (draw video frames on canvas) ──
   useEffect(() => {
-    const update = () => {
-      if (videoRef.current) {
-        const t = videoRef.current.currentTime;
-        setCurrentTime(t);
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+    if (!canvas || !video) return;
 
-        // Calculate live zoom preview
-        if (isPlaying && duration > 0 && segments.length > 0) {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let running = true;
+
+    const draw = () => {
+      if (!running) return;
+
+      const t = video.currentTime;
+      setCurrentTime(t);
+
+      // Set canvas size to display size
+      const displayW = canvas.clientWidth;
+      const displayH = canvas.clientHeight;
+      if (canvas.width !== displayW || canvas.height !== displayH) {
+        canvas.width = displayW * (window.devicePixelRatio || 1);
+        canvas.height = displayH * (window.devicePixelRatio || 1);
+        ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+      }
+
+      if (video.readyState >= 2) {
+        // Calculate zoom for current time
+        let scale = 1;
+        if (duration > 0 && segments.length > 0) {
           const seg = segments.find((s) => s.enabled && t >= s.start && t <= s.end);
           if (seg && seg.zoom !== "none") {
             const progress = (t - seg.start) / (seg.end - seg.start);
             if (seg.zoom === "in") {
-              setLiveZoomScale(1 + progress * (seg.zoomLevel - 1));
+              scale = 1 + progress * (seg.zoomLevel - 1);
             } else {
-              setLiveZoomScale(seg.zoomLevel - progress * (seg.zoomLevel - 1));
+              scale = seg.zoomLevel - progress * (seg.zoomLevel - 1);
             }
-          } else {
-            setLiveZoomScale(1);
           }
         }
+
+        liveZoomScaleRef.current = scale;
+        setLiveZoomScale(scale);
+
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        if (vw > 0 && vh > 0) {
+          // Calculate source rectangle (crop from center)
+          const cropW = vw / scale;
+          const cropH = vh / scale;
+          const cropX = (vw - cropW) / 2;
+          const cropY = (vh - cropH) / 2;
+
+          // Draw the cropped/scaled portion onto the canvas
+          ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, displayW, displayH);
+        }
       }
-      animFrameRef.current = requestAnimationFrame(update);
+
+      drawFrameRef.current = requestAnimationFrame(draw);
     };
-    animFrameRef.current = requestAnimationFrame(update);
-    return () => cancelAnimationFrame(animFrameRef.current);
-  }, [isPlaying, duration, segments]);
+
+    drawFrameRef.current = requestAnimationFrame(draw);
+    return () => {
+      running = false;
+      cancelAnimationFrame(drawFrameRef.current);
+    };
+  }, [duration, segments]);
 
   // ─── Play/Pause ────────────────────────────────────────────────
   const togglePlay = useCallback(() => {
@@ -623,7 +666,7 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
           </button>
         </div>
 
-        {/* ─── Video Player with Zoom Preview ────────────────────── */}
+        {/* ─── Video Player with Canvas Zoom Preview ──────────── */}
         <div className="flex justify-center mb-5">
           <div
             ref={containerRef}
@@ -634,23 +677,22 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
               aspectRatio: "9/16",
             }}
           >
-            {/* Zoom wrapper: video renders at full resolution by changing actual dimensions */}
-            <div className="w-full h-full overflow-hidden">
-              <video
-                ref={videoRef}
-                src={videoUrl}
-                onLoadedMetadata={handleVideoLoaded}
-                preload="metadata"
-                playsInline
-                style={{
-                  width: `${liveZoomScale * 100}%`,
-                  height: `${liveZoomScale * 100}%`,
-                  objectFit: "cover",
-                  marginTop: `${-(liveZoomScale - 1) * 50}%`,
-                  marginLeft: `${-(liveZoomScale - 1) * 50}%`,
-                }}
-              />
-            </div>
+            {/* Hidden video element for decoding/playback */}
+            <video
+              ref={videoRef}
+              src={videoUrl}
+              onLoadedMetadata={handleVideoLoaded}
+              preload="auto"
+              playsInline
+              muted
+              style={{ position: "absolute", width: 0, height: 0, opacity: 0, pointerEvents: "none" }}
+            />
+
+            {/* Canvas displays the video with real-time zoom crop */}
+            <canvas
+              ref={canvasRef}
+              className="w-full h-full block"
+            />
 
             {/* Custom video controls overlay */}
             <div className="absolute bottom-0 left-0 right-0 z-10 px-3 pb-3 pt-8" style={{ background: "linear-gradient(transparent, rgba(0,0,0,0.7))" }}>
