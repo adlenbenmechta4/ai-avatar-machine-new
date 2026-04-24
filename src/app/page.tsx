@@ -296,6 +296,7 @@ export default function Home() {
   const { user, loading, signOut } = useAuth();
   const [showSubscription, setShowSubscription] = useState(false);
   const [currentView, setCurrentView] = useState<"menu" | "avatar" | "carousel" | "podcast">("menu");
+  const [openLibraryKey, setOpenLibraryKey] = useState(0);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
 
@@ -440,7 +441,7 @@ export default function Home() {
       </div>
 
       <div style={{ marginTop: isDark ? "52px" : "52px" }}>
-        <AIAvatarMachine isAdmin={isAdmin} theme={theme} />
+        <AIAvatarMachine isAdmin={isAdmin} theme={theme} openLibraryKey={openLibraryKey} />
       </div>
     </div>
   );
