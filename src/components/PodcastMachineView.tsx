@@ -1079,7 +1079,9 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
     if (finalVideoUrl) {
       setEditorVideoUrl(finalVideoUrl);
       setShowEditor(true);
-      setTimeout(() => editorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+      requestAnimationFrame(() => {
+        setTimeout(() => editorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
+      });
     }
   }, [finalVideoUrl]);
 
@@ -1087,7 +1089,9 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
   const openEditorForUrl = useCallback((videoUrl: string) => {
     setEditorVideoUrl(videoUrl);
     setShowEditor(true);
-    setTimeout(() => editorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+    requestAnimationFrame(() => {
+      setTimeout(() => editorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
+    });
   }, []);
 
   // ─── Library Caption: Open caption modal for library video ─────────────
