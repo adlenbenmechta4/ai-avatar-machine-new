@@ -190,20 +190,12 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
       const segs = segmentsRef.current;
       const dur = durationRef.current;
 
-      // Calculate zoom for current time
+      // Calculate zoom for current time — DIRECT instant zoom
       let scale = 1;
       if (dur > 0 && segs.length > 0) {
         const seg = segs.find((s) => s.enabled && t >= s.start && t <= s.end);
         if (seg && seg.zoom !== "none") {
-          const segDuration = seg.end - seg.start;
-          if (segDuration > 0) {
-            const progress = (t - seg.start) / segDuration;
-            if (seg.zoom === "in") {
-              scale = 1 + progress * (seg.zoomLevel - 1);
-            } else {
-              scale = seg.zoomLevel - progress * (seg.zoomLevel - 1);
-            }
-          }
+          scale = seg.zoomLevel; // instant zoom, no gradual transition
         }
       }
 
@@ -267,15 +259,10 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
     const clampedTime = Math.max(0, Math.min(time, duration));
     video.currentTime = clampedTime;
     setCurrentTime(clampedTime);
-    // Update live zoom for seeked position
+    // Update live zoom for seeked position — direct instant zoom
     const seg = segments.find((s) => s.enabled && clampedTime >= s.start && clampedTime <= s.end);
     if (seg && seg.zoom !== "none") {
-      const progress = (clampedTime - seg.start) / (seg.end - seg.start);
-      if (seg.zoom === "in") {
-        setLiveZoomScale(1 + progress * (seg.zoomLevel - 1));
-      } else {
-        setLiveZoomScale(seg.zoomLevel - progress * (seg.zoomLevel - 1));
-      }
+      setLiveZoomScale(seg.zoomLevel);
     } else {
       setLiveZoomScale(1);
     }
