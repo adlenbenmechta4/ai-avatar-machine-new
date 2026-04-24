@@ -304,7 +304,7 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
 
   // ─── Process & Export Video ─────────────────────────────────────
   const processVideo = useCallback(async () => {
-    if (!duration || !ffmpegLoaded) return;
+    if (!duration) return;
 
     const enabledSegs = segments.filter((s) => s.enabled);
     if (enabledSegs.length === 0) {
@@ -312,8 +312,82 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
       return;
     }
 
-    // If only one segment covering the full video, just provide the original
-    if (enabledSegs.length === 1 && enabledSegs[0].start < 0.1 && enabledSegs[0].end > duration - 0.1) {
+    // If only one segment covering the full video, apply zoom server-side or return original
+    const isFullVideo = enabledSegs.length === 1 && enabledSegs[0].start < 0.1 && enabledSegs[0].end > duration - 0.1;
+
+    // ── Zoom: use server-side API ──────────────────────────────
+    if (zoomEnabled) {
+      if (!isFullVideo) {
+        setProcessError("Zoom effects require the full video. Remove all splits first, or disable zoom for trimming.");
+        return;
+      }
+
+      setIsProcessing(true);
+      setProcessError("");
+      setResultUrl("");
+      setProcessProgress("Applying zoom effects (server-side)...");
+
+      try {
+        const res = await fetch("/api/zoom-video", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            video_url: videoUrl,
+            zoom_type: zoomType,
+            zoom_intensity: zoomIntensity,
+            zoom_speed: zoomSpeed,
+            zoom_target_x: zoomTarget.x,
+            zoom_target_y: zoomTarget.y,
+          }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => null);
+          throw new Error(errData?.error || `Server error: ${res.status}`);
+        }
+
+        // Stream download progress
+        const contentLength = res.headers.get("content-length");
+        if (contentLength) {
+          const total = parseInt(contentLength, 10);
+          const reader = res.body?.getReader();
+          if (reader) {
+            const chunks: Uint8Array[] = [];
+            let received = 0;
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              chunks.push(value);
+              received += value.length;
+              setProcessProgress(`Receiving zoomed video... ${Math.round((received / total) * 100)}%`);
+            }
+            const blob = new Blob(chunks, { type: "video/mp4" });
+            const url = URL.createObjectURL(blob);
+            setResultUrl(url);
+          } else {
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            setResultUrl(url);
+          }
+        } else {
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          setResultUrl(url);
+        }
+        setProcessProgress("Zoom applied successfully!");
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Zoom processing failed";
+        setProcessError(msg);
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    // ── No zoom: use WASM FFmpeg for trim/cut ──────────────────
+    if (!ffmpegLoaded) return;
+
+    if (isFullVideo) {
       setResultUrl(videoUrl);
       return;
     }
@@ -335,76 +409,56 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
       setProcessProgress("Loading video into editor...");
       await ffmpeg.writeFile("input.mp4", videoData);
 
-      // Build zoompan filter if zoom is enabled
-      const needsZoom = zoomEnabled;
-      const zoomFilter = needsZoom ? buildZoompanFilter(duration) : null;
-
-      if (needsZoom && !zoomFilter) {
-        throw new Error("Could not build zoom filter. Make sure the video is loaded.");
-      }
-
       // Build ffmpeg filter for extracting and concatenating segments
-      setProcessProgress(needsZoom ? "Applying zoom effects..." : "Processing cuts...");
+      setProcessProgress("Processing cuts...");
 
       // Use output-side seeking (-ss AFTER -i) for exact frame-accurate cuts.
       // Re-encode video (ultrafast) while copying audio to avoid:
       //   - "audio only" bug from stream-copy misalignment
       //   - "starts from beginning" bug from input-side seeking to distant keyframes
       if (enabledSegs.length === 1) {
-        // Single segment — simple trim (with optional zoom)
+        // Single segment — simple trim
         const seg = enabledSegs[0];
         const segDuration = (seg.end - seg.start).toFixed(2);
         ffmpeg.on("progress", ({ progress }) => {
           if (progress !== undefined) {
-            setProcessProgress(needsZoom ? `Applying zoom... ${Math.round(progress * 100)}%` : `Processing... ${Math.round(progress * 100)}%`);
+            setProcessProgress(`Processing... ${Math.round(progress * 100)}%`);
           }
         });
-        const args = ["-i", "input.mp4"];
-        if (!needsZoom) {
-          args.push("-ss", seg.start.toFixed(2), "-t", segDuration);
-        } else {
-          // For zoom, we need to process the full segment through zoompan
-          args.push("-ss", seg.start.toFixed(2), "-t", segDuration);
-        }
-        if (zoomFilter) {
-          args.push("-vf", zoomFilter);
-        }
-        args.push(
-          "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-          "-c:a", "aac", "-b:a", "128k",
+        await ffmpeg.exec([
+          "-i", "input.mp4",
+          "-ss", seg.start.toFixed(2),
+          "-t", segDuration,
+          "-c:v", "libx264",
+          "-preset", "ultrafast",
+          "-crf", "28",
+          "-c:a", "copy",
           "-movflags", "+faststart",
           "output.mp4",
-        );
-        await ffmpeg.exec(args);
+        ]);
       } else {
         // Multiple segments — extract each then concat
         ffmpeg.on("progress", ({ progress }) => {
           if (progress !== undefined) {
-            setProcessProgress(needsZoom ? `Applying zoom to segment... ${Math.round(progress * 100)}%` : `Processing segment... ${Math.round(progress * 100)}%`);
+            setProcessProgress(`Processing segment... ${Math.round(progress * 100)}%`);
           }
         });
 
         for (let i = 0; i < enabledSegs.length; i++) {
           const seg = enabledSegs[i];
           const segDuration = (seg.end - seg.start).toFixed(2);
-          setProcessProgress(needsZoom ? `Applying zoom to segment ${i + 1} of ${enabledSegs.length}...` : `Processing segment ${i + 1} of ${enabledSegs.length}...`);
-
-          // Build per-segment zoom filter with correct duration
-          const segZoomFilter = zoomFilter
-            ? buildZoompanFilter(parseFloat(segDuration))
-            : null;
-
-          const args = ["-i", "input.mp4", "-ss", seg.start.toFixed(2), "-t", segDuration];
-          if (segZoomFilter) {
-            args.push("-vf", segZoomFilter);
-          }
-          args.push(
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-            "-c:a", "aac", "-b:a", "128k",
+          setProcessProgress(`Processing segment ${i + 1} of ${enabledSegs.length}...`);
+          await ffmpeg.exec([
+            "-i", "input.mp4",
+            "-ss", seg.start.toFixed(2),
+            "-t", segDuration,
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "28",
+            "-c:a", "copy",
             "-movflags", "+faststart",
             `part${i}.mp4`,
-          );
-          await ffmpeg.exec(args);
+          ]);
         }
 
         // Create concat file
@@ -435,7 +489,7 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
     } finally {
       setIsProcessing(false);
     }
-  }, [duration, segments, ffmpegLoaded, videoUrl, zoomEnabled, buildZoompanFilter]);
+  }, [duration, segments, ffmpegLoaded, videoUrl, zoomEnabled, zoomType, zoomIntensity, zoomSpeed, zoomTarget]);
 
   // ─── Keyboard Shortcuts ────────────────────────────────────────
   useEffect(() => {
@@ -841,7 +895,7 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
                   {/* Zoom Note */}
                   <div className="rounded-lg p-2.5" style={{ backgroundColor: `${accentColor}08` }}>
                     <p className="text-[9px] leading-relaxed" style={{ color: COLORS.textMuted }}>
-                      Zoom effect requires full video re-encoding. Processing may take longer than normal trimming. Best results with clips under 60 seconds.
+                      Zoom is processed server-side with high quality FFmpeg. No need to load the editor engine. Processing time depends on video length.
                     </p>
                   </div>
                 </div>
@@ -869,7 +923,7 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
           {/* Export Button */}
           {!resultUrl && !ffmpegLoading && (
             <button
-              onClick={ffmpegLoaded ? processVideo : loadFFmpeg}
+              onClick={zoomEnabled ? processVideo : (ffmpegLoaded ? processVideo : loadFFmpeg)}
               disabled={isProcessing || segments.filter((s) => s.enabled).length === 0}
               className="w-full flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-2xl text-sm font-black uppercase tracking-wider transition-all duration-300 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed hover:scale-[1.01] active:scale-[0.99] shadow-lg"
               style={{
@@ -878,7 +932,17 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
                 boxShadow: `0 6px 24px ${accentColor}40`,
               }}
             >
-              {ffmpegLoaded ? (
+              {zoomEnabled ? (
+                <>
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    <line x1="11" y1="8" x2="11" y2="14" />
+                    <line x1="8" y1="11" x2="14" y2="11" />
+                  </svg>
+                  Apply Zoom &amp; Export
+                </>
+              ) : ffmpegLoaded ? (
                 <>
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
