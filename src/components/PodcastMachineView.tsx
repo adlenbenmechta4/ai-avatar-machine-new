@@ -392,6 +392,9 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
 
   // ─── Video Clips State ──────────────────────────────────────────────
   const [clips, setClips] = useState<PodcastVideoClip[]>([]);
+  const [editingClipIndex, setEditingClipIndex] = useState<number | null>(null);
+  const [editClipText, setEditClipText] = useState("");
+  const [isRetryingClip, setIsRetryingClip] = useState(false);
 
   // ─── Results ─────────────────────────────────────────────────────────
   const [finalVideoUrl, setFinalVideoUrl] = useState("");
@@ -540,6 +543,108 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+  // ─── Edit & Retry single clip handlers ────────────────────────────────
+  const handleEditRetry = (clipIndex: number) => {
+    const clip = clips.find((c) => c.index === clipIndex);
+    if (!clip) return;
+    setEditingClipIndex(clipIndex);
+    setEditClipText(clip.text);
+  };
+
+  const handleRetryWithoutEdit = async (clipIndex: number) => {
+    setIsRetryingClip(true);
+    const MAX_RETRIES = 4;
+    const POLL_VIDEO_INTERVAL = 8000;
+    const clip = clips.find((c) => c.index === clipIndex);
+    if (!clip) { setIsRetryingClip(false); return; }
+    const imageUrl = clip.character === 1 ? char1ImageUrl : char2ImageUrl;
+    addLog(`🔄 Retrying video ${clipIndex}...`);
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const style = getPromptStyle(attempt);
+        const taskId = await submitVideo(imageUrl, clip.text, style);
+        addLog(`📋 Video ${clipIndex}: Submitted (taskId: ${taskId.slice(0, 8)}..., attempt ${attempt})`);
+        setClips((prev) => prev.map((c) => c.index === clipIndex ? { ...c, videoProgress: 20, error: "" } : c));
+        let pollCount = 0;
+        while (true) {
+          await sleep(POLL_VIDEO_INTERVAL);
+          pollCount++;
+          const status = await checkVideoStatus(taskId);
+          if (status.status === "completed" && status.videoUrl) {
+            addLog(`✅ Video ${clipIndex}: Complete!`);
+            setClips((prev) => prev.map((c) => c.index === clipIndex ? { ...c, videoProgress: 100, videoDone: true, videoUrl: status.videoUrl!, error: "" } : c));
+            break;
+          }
+          if (status.status === "failed") {
+            addLog(`⚠️ Video ${clipIndex} attempt ${attempt} failed: ${status.error || "Unknown error"}`);
+            setClips((prev) => prev.map((c) => c.index === clipIndex ? { ...c, videoProgress: 0, error: `Attempt ${attempt} failed` } : c));
+            break;
+          }
+          setClips((prev) => prev.map((c) => c.index === clipIndex ? { ...c, videoProgress: Math.min(20 + Math.round((pollCount / 45) * 70), 90) } : c));
+          if (pollCount % 6 === 0) addLog(`⏳ Video ${clipIndex}: Still processing... (${Math.round(pollCount * POLL_VIDEO_INTERVAL / 1000)}s elapsed)`);
+        }
+      } catch {
+        if (attempt < MAX_RETRIES) {
+          addLog(`🔄 Video ${clipIndex}: Retrying (${attempt}/${MAX_RETRIES})...`);
+          await sleep(Math.min(15 + (attempt - 1) * 20, 120) * 1000);
+        } else {
+          addLog(`❌ Video ${clipIndex}: All ${MAX_RETRIES} attempts failed.`);
+          setClips((prev) => prev.map((c) => c.index === clipIndex ? { ...c, error: `Failed after ${MAX_RETRIES} attempts` } : c));
+        }
+      }
+    }
+    setIsRetryingClip(false);
+  };
+
+  const handleSaveRetryClip = async () => {
+    if (editingClipIndex === null || !editClipText.trim()) return;
+    setIsRetryingClip(true);
+    const idx = editingClipIndex;
+    const newText = editClipText.trim();
+    setEditingClipIndex(null);
+    const MAX_RETRIES = 4;
+    const POLL_VIDEO_INTERVAL = 8000;
+    const clip = clips.find((c) => c.index === idx);
+    if (!clip) { setIsRetryingClip(false); return; }
+    const imageUrl = clip.character === 1 ? char1ImageUrl : char2ImageUrl;
+    addLog(`🔄 Retrying video ${idx} with new dialogue...`);
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const style = getPromptStyle(attempt);
+        const taskId = await submitVideo(imageUrl, newText, style);
+        addLog(`📋 Video ${idx}: Submitted (taskId: ${taskId.slice(0, 8)}..., attempt ${attempt})`);
+        setClips((prev) => prev.map((c) => c.index === idx ? { ...c, videoProgress: 20, error: "", text: newText } : c));
+        let pollCount = 0;
+        while (true) {
+          await sleep(POLL_VIDEO_INTERVAL);
+          pollCount++;
+          const status = await checkVideoStatus(taskId);
+          if (status.status === "completed" && status.videoUrl) {
+            addLog(`✅ Video ${idx}: Complete!`);
+            setClips((prev) => prev.map((c) => c.index === idx ? { ...c, videoProgress: 100, videoDone: true, videoUrl: status.videoUrl!, error: "" } : c));
+            break;
+          }
+          if (status.status === "failed") {
+            addLog(`⚠️ Video ${idx} attempt ${attempt} failed: ${status.error || "Unknown error"}`);
+            setClips((prev) => prev.map((c) => c.index === idx ? { ...c, videoProgress: 0, error: `Attempt ${attempt} failed` } : c));
+            break;
+          }
+          setClips((prev) => prev.map((c) => c.index === idx ? { ...c, videoProgress: Math.min(20 + Math.round((pollCount / 45) * 70), 90) } : c));
+          if (pollCount % 6 === 0) addLog(`⏳ Video ${idx}: Still processing... (${Math.round(pollCount * POLL_VIDEO_INTERVAL / 1000)}s elapsed)`);
+        }
+      } catch {
+        if (attempt < MAX_RETRIES) {
+          addLog(`🔄 Video ${idx}: Retrying (${attempt}/${MAX_RETRIES})...`);
+          await sleep(Math.min(15 + (attempt - 1) * 20, 120) * 1000);
+        } else {
+          addLog(`❌ Video ${idx}: All ${MAX_RETRIES} attempts failed.`);
+          setClips((prev) => prev.map((c) => c.index === idx ? { ...c, error: `Failed after ${MAX_RETRIES} attempts` } : c));
+        }
+      }
+    }
+    setIsRetryingClip(false);
+  };
+
   // ─── Run Generation (client-driven polling pipeline) ─────────────────
   const runGeneration = useCallback(async () => {
     if (!isValid || isRunning) return;
@@ -667,7 +772,14 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
         }
 
         if (!clipSucceeded) {
-          throw new Error(`Video ${clipIdx} failed after ${MAX_RETRIES} retries`);
+          // Don't throw — pause pipeline and let user retry individual clips
+          setPipelineStep(0);
+          setIsRunning(false);
+          pipelineRunningRef.current = false;
+          abortRef.current = null;
+          setClips((prev) => prev.map((c) => c.index === clipIdx ? { ...c, error: `Failed — click "Edit & Retry" to try again` } : c));
+          addLog(`⚠️ Video ${clipIdx} failed. You can edit the dialogue and retry this video, or merge the successful ones.`);
+          return;
         }
       }
 
@@ -740,6 +852,146 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
       abortRef.current = null;
     }
   }, [isValid, isRunning, char1ImageUrl, char2ImageUrl, char1Dialogues, char2Dialogues, isAdmin, kieApiKey, falApiKey, addLog]);
+
+  // ─── Retry a single failed clip with optional new dialogue text ──────
+  const retrySingleClip = useCallback(async (clipIndex: number, newText?: string) => {
+    const MAX_RETRIES = 4;
+    const POLL_VIDEO_INTERVAL = 8000;
+
+    const clip = clips.find((c) => c.index === clipIndex);
+    if (!clip) return;
+
+    const imageUrl = clip.character === 1 ? char1ImageUrl : char2ImageUrl;
+    const dialogue = newText || clip.text;
+
+    // Update clip with new text if provided
+    if (newText) {
+      setClips((prev) => prev.map((c) => c.index === clipIndex ? { ...c, text: newText, videoProgress: 10, error: "", videoDone: false, videoUrl: "" } : c));
+    } else {
+      setClips((prev) => prev.map((c) => c.index === clipIndex ? { ...c, videoProgress: 10, error: "" } : c));
+    }
+    addLog(`🔄 Retrying video ${clipIndex}...${newText ? ' (with new dialogue)' : ''}`);
+
+    let clipSucceeded = false;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const style = getPromptStyle(attempt);
+        const taskId = await submitVideo(imageUrl, dialogue, style);
+        addLog(`📋 Video ${clipIndex}: Submitted (taskId: ${taskId.slice(0, 8)}..., attempt ${attempt})`);
+        setClips((prev) => prev.map((c) => c.index === clipIndex ? { ...c, videoProgress: 20, error: "" } : c));
+
+        let pollCount = 0;
+        while (true) {
+          await sleep(POLL_VIDEO_INTERVAL);
+          pollCount++;
+
+          const status = await checkVideoStatus(taskId);
+          const pct = Math.min(20 + Math.round((pollCount / 45) * 70), 90);
+
+          if (status.status === "completed" && status.videoUrl) {
+            addLog(`✅ Video ${clipIndex}: Complete!`);
+            setClips((prev) => prev.map((c) => c.index === clipIndex ? { ...c, videoProgress: 100, videoDone: true, videoUrl: status.videoUrl!, error: "" } : c));
+            clipSucceeded = true;
+            break;
+          }
+
+          if (status.status === "failed") {
+            addLog(`⚠️ Video ${clipIndex} attempt ${attempt} failed: ${status.error || "Unknown error"}`);
+            setClips((prev) => prev.map((c) => c.index === clipIndex ? { ...c, videoProgress: 0, error: `Attempt ${attempt} failed` } : c));
+            break;
+          }
+
+          setClips((prev) => prev.map((c) => c.index === clipIndex ? { ...c, videoProgress: pct } : c));
+          if (pollCount % 6 === 0) {
+            addLog(`⏳ Video ${clipIndex}: Still processing... (${Math.round(pollCount * POLL_VIDEO_INTERVAL / 1000)}s elapsed)`);
+          }
+        }
+
+        if (clipSucceeded) break;
+
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (attempt < MAX_RETRIES) {
+          addLog(`🔄 Video ${clipIndex}: Retrying (${attempt}/${MAX_RETRIES})...`);
+          const retryDelay = Math.min(15 + (attempt - 1) * 20, 120) * 1000;
+          addLog(`⏳ Waiting ${Math.round(retryDelay / 1000)}s before retry...`);
+          await sleep(retryDelay);
+        } else {
+          addLog(`❌ Video ${clipIndex}: All ${MAX_RETRIES} attempts failed.`);
+          setClips((prev) => prev.map((c) => c.index === clipIndex ? { ...c, error: `Failed after ${MAX_RETRIES} attempts` } : c));
+        }
+      }
+    }
+
+    return clipSucceeded;
+  }, [clips, char1ImageUrl, char2ImageUrl, submitVideo, checkVideoStatus, addLog]);
+
+  // ─── Merge all successful video clips (skips failed ones) ───────────
+  const mergeSuccessfulVideos = useCallback(async () => {
+    const successfulClips = clips.filter((c) => c.videoDone && c.videoUrl);
+    if (successfulClips.length < 2) {
+      addLog("ERROR: Need at least 2 successful videos to merge.");
+      setPipelineError("Need at least 2 successful videos to merge.");
+      return;
+    }
+
+    const videoUrls = successfulClips.map((c) => c.videoUrl);
+    setPipelineError("");
+    setPipelineStep(2);
+    setCombineProgress(10);
+    setIsRunning(true);
+    addLog(`🔗 Merging ${videoUrls.length} successful videos...`);
+
+    try {
+      const mergeResult = await submitMerge(videoUrls);
+
+      if (mergeResult.videoUrl) {
+        setPipelineStep(3);
+        setCombineProgress(100);
+        setFinalVideoUrl(mergeResult.videoUrl);
+        setFinalVideoUrls(videoUrls);
+        setIsRunning(false);
+        addLog("Podcast complete!");
+        return;
+      }
+
+      addLog(`📋 Merge submitted (requestId: ${mergeResult.requestId!.slice(0, 8)}...)`);
+      setCombineProgress(20);
+
+      let mergePollCount = 0;
+      while (true) {
+        await sleep(5000);
+        mergePollCount++;
+
+        const mergeStatus = await checkMergeStatus(mergeResult.requestId!);
+        const mergePct = Math.min(20 + Math.round((mergePollCount / 30) * 70), 95);
+        setCombineProgress(mergePct);
+
+        if (mergeStatus.status === "completed" && mergeStatus.videoUrl) {
+          setPipelineStep(3);
+          setCombineProgress(100);
+          setFinalVideoUrl(mergeStatus.videoUrl);
+          setFinalVideoUrls(videoUrls);
+          setIsRunning(false);
+          addLog("Podcast complete!");
+          return;
+        }
+
+        if (mergeStatus.status === "failed") {
+          throw new Error(mergeStatus.error || "Merge failed");
+        }
+
+        if (mergePollCount % 6 === 0) {
+          addLog(`⏳ Merge still processing... (${Math.round(mergePollCount * 5000 / 1000)}s elapsed)`);
+        }
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setPipelineError(msg);
+      addLog("ERROR: " + msg);
+      setIsRunning(false);
+    }
+  }, [clips, submitMerge, checkMergeStatus, addLog]);
 
   // ─── Auto Subtitle via fal.ai ──────────────────────────────────────────
   const generateSubtitles = useCallback(async () => {
@@ -1176,7 +1428,7 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
         {/* ═══════════════════════════════════════════════════════════
             CLIP PROGRESS (per-video progress bars — same as AI Avatar Machine)
         ═══════════════════════════════════════════════════════════ */}
-        {isRunning && clips.length > 0 && pipelineStep === 1 && (
+        {clips.length > 0 && (isRunning || clips.some((c) => c.error || c.videoDone)) && (pipelineStep === 0 || pipelineStep === 1) && (
           <div className="rounded-[28px] p-1 mb-6 animate-fade-in" style={{ backgroundColor: `${C.cyan}15` }}>
             <div className="rounded-[24px] p-5 sm:p-6" style={{ backgroundColor: C.white }}>
               <div className="flex items-center gap-2 mb-4">
@@ -1202,7 +1454,70 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
                       </span>
                     </div>
                     {clip.error ? (
-                      <p className="text-[10px]" style={{ color: "#EF4444" }}>Failed: {clip.error}</p>
+                      <>
+                        <p className="text-[10px]" style={{ color: "#EF4444" }}>{clip.error}</p>
+                        {/* Edit & Retry / Retry buttons — only show when pipeline is paused (not running) */}
+                        {!isRunning && !clip.videoDone && (
+                          <div className="flex gap-1.5 mt-2">
+                            <button
+                              onClick={() => handleEditRetry(clip.index)}
+                              disabled={isRetryingClip}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-all hover:scale-[1.02] active:scale-[0.97] cursor-pointer disabled:opacity-50"
+                              style={{ backgroundColor: C.pink, color: "#FFF" }}
+                            >
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                              </svg>
+                              Edit & Retry
+                            </button>
+                            <button
+                              onClick={() => handleRetryWithoutEdit(clip.index)}
+                              disabled={isRetryingClip}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-all hover:scale-[1.02] active:scale-[0.97] cursor-pointer disabled:opacity-50"
+                              style={{ backgroundColor: "#E5E7EB", color: C.text }}
+                            >
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+                              </svg>
+                              Retry
+                            </button>
+                          </div>
+                        )}
+                        {/* Edit dialogue input modal */}
+                        {editingClipIndex === clip.index && (
+                          <div className="mt-2 p-2.5 rounded-xl" style={{ backgroundColor: "#FFF", border: "1.5px solid #E5E7EB" }}>
+                            <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.textMuted }}>
+                              Edit dialogue for Video {clip.index}
+                            </label>
+                            <textarea
+                              value={editClipText}
+                              onChange={(e) => setEditClipText(e.target.value)}
+                              rows={3}
+                              className="w-full px-2.5 py-2 rounded-lg text-xs outline-none resize-none"
+                              style={{ backgroundColor: "#F9FAFB", border: "1px solid #E5E7EB", color: C.text, caretColor: C.pink }}
+                              placeholder="Enter new dialogue text..."
+                            />
+                            <div className="flex gap-1.5 mt-2">
+                              <button
+                                onClick={handleSaveRetryClip}
+                                disabled={!editClipText.trim() || isRetryingClip}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50"
+                                style={{ backgroundColor: C.dark, color: "#FFF" }}
+                              >
+                                Save & Retry
+                              </button>
+                              <button
+                                onClick={() => setEditingClipIndex(null)}
+                                disabled={isRetryingClip}
+                                className="inline-flex items-center px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50"
+                                style={{ backgroundColor: "#E5E7EB", color: C.textMuted }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </>
                     ) : clip.videoDone ? (
                       <div className="w-full h-1.5 rounded-full" style={{ backgroundColor: "#E5E7EB" }}>
                         <div className="h-full rounded-full" style={{ width: "100%", backgroundColor: "#22C55E" }} />
@@ -1224,6 +1539,26 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
                   </div>
                 ))}
               </div>
+
+              {/* Merge Successful Videos button — show when pipeline paused with some failures */}
+              {!isRunning && clips.length > 0 && clips.some((c) => c.error) && clips.filter((c) => c.videoDone).length >= 2 && (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    onClick={mergeSuccessfulVideos}
+                    disabled={isRetryingClip}
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wide transition-all hover:scale-[1.02] active:scale-[0.97] cursor-pointer disabled:opacity-50"
+                    style={{ backgroundColor: C.gold, color: "#FFF" }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                    </svg>
+                    Merge {clips.filter((c) => c.videoDone).length} Successful Videos
+                  </button>
+                  <span className="text-[10px] flex items-center" style={{ color: C.textMuted }}>
+                    ({clips.filter((c) => c.videoDone).length} done, {clips.filter((c) => c.error).length} failed)
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         )}
