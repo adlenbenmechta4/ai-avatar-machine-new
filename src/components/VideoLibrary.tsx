@@ -466,7 +466,7 @@ function VideoCard({
 interface VideoLibraryProps {
   onViewCreate?: () => void;
   onEditVideo?: (videoUrl: string) => void;
-  onCaptionVideo?: (videoUrl: string) => void;
+  onCaptionVideo?: (videoUrl: string, videoId: string) => void;
   theme?: string;
 }
 
@@ -662,7 +662,7 @@ export default function VideoLibrary({ onViewCreate, onEditVideo, onCaptionVideo
               onDelete={handleDelete}
               onPlay={setPlayingVideo}
               onEdit={onEditVideo ? (v) => onEditVideo(v.videoUrl) : undefined}
-              onCaption={onCaptionVideo ? (v) => onCaptionVideo(v.videoUrl) : undefined}
+              onCaption={onCaptionVideo ? (v) => onCaptionVideo(v.videoUrl, v.id) : undefined}
               theme={theme}
             />
           ))}

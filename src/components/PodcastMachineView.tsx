@@ -4,7 +4,7 @@ import React, { useState, useRef, useCallback } from "react";
 import PodcastVideoLibrary from "@/components/PodcastVideoLibrary";
 import VideoEditor from "@/components/VideoEditor";
 import CaptionPanelModal from "@/components/CaptionPanelModal";
-import { saveVideoToStorage } from "@/lib/video-store";
+import { saveVideoToStorage, updateVideoUrlInStorage } from "@/lib/video-store";
 import { useAuth } from "@/providers/auth-provider";
 
 // ─── Colors ─────────────────────────────────────────────────────────────────
@@ -433,6 +433,7 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
 
   // ─── Library Caption Modal State ──
   const [captionVideoUrl, setCaptionVideoUrl] = useState<string>("");
+  const [captionVideoId, setCaptionVideoId] = useState<string>("");
   const [showCaptionModal, setShowCaptionModal] = useState(false);
 
   const { user } = useAuth();
@@ -1087,8 +1088,9 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
   }, []);
 
   // ─── Library Caption: Open caption modal for library video ─────────────
-  const openCaptionForUrl = useCallback((videoUrl: string) => {
+  const openCaptionForUrl = useCallback((videoUrl: string, videoId: string) => {
     setCaptionVideoUrl(videoUrl);
+    setCaptionVideoId(videoId);
     setShowCaptionModal(true);
   }, []);
 
@@ -1983,7 +1985,15 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
       {showCaptionModal && captionVideoUrl && (
         <CaptionPanelModal
           videoUrl={captionVideoUrl}
-          onClose={() => { setShowCaptionModal(false); setCaptionVideoUrl(""); }}
+          onClose={(captionedUrl) => {
+            if (captionedUrl && captionVideoId) {
+              const userEmail = user?.email || "";
+              if (userEmail) updateVideoUrlInStorage(userEmail, captionVideoId, captionedUrl);
+            }
+            setShowCaptionModal(false);
+            setCaptionVideoUrl("");
+            setCaptionVideoId("");
+          }}
           accentColor={C.cyan}
         />
       )}

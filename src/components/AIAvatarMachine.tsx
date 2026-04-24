@@ -6,7 +6,7 @@ import VideoLibrary from "@/components/VideoLibrary";
 import VideoEditor from "@/components/VideoEditor";
 import CaptionPanelModal from "@/components/CaptionPanelModal";
 // Auto-subtitle via fal.ai
-import { saveVideoToStorage } from "@/lib/video-store";
+import { saveVideoToStorage, updateVideoUrlInStorage } from "@/lib/video-store";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1657,9 +1657,11 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
 
   // ─── Library Caption: Open caption modal for library video ─────────────
   const [captionVideoUrl, setCaptionVideoUrl] = useState<string>("");
+  const [captionVideoId, setCaptionVideoId] = useState<string>("");
   const [showCaptionModal, setShowCaptionModal] = useState(false);
-  const openCaptionForUrl = useCallback((videoUrl: string) => {
+  const openCaptionForUrl = useCallback((videoUrl: string, videoId: string) => {
     setCaptionVideoUrl(videoUrl);
+    setCaptionVideoId(videoId);
     setShowCaptionModal(true);
   }, []);
 
@@ -3241,7 +3243,15 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", open
         {showCaptionModal && captionVideoUrl && (
           <CaptionPanelModal
             videoUrl={captionVideoUrl}
-            onClose={() => { setShowCaptionModal(false); setCaptionVideoUrl(""); }}
+            onClose={(captionedUrl) => {
+              if (captionedUrl && captionVideoId) {
+                const userEmail = user?.email || "";
+                if (userEmail) updateVideoUrlInStorage(userEmail, captionVideoId, captionedUrl);
+              }
+              setShowCaptionModal(false);
+              setCaptionVideoUrl("");
+              setCaptionVideoId("");
+            }}
             accentColor={T.pink}
           />
         )}

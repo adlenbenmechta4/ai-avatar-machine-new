@@ -39,7 +39,7 @@ interface PodcastVideoLibraryProps {
   user?: { email?: string } | null;
   onViewCreate?: () => void;
   onEditVideo?: (videoUrl: string) => void;
-  onCaptionVideo?: (videoUrl: string) => void;
+  onCaptionVideo?: (videoUrl: string, videoId: string) => void;
 }
 
 // ─── Video Modal ────────────────────────────────────────────────────────
@@ -510,7 +510,7 @@ export default function PodcastVideoLibrary({ user, onViewCreate, onEditVideo, o
               onDelete={handleDelete}
               onPlay={setPlayingVideo}
               onEdit={onEditVideo ? (video) => onEditVideo(video.videoUrl) : undefined}
-              onCaption={onCaptionVideo ? (video) => onCaptionVideo(video.videoUrl) : undefined}
+              onCaption={onCaptionVideo ? (video) => onCaptionVideo(video.videoUrl, video.id) : undefined}
             />
           ))}
         </div>

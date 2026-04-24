@@ -75,6 +75,22 @@ export function deleteVideoFromStorage(email: string, videoId: string): void {
 }
 
 /**
+ * Update a video's URL in localStorage by ID.
+ * Used when captions are added to a video — the captioned URL replaces the original.
+ */
+export function updateVideoUrlInStorage(email: string, videoId: string, newUrl: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    const key = getKey(email);
+    const existing = loadVideosFromStorage(email);
+    const updated = existing.map((v) => (v.id === videoId ? { ...v, videoUrl: newUrl } : v));
+    localStorage.setItem(key, JSON.stringify(updated));
+  } catch (err) {
+    console.warn("[video-store] Failed to update video URL:", err);
+  }
+}
+
+/**
  * Merge API videos with localStorage videos (deduplicate by videoUrl).
  * API videos take precedence (they have the canonical ID).
  */

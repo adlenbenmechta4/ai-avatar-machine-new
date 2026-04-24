@@ -15,7 +15,7 @@ import { Switch } from "@/components/ui/switch";
 
 interface CaptionPanelModalProps {
   videoUrl: string;
-  onClose: () => void;
+  onClose: (captionedUrl?: string) => void;
   accentColor?: string;
 }
 
@@ -139,17 +139,22 @@ export default function CaptionPanelModal({
     };
   }, []);
 
+  // ─── Close Helper ───────────────────────────────────────────────
+  const handleClose = useCallback(() => {
+    onClose(subtitleDone ? subtitleVideoUrl : undefined);
+  }, [onClose, subtitleDone, subtitleVideoUrl]);
+
   // ─── Escape Key Handler ───────────────────────────────────────────
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        onClose();
+        handleClose();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  }, [handleClose]);
 
   // ─── Generate Subtitles ───────────────────────────────────────────
   const generateSubtitles = useCallback(async () => {
@@ -260,7 +265,7 @@ export default function CaptionPanelModal({
       className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in"
       style={{ backgroundColor: "rgba(0,0,0,0.85)" }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleClose();
       }}
     >
       {/* ─── Main Panel ──────────────────────────────────────────── */}
@@ -309,7 +314,7 @@ export default function CaptionPanelModal({
 
             {/* Close Button */}
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:scale-110 cursor-pointer"
               style={{ backgroundColor: "#F3F4F6", color: C.textMuted }}
             >
