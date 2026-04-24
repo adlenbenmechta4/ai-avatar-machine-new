@@ -632,32 +632,53 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
               borderColor: accentColor,
               width: "min(280px, 80vw)",
               aspectRatio: "9/16",
-              transition: "border-color 0.3s ease",
             }}
           >
-            <div
-              className="w-full h-full overflow-hidden"
-              style={{ transition: liveZoomScale !== 1 ? "none" : "transform 0.15s ease" }}
-            >
+            {/* Zoom wrapper: video renders at full resolution by changing actual dimensions */}
+            <div className="w-full h-full overflow-hidden">
               <video
                 ref={videoRef}
                 src={videoUrl}
-                controls
                 onLoadedMetadata={handleVideoLoaded}
-                className="w-full h-full object-cover"
                 preload="metadata"
                 playsInline
                 style={{
-                  transform: `scale(${liveZoomScale})`,
-                  transformOrigin: "center center",
+                  width: `${liveZoomScale * 100}%`,
+                  height: `${liveZoomScale * 100}%`,
+                  objectFit: "cover",
+                  marginTop: `${-(liveZoomScale - 1) * 50}%`,
+                  marginLeft: `${-(liveZoomScale - 1) * 50}%`,
                 }}
               />
+            </div>
+
+            {/* Custom video controls overlay */}
+            <div className="absolute bottom-0 left-0 right-0 z-10 px-3 pb-3 pt-8" style={{ background: "linear-gradient(transparent, rgba(0,0,0,0.7))" }}>
+              <div className="w-full h-1 rounded-full mb-2 cursor-pointer" style={{ backgroundColor: "rgba(255,255,255,0.25)" }} onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const ratio = (e.clientX - rect.left) / rect.width;
+                seekTo(ratio * duration);
+              }}>
+                <div className="h-full rounded-full" style={{ width: duration > 0 ? `${(currentTime / duration) * 100}%` : "0%", backgroundColor: accentColor, transition: "width 0.1s linear" }} />
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={togglePlay} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: "rgba(255,255,255,0.2)", color: COLORS.white }}>
+                  {isPlaying ? (
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
+                  ) : (
+                    <svg className="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                  )}
+                </button>
+                <span className="text-[9px] font-mono" style={{ color: COLORS.white }}>
+                  {formatTime(currentTime)} / {formatTimeShort(duration)}
+                </span>
+              </div>
             </div>
 
             {/* Zoom indicator badge */}
             {liveZoomScale !== 1 && (
               <div
-                className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1"
+                className="absolute top-3 right-3 z-20 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1"
                 style={{
                   backgroundColor: "rgba(0,0,0,0.7)",
                   color: COLORS.white,
