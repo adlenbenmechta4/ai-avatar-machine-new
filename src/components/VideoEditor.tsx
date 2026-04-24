@@ -152,15 +152,14 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
   const [ffmpegLoading, setFfmpegLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [dragSplitId, setDragSplitId] = useState<string | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const liveZoomScaleRef = useRef(1);
   const [liveZoomScale, setLiveZoomScale] = useState(1);
+  const segmentsRef = useRef<Segment[]>([]);
+  const durationRef = useRef(0);
 
   const ffmpegRef = useRef<unknown>(null);
-  const animFrameRef = useRef<number>(0);
-  const drawFrameRef = useRef<number>(0);
   const progressCallbackRef = useRef<((msg: string) => void) | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const zoomAnimRef = useRef<number>(0);
 
   // ─── Load Video Metadata ────────────────────────────────────────
   const handleVideoLoaded = useCallback(() => {
@@ -171,39 +170,34 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
     }
   }, []);
 
-  // ─── Canvas-based zoom preview (draw video frames on canvas) ──
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const video = videoRef.current;
-    if (!canvas || !video) return;
+  // ─── Keep refs in sync with state for animation loop ──
+  useEffect(() => { segmentsRef.current = segments; }, [segments]);
+  useEffect(() => { durationRef.current = duration; }, [duration]);
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+  // ─── Real-time zoom animation loop (updates CSS transform on playing video) ──
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
 
     let running = true;
 
-    const draw = () => {
+    const updateZoom = () => {
       if (!running) return;
 
       const t = video.currentTime;
       setCurrentTime(t);
 
-      // Set canvas size to display size
-      const displayW = canvas.clientWidth;
-      const displayH = canvas.clientHeight;
-      if (canvas.width !== displayW || canvas.height !== displayH) {
-        canvas.width = displayW * (window.devicePixelRatio || 1);
-        canvas.height = displayH * (window.devicePixelRatio || 1);
-        ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
-      }
+      const segs = segmentsRef.current;
+      const dur = durationRef.current;
 
-      if (video.readyState >= 2) {
-        // Calculate zoom for current time
-        let scale = 1;
-        if (duration > 0 && segments.length > 0) {
-          const seg = segments.find((s) => s.enabled && t >= s.start && t <= s.end);
-          if (seg && seg.zoom !== "none") {
-            const progress = (t - seg.start) / (seg.end - seg.start);
+      // Calculate zoom for current time
+      let scale = 1;
+      if (dur > 0 && segs.length > 0) {
+        const seg = segs.find((s) => s.enabled && t >= s.start && t <= s.end);
+        if (seg && seg.zoom !== "none") {
+          const segDuration = seg.end - seg.start;
+          if (segDuration > 0) {
+            const progress = (t - seg.start) / segDuration;
             if (seg.zoom === "in") {
               scale = 1 + progress * (seg.zoomLevel - 1);
             } else {
@@ -211,41 +205,55 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
             }
           }
         }
-
-        liveZoomScaleRef.current = scale;
-        setLiveZoomScale(scale);
-
-        const vw = video.videoWidth;
-        const vh = video.videoHeight;
-        if (vw > 0 && vh > 0) {
-          // Calculate source rectangle (crop from center)
-          const cropW = vw / scale;
-          const cropH = vh / scale;
-          const cropX = (vw - cropW) / 2;
-          const cropY = (vh - cropH) / 2;
-
-          // Draw the cropped/scaled portion onto the canvas
-          ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, displayW, displayH);
-        }
       }
 
-      drawFrameRef.current = requestAnimationFrame(draw);
+      setLiveZoomScale(scale);
+
+      // Apply CSS transform directly to video element for smooth real-time zoom
+      video.style.transform = `scale(${scale})`;
+      video.style.transformOrigin = "center center";
+
+      zoomAnimRef.current = requestAnimationFrame(updateZoom);
     };
 
-    drawFrameRef.current = requestAnimationFrame(draw);
+    zoomAnimRef.current = requestAnimationFrame(updateZoom);
     return () => {
       running = false;
-      cancelAnimationFrame(drawFrameRef.current);
+      cancelAnimationFrame(zoomAnimRef.current);
     };
-  }, [duration, segments]);
+  }, []);
+
+  // ─── Video end handler ───────────────────────────────────────
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const onEnded = () => {
+      setIsPlaying(false);
+      setLiveZoomScale(1);
+      video.style.transform = "scale(1)";
+    };
+    video.addEventListener("ended", onEnded);
+    return () => video.removeEventListener("ended", onEnded);
+  }, []);
 
   // ─── Play/Pause ────────────────────────────────────────────────
-  const togglePlay = useCallback(() => {
+  const togglePlay = useCallback(async () => {
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
-      video.play();
-      setIsPlaying(true);
+      try {
+        await video.play();
+        setIsPlaying(true);
+      } catch {
+        // Autoplay may be blocked, try muted play
+        video.muted = true;
+        try {
+          await video.play();
+          setIsPlaying(true);
+        } catch {
+          console.warn("Could not play video");
+        }
+      }
     } else {
       video.pause();
       setIsPlaying(false);
@@ -666,7 +674,7 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
           </button>
         </div>
 
-        {/* ─── Video Player with Canvas Zoom Preview ──────────── */}
+        {/* ─── Video Player with Real-Time Zoom ──────────── */}
         <div className="flex justify-center mb-5">
           <div
             ref={containerRef}
@@ -677,7 +685,7 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
               aspectRatio: "9/16",
             }}
           >
-            {/* Hidden video element for decoding/playback */}
+            {/* Visible video element with real-time CSS zoom transform */}
             <video
               ref={videoRef}
               src={videoUrl}
@@ -685,13 +693,12 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
               preload="auto"
               playsInline
               muted
-              style={{ position: "absolute", width: 0, height: 0, opacity: 0, pointerEvents: "none" }}
-            />
-
-            {/* Canvas displays the video with real-time zoom crop */}
-            <canvas
-              ref={canvasRef}
-              className="w-full h-full block"
+              onClick={togglePlay}
+              className="w-full h-full object-cover block cursor-pointer"
+              style={{
+                transform: "scale(1)",
+                transformOrigin: "center center",
+              }}
             />
 
             {/* Custom video controls overlay */}
