@@ -233,8 +233,7 @@ const VIDEO_VOICE_PROMPT =
   "Absolutely no sound effects, no whoosh, no ding, no transition sounds. " +
   "This is critical: the final audio must be 100% voice-only with zero musical or ambient elements. ";
 
-// ─── Visual Constraints Prompt ────────────────────────────────────────
-// Prevents transitions, hallucinated objects, and excessive/unrealistic movement
+// ─── Visual Constraints Prompt (Avatar Only v1 — strict, no gestures) ──────
 const VIDEO_VISUAL_CONSTRAINTS =
   "IMPORTANT: This is a RAW UNCUT CONTINUOUS SHOT — NOT an edited video. You must NOT apply ANY post-production effects, transitions, or editing. " +
   "Output must look like raw footage from a single locked camera — like a security cam or webcam recording. No editing, no effects, no transitions at all. " +
@@ -276,6 +275,55 @@ const VIDEO_VISUAL_CONSTRAINTS =
   "After the last word: mouth CLOSED, gentle smile, steady eye contact, perfectly still. " +
   "ZERO extra words, ZERO filler sounds, ZERO lip movement after script ends. ";
 
+// ─── Visual Constraints Prompt (Avatar Only v2 — expressive hand gestures) ─
+const VIDEO_VISUAL_CONSTRAINTS_V2 =
+  "IMPORTANT: This is a RAW UNCUT CONTINUOUS SHOT — NOT an edited video. You must NOT apply ANY post-production effects, transitions, or editing. " +
+  "Output must look like raw footage from a single locked camera — like a webcam recording. No editing, no effects, no transitions at all. " +
+  "\n" +
+  "1. ABSOLUTE BAN ON ALL TRANSITIONS (ZERO TOLERANCE): " +
+  "Do NOT add ANY visual transitions at ANY point — beginning, middle, or end of the video. " +
+  "BANNED transitions (ALL of these are FORBIDDEN): " +
+  "fade-in from black, fade-out to black, fade-in from white, fade-out to white, cross-dissolve, cross-fade, wipe, flash, glitch, " +
+  "jump cut, whip pan, blur transition, iris wipe, slide transition, zoom transition, dip to color, soft wipe, hard cut, " +
+  "morph transition, ink wipe, clock wipe, star wipe, any fade effect, any dissolve effect, any color flash. " +
+  "The video must START INSTANTLY at full brightness — NO fade-in. " +
+  "The video must END INSTANTLY at full brightness — NO fade-out. " +
+  "There must be ZERO cuts, ZERO edits, ZERO transition effects of ANY kind at ANY timestamp in the video. " +
+  "Every single frame from 0:00 to the end must maintain full, consistent visibility with NO opacity changes, NO color shifts, NO brightness changes. " +
+  "\n" +
+  "2. STATIC CAMERA (LOCKED TRIPOD): " +
+  "The camera angle, framing, and composition MUST remain IDENTICAL to the reference image for the ENTIRE duration. " +
+  "NO zooming, NO panning, NO tilting, NO tracking, NO dolly, NO camera shake, NO floating camera movement. " +
+  "The camera must be 100% locked and static — no movement whatsoever. " +
+  "\n" +
+  "3. OBJECT LOCK: " +
+  "Do NOT add, remove, modify, or animate ANY objects that were not in the reference image. " +
+  "NO floating text, NO graphics, NO subtitles, NO overlays, NO particles, NO sparkles, NO light rays, NO lens flare, NO bokeh. " +
+  "The background must remain EXACTLY as shown in the reference image — no changes. " +
+  "\n" +
+  "4. EXPRESSIVE PERSON MOVEMENT (natural speaker style): " +
+  "The person should be an engaging, expressive speaker — NOT a stiff news anchor. Movement should feel natural and contextual. " +
+  "ENCOURAGED movements that match the dialogue: " +
+  "- Hand gestures: pointing, open palms, counting on fingers, waving, thumbs up, natural gesticulation while speaking. " +
+  "- Arm movement: natural arm raises, gentle hand sweeps, bringing hands together or apart to emphasize points. " +
+  "- Head movement: natural head tilts, slight nods for emphasis, occasional head turns, looking side to side naturally. " +
+  "- Shoulder movement: subtle shoulder shrugs, natural shoulder shifts when gesturing. " +
+  "- Upper body: slight torso rotation, natural lean forward when making important points. " +
+  "- Facial expressions: animated eyebrows, natural smiles, expressive eyes, raised eyebrows for emphasis, thoughtful expressions. " +
+  "IMPORTANT: All movements must be SMOOTH and NATURAL — not robotic, not exaggerated, not dramatic. " +
+  "Movements should correlate with the content being spoken. When listing items, use counting gestures. " +
+  "When emphasizing a point, use hand gestures. When asking a question, raise eyebrows slightly. " +
+  "FORBIDDEN: standing up, walking, dancing, jumping, running, touching face excessively, picking up objects, " +
+  "crossing arms tightly, putting hands in pockets, overly dramatic or theatrical movements. " +
+  "\n" +
+  "5. LIGHTING CONSISTENCY: " +
+  "Lighting must remain EXACTLY as shown in the reference image — NO changes, NO flickering, NO color shifts, NO brightness changes. " +
+  "\n" +
+  "6. SCRIPT BOUNDARY — SILENCE AFTER LAST WORD: " +
+  "The person must say ONLY the exact words in the dialogue and NOTHING ELSE. " +
+  "After the last word: mouth CLOSED, gentle smile, hands come to rest naturally, steady eye contact. " +
+  "ZERO extra words, ZERO filler sounds, ZERO lip movement after script ends. ";
+
 // ─── Generate Video — with auto-retry ────────────────────────────────
 async function generateVideo(
   jobId: string,
@@ -284,7 +332,7 @@ async function generateVideo(
   script: string,
   frameUrl: string,
   apiKey: string,
-  isAvatarOnly: boolean,
+ frameMode: string,
   writer: WritableStreamDefaultWriter<Uint8Array> | null
 ): Promise<string> {
   const MAX_RETRIES = 3;
@@ -298,7 +346,16 @@ async function generateVideo(
       }
 
       let videoPrompt: string;
-      if (isAvatarOnly) {
+      if (frameMode === "avatar_v2") {
+        videoPrompt =
+          `${VIDEO_VISUAL_CONSTRAINTS_V2}\n\n` +
+          `REFERENCE IMAGE: This is a talking-head video with expressive hand gestures and body language. The reference image is the ONLY source of truth for the person's appearance. ` +
+          `Output must look like a raw, unedited, continuous webcam recording of an engaging speaker who uses natural hand gestures, head movements, and facial expressions while speaking. ` +
+          `CRITICAL REMINDERS: NO fade-in at start. NO fade-out at end. NO transitions whatsoever. NO cuts. Camera stays STATIC (locked tripod). ` +
+          `RAW FOOTAGE ONLY. INSTANT start, INSTANT end. Full brightness at all times. ` +
+          `The person should use hand gestures, natural head movement, and expressive body language that MATCHES the dialogue content. ` +
+          `Dialogue: "${script}" ${VIDEO_VOICE_PROMPT}`;
+      } else if (frameMode === "avatar") {
         videoPrompt =
           `${VIDEO_VISUAL_CONSTRAINTS}\n\n` +
           `REFERENCE IMAGE: This is a talking-head video. The reference image is the ONLY source of truth. ` +
@@ -791,6 +848,7 @@ async function runPipelineSSE(
   writer: WritableStreamDefaultWriter<Uint8Array>,
   jobId: string,
   userId: string,
+  frameMode: string,
 ) {
   const heartbeatStop = { stopped: false };
 
@@ -898,7 +956,7 @@ async function runPipelineSSE(
         jobId, i,
         scene.description, scene.script,
         frameUrls[i], kieApiKey,
-        !useSceneFrames,
+        frameMode,
         writer
       );
       videoUrls.push(videoUrl);
@@ -1061,6 +1119,7 @@ export async function POST(req: NextRequest) {
       frameMode === "scenes" || frameMode === "custom",
       provider, (heygenApiKey as string) || "", (heygenVoiceId as string) || "",
       writer, jobId, userId || "anonymous",
+      (frameMode as string) || "avatar",
     );
 
     return new Response(stream.readable, {

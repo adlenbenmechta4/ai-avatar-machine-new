@@ -577,7 +577,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
 
   // ── Mode State ──
   const [mode, setMode] = useState<"ai" | "manual">("ai");
-  const [frameMode, setFrameMode] = useState<"avatar" | "scenes" | "custom">("avatar");
+  const [frameMode, setFrameMode] = useState<"avatar" | "avatar_v2" | "scenes" | "custom">("avatar");
   const [aiTopic, setAiTopic] = useState("");
   const [aiDuration, setAiDuration] = useState(30);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
@@ -2114,9 +2114,10 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                     <label className="block text-xs font-bold uppercase tracking-wider mb-2" style={{ color: T.textMuted }}>
                       Frame Mode
                     </label>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-4 gap-2">
                       {([
-                        { value: "avatar" as const, label: "Avatar Only", emoji: "👤", desc: "Same avatar in all scenes" },
+                        { value: "avatar" as const, label: "Avatar Only", emoji: "👤", desc: "Static, no gestures" },
+                        { value: "avatar_v2" as const, label: "Avatar Only v2", emoji: "🤚", desc: "Hand gestures & body language" },
                         { value: "scenes" as const, label: "Scene Frames", emoji: "🖼️", desc: "Unique backgrounds per scene" },
                         { value: "custom" as const, label: "Custom Frames", emoji: "📸", desc: "Upload image per scene" },
                       ]).map((fm) => (
