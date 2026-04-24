@@ -238,10 +238,11 @@ function SubscriptionScreen({ userData, onComplete }: {
                       }
                     }}
                     disabled={isCurrent || upgrading !== null}
-                    className="w-full py-3 rounded-2xl text-sm font-bold uppercase tracking-wider transition-all duration-200 disabled:opacity-40"
+                    className="w-full py-3 rounded-2xl text-sm font-bold uppercase tracking-wider transition-all duration-300 disabled:opacity-40 hover:scale-[1.02]"
                     style={{
                       backgroundColor: isCurrent ? "#F3F4F6" : p.id === "free" ? C.dark : p.color,
                       color: isCurrent ? C.textMuted : C.white,
+                      boxShadow: !isCurrent ? `0 4px 20px ${p.color}35, 0 0 30px ${p.color}15` : "none",
                     }}
                   >
                     {upgrading === p.id ? (
@@ -438,12 +439,14 @@ export default function Home() {
         {/* Back to Menu button */}
         <button
           onClick={() => setCurrentView("menu")}
-          className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-200 hover:shadow-lg"
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-300 hover:shadow-lg"
           style={{
             backgroundColor: isDark ? "#1A1A1A" : C.white,
             color: isDark ? "#E0E0E0" : C.text,
             border: `1.5px solid ${isDark ? "#333333" : C.lightPink}`,
           }}
+          onMouseEnter={(e) => { e.currentTarget.style.boxShadow = `0 0 20px ${C.pink}25, 0 4px 12px ${C.pink}15`; }}
+          onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; }}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path d="M10 3L5 8l5 5" stroke={C.pink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />

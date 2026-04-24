@@ -227,7 +227,7 @@ function VideoCard({
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.borderColor = providerColor;
-        e.currentTarget.style.boxShadow = `0 8px 30px ${providerColor}22`;
+        e.currentTarget.style.boxShadow = `0 8px 30px ${providerColor}30, 0 0 20px ${providerColor}15`;
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.borderColor = C.cardBorder;
@@ -347,8 +347,8 @@ function VideoCard({
           <div className="relative w-full mt-1.5">
             <button
               onClick={() => setShowEditMenu(!showEditMenu)}
-              className="w-full inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all hover:scale-[1.02] active:scale-[0.97] cursor-pointer whitespace-nowrap"
-              style={{ backgroundColor: providerColor, color: C.white }}
+              className="w-full inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all duration-300 hover:scale-[1.02] active:scale-[0.97] cursor-pointer whitespace-nowrap"
+              style={{ backgroundColor: providerColor, color: C.white, boxShadow: `0 4px 16px ${providerColor}30` }}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -521,8 +521,10 @@ export default function UnifiedVideoLibrary({ onBack, onEditVideo, onCaptionVide
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
-            className="w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:scale-110 cursor-pointer"
+            className="w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-300 hover:scale-110 cursor-pointer"
             style={{ backgroundColor: "#F3F4F6", color: C.text }}
+            onMouseEnter={(e) => { e.currentTarget.style.boxShadow = `0 0 16px ${C.pink}30`; }}
+            onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; }}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path d="M10 3L5 8l5 5" stroke={C.pink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -541,9 +543,11 @@ export default function UnifiedVideoLibrary({ onBack, onEditVideo, onCaptionVide
         {/* Refresh button */}
         <button
           onClick={fetchVideos}
-          className="w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:scale-110 cursor-pointer"
+          className="w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-300 hover:scale-110 cursor-pointer"
           style={{ backgroundColor: "#F3F4F6", color: C.textMuted }}
           title="Refresh"
+          onMouseEnter={(e) => { e.currentTarget.style.boxShadow = `0 0 16px ${C.pink}30`; }}
+          onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; }}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
@@ -562,10 +566,11 @@ export default function UnifiedVideoLibrary({ onBack, onEditVideo, onCaptionVide
               <button
                 key={tab.key}
                 onClick={() => setActiveFilter(tab.key)}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[11px] font-bold uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[11px] font-bold uppercase tracking-wider whitespace-nowrap transition-all duration-300 cursor-pointer"
                 style={{
                   backgroundColor: isActive ? C.dark : "#F3F4F6",
                   color: isActive ? C.white : C.textMuted,
+                  boxShadow: isActive ? `0 0 16px ${C.pink}30, 0 4px 12px ${C.pink}15` : "none",
                 }}
               >
                 {tab.label}
@@ -624,7 +629,7 @@ export default function UnifiedVideoLibrary({ onBack, onEditVideo, onCaptionVide
             </p>
             <button
               onClick={onBack}
-              className="mt-4 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wide cursor-pointer transition-all hover:scale-[1.02]"
+              className="mt-4 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wide cursor-pointer transition-all duration-300 hover:scale-[1.02]"
               style={{ backgroundColor: C.pink, color: C.white, boxShadow: "0 4px 16px rgba(228,97,173,0.3)" }}
             >
               Create Something

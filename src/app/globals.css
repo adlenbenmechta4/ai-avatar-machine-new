@@ -215,6 +215,78 @@
   background: #D1D5DB;
 }
 
+/* ─── Interactive Glow System ───────────────────────────────────── */
+
+/* All buttons get a subtle pink glow on hover */
+button,
+[role="button"] {
+  transition: box-shadow 0.3s ease, transform 0.2s ease, border-color 0.3s ease;
+}
+
+button:hover:not(:disabled),
+[role="button"]:hover:not(:disabled) {
+  box-shadow: 0 0 20px rgba(228, 97, 173, 0.25), 0 0 40px rgba(228, 97, 173, 0.08);
+}
+
+/* Buttons with pink background get stronger pink glow */
+button:hover:not(:disabled)[style*="background-color"] {
+  box-shadow: 0 0 20px rgba(228, 97, 173, 0.35), 0 4px 20px rgba(228, 97, 173, 0.15);
+}
+
+/* Links glow on hover */
+a {
+  transition: text-shadow 0.3s ease, box-shadow 0.3s ease;
+}
+
+a:hover {
+  text-shadow: 0 0 12px rgba(228, 97, 173, 0.4);
+}
+
+/* Cards and containers with border glow on hover */
+.rounded-2xl,
+.rounded-3xl,
+.rounded-xl {
+  transition: box-shadow 0.3s ease, border-color 0.3s ease, transform 0.3s ease;
+}
+
+/* Input fields glow on focus */
+input:focus,
+textarea:focus,
+select:focus {
+  box-shadow: 0 0 0 3px rgba(228, 97, 173, 0.15), 0 0 16px rgba(228, 97, 173, 0.1) !important;
+  border-color: #E461AD !important;
+}
+
+/* Tab / pill buttons get a colored glow ring on hover */
+button[class*="rounded-xl"]:hover:not(:disabled),
+button[class*="rounded-lg"]:hover:not(:disabled) {
+  box-shadow: 0 0 16px rgba(228, 97, 173, 0.2), 0 2px 8px rgba(228, 97, 173, 0.1);
+}
+
+/* Badge-style elements glow */
+[class*="rounded-full"][class*="px"] {
+  transition: box-shadow 0.3s ease, transform 0.2s ease;
+}
+
+[class*="rounded-full"][class*="px"]:hover {
+  box-shadow: 0 0 14px rgba(228, 97, 173, 0.3);
+}
+
+/* Interactive scale micro-animation for small icon buttons */
+button[class*="w-7"],
+button[class*="w-8"],
+button[class*="w-9"],
+button[class*="w-10"] {
+  transition: box-shadow 0.3s ease, transform 0.2s ease, background-color 0.2s ease;
+}
+
+button[class*="w-7"]:hover:not(:disabled),
+button[class*="w-8"]:hover:not(:disabled),
+button[class*="w-9"]:hover:not(:disabled),
+button[class*="w-10"]:hover:not(:disabled) {
+  box-shadow: 0 0 16px rgba(228, 97, 173, 0.3), 0 4px 12px rgba(228, 97, 173, 0.12);
+}
+
 /* ─── Custom Cursor — Luxe Black Arrow ────────────────────────────── */
 
 *,
