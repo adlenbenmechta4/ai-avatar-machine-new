@@ -302,9 +302,36 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
     }
   }, [ffmpegLoaded, ffmpegLoading]);
 
+  // ─── Build Scale-Based Zoom Filter (fallback when zoompan unavailable) ──
+  const buildScaleZoomFilter = useCallback((): string => {
+    const maxZ = zoomIntensity;
+    const tx = zoomTarget.x;
+    const ty = zoomTarget.y;
+    const speedMap: Record<ZoomSpeed, number> = { slow: 0.03, normal: 0.08, fast: 0.15 };
+
+    let zExpr: string;
+    switch (zoomType) {
+      case "in":
+        zExpr = `1.0+min(${speedMap[zoomSpeed]}*t,${maxZ - 1})`;
+        break;
+      case "out":
+        zExpr = `max(${maxZ}-${speedMap[zoomSpeed]}*t,1.0)`;
+        break;
+      case "kenburns":
+        zExpr = `1.0+(${maxZ - 1})*(1-abs(2*t/T-1))`;
+        break;
+    }
+
+    // Scale up then crop to original size, centered on target
+    const cropX = `(in_w*${zExpr}-in_w)*${tx}`;
+    const cropY = `(in_h*${zExpr}-in_h)*${ty}`;
+
+    return `scale=iw*${zExpr}:ih*${zExpr},crop=in_w:in_h:${cropX}:${cropY}`;
+  }, [zoomType, zoomIntensity, zoomSpeed, zoomTarget]);
+
   // ─── Process & Export Video ─────────────────────────────────────
   const processVideo = useCallback(async () => {
-    if (!duration) return;
+    if (!duration || !ffmpegLoaded) return;
 
     const enabledSegs = segments.filter((s) => s.enabled);
     if (enabledSegs.length === 0) {
@@ -312,82 +339,9 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
       return;
     }
 
-    // If only one segment covering the full video, apply zoom server-side or return original
     const isFullVideo = enabledSegs.length === 1 && enabledSegs[0].start < 0.1 && enabledSegs[0].end > duration - 0.1;
 
-    // ── Zoom: use server-side API ──────────────────────────────
-    if (zoomEnabled) {
-      if (!isFullVideo) {
-        setProcessError("Zoom effects require the full video. Remove all splits first, or disable zoom for trimming.");
-        return;
-      }
-
-      setIsProcessing(true);
-      setProcessError("");
-      setResultUrl("");
-      setProcessProgress("Applying zoom effects (server-side)...");
-
-      try {
-        const res = await fetch("/api/zoom-video", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            video_url: videoUrl,
-            zoom_type: zoomType,
-            zoom_intensity: zoomIntensity,
-            zoom_speed: zoomSpeed,
-            zoom_target_x: zoomTarget.x,
-            zoom_target_y: zoomTarget.y,
-          }),
-        });
-
-        if (!res.ok) {
-          const errData = await res.json().catch(() => null);
-          throw new Error(errData?.error || `Server error: ${res.status}`);
-        }
-
-        // Stream download progress
-        const contentLength = res.headers.get("content-length");
-        if (contentLength) {
-          const total = parseInt(contentLength, 10);
-          const reader = res.body?.getReader();
-          if (reader) {
-            const chunks: Uint8Array[] = [];
-            let received = 0;
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              chunks.push(value);
-              received += value.length;
-              setProcessProgress(`Receiving zoomed video... ${Math.round((received / total) * 100)}%`);
-            }
-            const blob = new Blob(chunks, { type: "video/mp4" });
-            const url = URL.createObjectURL(blob);
-            setResultUrl(url);
-          } else {
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            setResultUrl(url);
-          }
-        } else {
-          const blob = await res.blob();
-          const url = URL.createObjectURL(blob);
-          setResultUrl(url);
-        }
-        setProcessProgress("Zoom applied successfully!");
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Zoom processing failed";
-        setProcessError(msg);
-      } finally {
-        setIsProcessing(false);
-      }
-      return;
-    }
-
-    // ── No zoom: use WASM FFmpeg for trim/cut ──────────────────
-    if (!ffmpegLoaded) return;
-
-    if (isFullVideo) {
+    if (isFullVideo && !zoomEnabled) {
       setResultUrl(videoUrl);
       return;
     }
@@ -398,7 +352,13 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
     setProcessProgress("Downloading video file...");
 
     try {
-      const ffmpeg = ffmpegRef.current as { writeFile: (n: string, d: Uint8Array) => Promise<void>; exec: (args: string[]) => Promise<void>; readFile: (n: string) => Promise<Uint8Array>; on: (e: string, cb: (data: { progress?: number }) => void) => void };
+      const ffmpeg = ffmpegRef.current as {
+        writeFile: (n: string, d: Uint8Array) => Promise<void>;
+        exec: (args: string[]) => Promise<void>;
+        readFile: (n: string) => Promise<Uint8Array>;
+        on: (e: string, cb: (data: { progress?: number }) => void) => void;
+        on: (e: "log", cb: (data: { message: string }) => void) => void;
+      };
 
       // Download video via proxy
       const proxyUrl = `/api/proxy-video?url=${encodeURIComponent(videoUrl)}`;
@@ -409,72 +369,86 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
       setProcessProgress("Loading video into editor...");
       await ffmpeg.writeFile("input.mp4", videoData);
 
-      // Build ffmpeg filter for extracting and concatenating segments
-      setProcessProgress("Processing cuts...");
+      // ── Build filter ────────────────────────────────
+      let videoFilter: string | null = null;
+      if (zoomEnabled) {
+        setProcessProgress("Building zoom filter...");
+        // Try zoompan first (if available in WASM build)
+        videoFilter = buildZoompanFilter(duration);
+      }
 
-      // Use output-side seeking (-ss AFTER -i) for exact frame-accurate cuts.
-      // Re-encode video (ultrafast) while copying audio to avoid:
-      //   - "audio only" bug from stream-copy misalignment
-      //   - "starts from beginning" bug from input-side seeking to distant keyframes
+      setProcessProgress(zoomEnabled ? "Applying zoom effects..." : "Processing cuts...");
+
+      // ── Process ─────────────────────────────────────
       if (enabledSegs.length === 1) {
-        // Single segment — simple trim
         const seg = enabledSegs[0];
-        const segDuration = (seg.end - seg.start).toFixed(2);
+        const segDur = (seg.end - seg.start).toFixed(2);
+
         ffmpeg.on("progress", ({ progress }) => {
           if (progress !== undefined) {
-            setProcessProgress(`Processing... ${Math.round(progress * 100)}%`);
+            setProcessProgress(zoomEnabled ? `Applying zoom... ${Math.round(progress * 100)}%` : `Processing... ${Math.round(progress * 100)}%`);
           }
         });
-        await ffmpeg.exec([
-          "-i", "input.mp4",
-          "-ss", seg.start.toFixed(2),
-          "-t", segDuration,
-          "-c:v", "libx264",
-          "-preset", "ultrafast",
-          "-crf", "28",
-          "-c:a", "copy",
-          "-movflags", "+faststart",
-          "output.mp4",
-        ]);
+
+        const args = ["-i", "input.mp4", "-ss", seg.start.toFixed(2), "-t", segDur];
+        if (videoFilter) args.push("-vf", videoFilter);
+        args.push("-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "output.mp4");
+
+        try {
+          await ffmpeg.exec(args);
+        } catch (zoomErr: unknown) {
+          const errMsg = zoomErr instanceof Error ? zoomErr.message : String(zoomErr);
+          if (zoomEnabled && (errMsg.includes("zoompan") || errMsg.includes("No such filter"))) {
+            // zoompan not available — try scale-based fallback
+            console.warn("[VideoEditor] zoompan unavailable, falling back to scale-based zoom:", errMsg);
+            setProcessProgress("Trying alternative zoom method...");
+            const fallbackFilter = buildScaleZoomFilter();
+            const fallbackArgs = ["-i", "input.mp4", "-ss", seg.start.toFixed(2), "-t", segDur, "-vf", fallbackFilter, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "output.mp4"];
+            await ffmpeg.exec(fallbackArgs);
+          } else {
+            throw zoomErr;
+          }
+        }
       } else {
-        // Multiple segments — extract each then concat
+        // Multiple segments
         ffmpeg.on("progress", ({ progress }) => {
           if (progress !== undefined) {
-            setProcessProgress(`Processing segment... ${Math.round(progress * 100)}%`);
+            setProcessProgress(zoomEnabled ? `Applying zoom to segment... ${Math.round(progress * 100)}%` : `Processing segment... ${Math.round(progress * 100)}%`);
           }
         });
 
         for (let i = 0; i < enabledSegs.length; i++) {
           const seg = enabledSegs[i];
-          const segDuration = (seg.end - seg.start).toFixed(2);
+          const segDur = (seg.end - seg.start).toFixed(2);
           setProcessProgress(`Processing segment ${i + 1} of ${enabledSegs.length}...`);
-          await ffmpeg.exec([
-            "-i", "input.mp4",
-            "-ss", seg.start.toFixed(2),
-            "-t", segDuration,
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-crf", "28",
-            "-c:a", "copy",
-            "-movflags", "+faststart",
-            `part${i}.mp4`,
-          ]);
+
+          const args = ["-i", "input.mp4", "-ss", seg.start.toFixed(2), "-t", segDur];
+          if (videoFilter) {
+            const segFilter = buildZoompanFilter(parseFloat(segDur));
+            if (segFilter) args.push("-vf", segFilter);
+          }
+          args.push("-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", `part${i}.mp4`);
+
+          try {
+            await ffmpeg.exec(args);
+          } catch (segErr: unknown) {
+            const errMsg = segErr instanceof Error ? segErr.message : String(segErr);
+            if (zoomEnabled && (errMsg.includes("zoompan") || errMsg.includes("No such filter"))) {
+              const fallbackFilter = buildScaleZoomFilter();
+              const fallbackArgs = ["-i", "input.mp4", "-ss", seg.start.toFixed(2), "-t", segDur, "-vf", fallbackFilter, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", `part${i}.mp4`];
+              await ffmpeg.exec(fallbackArgs);
+            } else {
+              throw segErr;
+            }
+          }
         }
 
-        // Create concat file
         const concatContent = enabledSegs.map((_, i) => `file 'part${i}.mp4'`).join("\n");
         const encoder = new TextEncoder();
         await ffmpeg.writeFile("concat.txt", encoder.encode(concatContent));
 
         setProcessProgress("Merging segments...");
-        await ffmpeg.exec([
-          "-f", "concat",
-          "-safe", "0",
-          "-i", "concat.txt",
-          "-c", "copy",
-          "-movflags", "+faststart",
-          "output.mp4",
-        ]);
+        await ffmpeg.exec(["-f", "concat", "-safe", "0", "-i", "concat.txt", "-c", "copy", "-movflags", "+faststart", "output.mp4"]);
       }
 
       setProcessProgress("Preparing download...");
@@ -489,7 +463,7 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
     } finally {
       setIsProcessing(false);
     }
-  }, [duration, segments, ffmpegLoaded, videoUrl, zoomEnabled, zoomType, zoomIntensity, zoomSpeed, zoomTarget]);
+  }, [duration, segments, ffmpegLoaded, videoUrl, zoomEnabled, buildZoompanFilter, buildScaleZoomFilter]);
 
   // ─── Keyboard Shortcuts ────────────────────────────────────────
   useEffect(() => {
@@ -895,7 +869,7 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
                   {/* Zoom Note */}
                   <div className="rounded-lg p-2.5" style={{ backgroundColor: `${accentColor}08` }}>
                     <p className="text-[9px] leading-relaxed" style={{ color: COLORS.textMuted }}>
-                      Zoom is processed server-side with high quality FFmpeg. No need to load the editor engine. Processing time depends on video length.
+                      Zoom is processed in your browser using the editor engine. Works best with clips under 60 seconds.
                     </p>
                   </div>
                 </div>
@@ -923,7 +897,7 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
           {/* Export Button */}
           {!resultUrl && !ffmpegLoading && (
             <button
-              onClick={zoomEnabled ? processVideo : (ffmpegLoaded ? processVideo : loadFFmpeg)}
+              onClick={ffmpegLoaded ? processVideo : loadFFmpeg}
               disabled={isProcessing || segments.filter((s) => s.enabled).length === 0}
               className="w-full flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-2xl text-sm font-black uppercase tracking-wider transition-all duration-300 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed hover:scale-[1.01] active:scale-[0.99] shadow-lg"
               style={{
@@ -932,22 +906,12 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
                 boxShadow: `0 6px 24px ${accentColor}40`,
               }}
             >
-              {zoomEnabled ? (
-                <>
-                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                    <circle cx="11" cy="11" r="8" />
-                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                    <line x1="11" y1="8" x2="11" y2="14" />
-                    <line x1="8" y1="11" x2="14" y2="11" />
-                  </svg>
-                  Apply Zoom &amp; Export
-                </>
-              ) : ffmpegLoaded ? (
+              {ffmpegLoaded ? (
                 <>
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
                   </svg>
-                  Export Edited Video
+                  {zoomEnabled ? "Apply Zoom &amp; Export" : "Export Edited Video"}
                 </>
               ) : (
                 <>
