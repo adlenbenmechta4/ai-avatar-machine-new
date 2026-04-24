@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/providers/auth-provider";
 import VideoLibrary from "@/components/VideoLibrary";
+import VideoEditor from "@/components/VideoEditor";
 import CaptionPanelModal from "@/components/CaptionPanelModal";
 // Auto-subtitle via fal.ai
 import { saveVideoToStorage, updateVideoUrlInStorage } from "@/lib/video-store";
@@ -622,6 +623,9 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
 
   const [savedToLibrary, setSavedToLibrary] = useState(false);
 
+  // ── Video Editor State ──
+  const [showEditor, setShowEditor] = useState(false);
+  const [editorVideoUrl, setEditorVideoUrl] = useState("");
 
   // ── Results & Logs ──
   const [finalVideoUrl, setFinalVideoUrl] = useState<string>("");
@@ -1410,6 +1414,8 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
     setPipelineError("");
     autoRetryCountRef.current = 0;
     setSavedToLibrary(false);
+    setShowEditor(false);
+    setEditorVideoUrl("");
     setAvatarUrl("");
     setScenes((prev) =>
       prev.map((s) => ({
@@ -1635,6 +1641,20 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
     }
   }, [finalVideoUrl, isGeneratingSubtitles, subLanguage, subFontName, subFontSize, subFontWeight, subFontColor, subHighlightColor, subStrokeWidth, subStrokeColor, subPosition, subYOffset, subWordsPerLine, subAnimation, subBgColor, subBgOpacity, addLog]);
 
+  // ─── Video Editor: Open editor for generated video ──────────────────
+  const openEditor = useCallback(() => {
+    if (finalVideoUrl) {
+      setEditorVideoUrl(finalVideoUrl);
+      setShowEditor(true);
+    }
+  }, [finalVideoUrl]);
+
+  // ─── Video Editor: Open editor for library video ────────────────────
+  const openEditorForUrl = useCallback((videoUrl: string) => {
+    setEditorVideoUrl(videoUrl);
+    setShowEditor(true);
+  }, []);
+
   // ─── Library Caption: Open caption modal for library video ─────────────
   const [captionVideoUrl, setCaptionVideoUrl] = useState<string>("");
   const [captionVideoId, setCaptionVideoId] = useState<string>("");
@@ -1736,7 +1756,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
           {/* ─── Library View ────────────────────────────────────────── */}
           {view === "library" && (
             <div className="mb-10 sm:mb-14">
-              <VideoLibrary onViewCreate={() => setView("create")} onCaptionVideo={openCaptionForUrl} theme={theme} />
+              <VideoLibrary onViewCreate={() => setView("create")} onEditVideo={openEditorForUrl} onCaptionVideo={openCaptionForUrl} theme={theme} />
             </div>
           )}
 
@@ -3075,7 +3095,16 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                       </>
                     )}
                   </button>
-
+                  <button
+                    onClick={openEditor}
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                    style={{ backgroundColor: T.lime, color: T.dark }}
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                    Edit Your Video
+                  </button>
                   <button
                     onClick={resetAll}
                     className="px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer border-2 hover:bg-gray-50"
@@ -3200,6 +3229,15 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
           </>
           )}
         </div>
+
+        {/* ─── Video Editor (works for both create & library views) ── */}
+        {showEditor && editorVideoUrl && (
+          <VideoEditor
+            videoUrl={editorVideoUrl}
+            onClose={() => { setShowEditor(false); setEditorVideoUrl(""); }}
+            accentColor={T.lime}
+          />
+        )}
 
         {/* ─── Library Caption Modal ── */}
         {showCaptionModal && captionVideoUrl && (
