@@ -1312,9 +1312,6 @@ export default function MainMenu({
 
   return (
     <div className="min-h-screen relative overflow-hidden" style={{ fontFamily: "var(--font-etna), 'Etna', sans-serif" }}>
-      {/* ─── Cursor Effect ─────────────────────────────────── */}
-      <CursorEffect />
-
       {/* ─── Video Background ─────────────────────────────────── */}
       <div className="absolute inset-0 z-0">
         {!videoLoaded && (
@@ -1771,13 +1768,6 @@ export default function MainMenu({
 
       {/* ─── Global Styles ─────────────────────────────────── */}
       <style jsx global>{`
-        /* Hide default cursor on desktop for the custom effect */
-        @media (pointer: fine) {
-          * {
-            cursor: none !important;
-          }
-        }
-
         @keyframes cardShimmer {
           0% { transform: translateX(-100%); }
           100% { transform: translateX(100%); }
