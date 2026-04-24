@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
+import { FFmpeg } from "@ffmpeg/ffmpeg";
+import { fetchFile, toBlobURL } from "@ffmpeg/util";
 
 // ─── Colors ──────────────────────────────────────────────────────────────────
 
@@ -31,6 +33,47 @@ interface VideoEditorProps {
   accentColor?: string;
 }
 
+// ─── FFmpeg WASM singleton ──────────────────────────────────────────────────
+
+let ffmpegInstance: FFmpeg | null = null;
+let ffmpegLoading: Promise<void> | null = null;
+
+async function getFFmpeg(
+  onLog?: (msg: string) => void,
+  onProgress?: (progress: number) => void
+): Promise<FFmpeg> {
+  if (ffmpegInstance && ffmpegInstance.loaded) return ffmpegInstance;
+  if (ffmpegLoading) {
+    await ffmpegLoading;
+    return ffmpegInstance!;
+  }
+
+  ffmpegLoading = (async () => {
+    const ffmpeg = new FFmpeg();
+
+    ffmpeg.on("log", ({ message }) => {
+      onLog?.(message);
+    });
+
+    ffmpeg.on("progress", ({ progress: p }) => {
+      onProgress?.(Math.round(p * 100));
+    });
+
+    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+
+    await ffmpeg.load({
+      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
+      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
+    });
+
+    ffmpegInstance = ffmpeg;
+    ffmpegLoading = null;
+  })();
+
+  await ffmpegLoading;
+  return ffmpegInstance!;
+}
+
 // ─── Helper ─────────────────────────────────────────────────────────────────
 
 function formatTime(seconds: number): string {
@@ -40,8 +83,28 @@ function formatTime(seconds: number): string {
   return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}.${ms}`;
 }
 
+function formatTimeFFmpeg(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  const ms = Math.floor((seconds % 1) * 1000);
+  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}.${ms.toString().padStart(3, "0")}`;
+}
+
 function generateId() {
   return Math.random().toString(36).substring(2, 9);
+}
+
+function getFileName(url: string): string {
+  try {
+    const pathname = new URL(url).pathname;
+    const parts = pathname.split("/");
+    const last = parts[parts.length - 1];
+    if (last && last.includes(".")) return last;
+    return "video.mp4";
+  } catch {
+    return "video.mp4";
+  }
 }
 
 // ─── Video Editor Component ────────────────────────────────────────────────
@@ -52,6 +115,7 @@ export default function VideoEditor({ videoUrl, onClose, accentColor }: VideoEdi
   const videoRef = useRef<HTMLVideoElement>(null);
   const waveformRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const resultBlobUrlRef = useRef<string>("");
 
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
@@ -74,9 +138,55 @@ export default function VideoEditor({ videoUrl, onClose, accentColor }: VideoEdi
   const [resultUrl, setResultUrl] = useState("");
   const [error, setError] = useState("");
 
+  // FFmpeg loading
+  const [ffmpegReady, setFfmpegReady] = useState(false);
+  const [ffmpegLoadError, setFfmpegLoadError] = useState("");
+  const [ffmpegLoadProgress, setFfmpegLoadProgress] = useState("");
+
   // Dragging
   const [draggingHandle, setDraggingHandle] = useState<"start" | "end" | null>(null);
   const [draggingPlayhead, setDraggingPlayhead] = useState(false);
+
+  // ─── Load FFmpeg WASM on mount ───────────────────────────────────────────
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setFfmpegLoadProgress("Loading FFmpeg engine...");
+        await getFFmpeg(
+          (msg) => {
+            if (!cancelled) setFfmpegLoadProgress(msg.slice(0, 80));
+          },
+          () => {}
+        );
+        if (!cancelled) {
+          setFfmpegReady(true);
+          setFfmpegLoadProgress("");
+        }
+      } catch (err: unknown) {
+        if (!cancelled) {
+          const msg = err instanceof Error ? err.message : "Failed to load FFmpeg";
+          setFfmpegLoadError(msg);
+          setFfmpegLoadProgress("");
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Cleanup result blob URL on unmount
+  useEffect(() => {
+    return () => {
+      if (resultBlobUrlRef.current) {
+        URL.revokeObjectURL(resultBlobUrlRef.current);
+      }
+    };
+  }, []);
 
   // ─── Init: Load video duration ──────────────────────────────────────────
 
@@ -283,12 +393,16 @@ export default function VideoEditor({ videoUrl, onClose, accentColor }: VideoEdi
     setError("");
     setProgress(0);
     setProcessingStatus("");
+    if (resultBlobUrlRef.current) {
+      URL.revokeObjectURL(resultBlobUrlRef.current);
+      resultBlobUrlRef.current = "";
+    }
     if (videoRef.current) {
       videoRef.current.currentTime = 0;
     }
   }, [duration]);
 
-  // ─── Cut video using server API ─────────────────────────────────────────
+  // ─── Cut / Split video using FFmpeg WASM (entirely in browser) ──────────
 
   const processCut = useCallback(async () => {
     if (!videoUrl || duration <= 0) return;
@@ -296,136 +410,167 @@ export default function VideoEditor({ videoUrl, onClose, accentColor }: VideoEdi
     setIsProcessing(true);
     setError("");
     setProgress(0);
-    setProcessingStatus("Starting cut...");
+    setResultUrl("");
+
+    // Cleanup previous result
+    if (resultBlobUrlRef.current) {
+      URL.revokeObjectURL(resultBlobUrlRef.current);
+      resultBlobUrlRef.current = "";
+    }
 
     try {
-      // Build all segments to cut
+      // Step 1: Load FFmpeg
+      setProcessingStatus("Loading FFmpeg engine...");
+      setFfmpegLoadProgress("Preparing FFmpeg...");
+      const ffmpeg = await getFFmpeg(
+        (msg) => setFfmpegLoadProgress(msg.slice(0, 80)),
+        (p) => setProgress(p)
+      );
+      setFfmpegReady(true);
+      setFfmpegLoadProgress("");
+
+      // Step 2: Download source video
+      setProcessingStatus("Downloading video...");
+      setProgress(5);
+      const fileName = getFileName(videoUrl);
+      const inputName = `input_${Date.now()}.${fileName.split(".").pop() || "mp4"}`;
+
+      try {
+        const videoData = await fetchFile(videoUrl);
+        await ffmpeg.writeFile(inputName, videoData);
+      } catch {
+        // If fetchFile fails, try fetching manually
+        const response = await fetch(videoUrl);
+        if (!response.ok) throw new Error("Failed to download video. Make sure the URL is accessible.");
+        const arrayBuffer = await response.arrayBuffer();
+        await ffmpeg.writeFile(inputName, new Uint8Array(arrayBuffer));
+      }
+      setProgress(15);
+
+      // Build all segments in order: trim region + split clips
       const segments = [
         { start: trimStart, end: trimEnd },
         ...clips.map((c) => ({ start: c.start, end: c.end })),
       ];
 
-      // For single segment, use the cut API directly
       if (segments.length === 1) {
+        // ── Single segment: cut and export directly ──
         const seg = segments[0];
-        setProcessingStatus("Cutting video...");
+        const segDuration = seg.end - seg.start;
+        const outputName = `output_${Date.now()}.mp4`;
 
-        const res = await fetch("/api/cut-video", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            public_link: videoUrl,
-            start_time: seg.start,
-            end_time: seg.end,
-          }),
-        });
+        setProcessingStatus("Cutting video with FFmpeg...");
+        setProgress(25);
 
-        const data = await res.json();
+        // Use output-side seeking with re-encoding for accurate cuts
+        await ffmpeg.exec([
+          "-i", inputName,
+          "-ss", formatTimeFFmpeg(seg.start),
+          "-to", formatTimeFFmpeg(seg.end),
+          "-c:v", "libx264",
+          "-c:a", "aac",
+          "-movflags", "+faststart",
+          "-preset", "ultrafast",
+          "-y",
+          outputName,
+        ]);
 
-        if (!res.ok) {
-          throw new Error(data.error || "Cut failed");
-        }
+        setProgress(85);
+        setProcessingStatus("Preparing result...");
 
-        // Poll for task completion
-        const taskId = data.task_id;
-        if (taskId) {
-          setProcessingStatus("Processing...");
-          let attempts = 0;
-          const maxAttempts = 120;
+        const data = await ffmpeg.readFile(outputName);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const blob = new Blob([data as any], { type: "video/mp4" });
+        const url = URL.createObjectURL(blob);
+        resultBlobUrlRef.current = url;
+        setResultUrl(url);
+        setProgress(100);
+        setProcessingStatus("Done!");
 
-          const pollInterval = setInterval(async () => {
-            attempts++;
-            if (attempts > maxAttempts) {
-              clearInterval(pollInterval);
-              setIsProcessing(false);
-              setError("Processing timed out. Please try again.");
-              return;
-            }
-
-            try {
-              const statusRes = await fetch(`/api/cut-video-status?taskId=${encodeURIComponent(taskId)}`);
-              const statusData = await statusRes.json();
-              setProgress(Math.min(90, Math.round((attempts / 60) * 90)));
-
-              if (statusData.status === "completed" && statusData.result) {
-                clearInterval(pollInterval);
-                setResultUrl(statusData.result);
-                setProgress(100);
-                setProcessingStatus("Done!");
-                setIsProcessing(false);
-              } else if (statusData.status === "failed") {
-                clearInterval(pollInterval);
-                setIsProcessing(false);
-                setError(statusData.error || "Video processing failed");
-              }
-            } catch {
-              // Continue polling
-            }
-          }, 2000);
-
-          return () => clearInterval(pollInterval);
+        // Cleanup FFmpeg files
+        try {
+          await ffmpeg.deleteFile(inputName);
+          await ffmpeg.deleteFile(outputName);
+        } catch {
+          // Ignore cleanup errors
         }
       } else {
-        // Multiple segments: cut sequentially
-        setProcessingStatus(`Processing ${segments.length} segments...`);
-        const results: string[] = [];
+        // ── Multiple segments: cut each, then merge with concat demuxer ──
+        setProcessingStatus(`Cutting ${segments.length} segments...`);
+
+        const cutFiles: string[] = [];
 
         for (let i = 0; i < segments.length; i++) {
           const seg = segments[i];
+          const cutName = `cut_${i}.mp4`;
+
           setProcessingStatus(`Cutting segment ${i + 1}/${segments.length}...`);
-          setProgress(Math.round((i / segments.length) * 90));
+          setProgress(15 + Math.round((i / segments.length) * 55));
 
-          const res = await fetch("/api/cut-video", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              public_link: videoUrl,
-              start_time: seg.start,
-              end_time: seg.end,
-            }),
-          });
+          await ffmpeg.exec([
+            "-i", inputName,
+            "-ss", formatTimeFFmpeg(seg.start),
+            "-to", formatTimeFFmpeg(seg.end),
+            "-c:v", "libx264",
+            "-c:a", "aac",
+            "-movflags", "+faststart",
+            "-preset", "ultrafast",
+            "-y",
+            cutName,
+          ]);
 
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error || `Segment ${i + 1} cut failed`);
-
-          const taskId = data.task_id;
-          if (taskId) {
-            let completed = false;
-            let attempts = 0;
-
-            while (!completed && attempts < 120) {
-              attempts++;
-              await new Promise((r) => setTimeout(r, 2000));
-
-              try {
-                const statusRes = await fetch(`/api/cut-video-status?taskId=${encodeURIComponent(taskId)}`);
-                const statusData = await statusRes.json();
-
-                if (statusData.status === "completed" && statusData.result) {
-                  results.push(statusData.result);
-                  completed = true;
-                } else if (statusData.status === "failed") {
-                  throw new Error(`Segment ${i + 1} processing failed`);
-                }
-              } catch (pollErr) {
-                if (pollErr instanceof Error && pollErr.message.includes("Segment")) throw pollErr;
-              }
-            }
-
-            if (!completed) throw new Error(`Segment ${i + 1} timed out`);
-          }
+          cutFiles.push(cutName);
         }
 
-        setResultUrl(results[results.length - 1]);
+        setProcessingStatus("Merging segments...");
+        setProgress(75);
+
+        // Create concat list file
+        const concatList = cutFiles.map((f) => `file '${f}'`).join("\n");
+        await ffmpeg.writeFile("concat_list.txt", concatList);
+
+        // Merge using concat demuxer
+        const mergedName = `merged_${Date.now()}.mp4`;
+        await ffmpeg.exec([
+          "-f", "concat",
+          "-safe", "0",
+          "-i", "concat_list.txt",
+          "-c", "copy",
+          "-movflags", "+faststart",
+          "-y",
+          mergedName,
+        ]);
+
+        setProgress(90);
+        setProcessingStatus("Preparing result...");
+
+        const data = await ffmpeg.readFile(mergedName);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const blob = new Blob([data as any], { type: "video/mp4" });
+        const url = URL.createObjectURL(blob);
+        resultBlobUrlRef.current = url;
+        setResultUrl(url);
         setProgress(100);
         setProcessingStatus("Done!");
-        setIsProcessing(false);
+
+        // Cleanup FFmpeg files
+        try {
+          await ffmpeg.deleteFile(inputName);
+          await ffmpeg.deleteFile("concat_list.txt");
+          for (const f of cutFiles) {
+            await ffmpeg.deleteFile(f);
+          }
+          await ffmpeg.deleteFile(mergedName);
+        } catch {
+          // Ignore cleanup errors
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
-      setIsProcessing(false);
       setProcessingStatus("");
+    } finally {
+      setIsProcessing(false);
     }
   }, [videoUrl, duration, trimStart, trimEnd, clips]);
 
@@ -478,6 +623,20 @@ export default function VideoEditor({ videoUrl, onClose, accentColor }: VideoEdi
           <span className="text-sm font-bold uppercase tracking-wide" style={{ color: COLORS.text }}>
             Video Editor
           </span>
+          {/* FFmpeg status badge */}
+          {ffmpegReady ? (
+            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide" style={{ backgroundColor: `${COLORS.lime}20`, color: COLORS.lime }}>
+              FFmpeg Ready
+            </span>
+          ) : ffmpegLoadError ? (
+            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide" style={{ backgroundColor: "#FEE2E2", color: "#DC2626" }}>
+              FFmpeg Error
+            </span>
+          ) : (
+            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide animate-pulse" style={{ backgroundColor: `${COLORS.cyan}15`, color: COLORS.cyan }}>
+              Loading FFmpeg...
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -548,6 +707,9 @@ export default function VideoEditor({ videoUrl, onClose, accentColor }: VideoEdi
                   style={{ width: `${progress}%`, backgroundColor: accent }}
                 />
               </div>
+              {ffmpegLoadProgress && (
+                <p className="text-[9px] text-gray-400 mt-1.5 max-w-[280px] truncate mx-auto">{ffmpegLoadProgress}</p>
+              )}
             </div>
           </div>
         )}
@@ -773,6 +935,14 @@ export default function VideoEditor({ videoUrl, onClose, accentColor }: VideoEdi
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ─── FFmpeg Load Error ──────────────────────────────────── */}
+      {ffmpegLoadError && !isProcessing && (
+        <div className="mx-4 mb-2 p-3 rounded-xl text-xs" style={{ backgroundColor: "#FEF2F2", border: "1.5px solid #FECACA", color: "#DC2626" }}>
+          <span className="font-bold">FFmpeg Error: </span>{ffmpegLoadError}
+          <p className="mt-1 opacity-70">Try reloading the page. FFmpeg WASM requires a modern browser.</p>
         </div>
       )}
 
