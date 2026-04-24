@@ -1073,10 +1073,13 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
   }, []);
 
   // ─── Video Editor: Open editor for generated video ────────────────────
+  const editorRef = useRef<HTMLDivElement>(null);
+
   const openEditor = useCallback(() => {
     if (finalVideoUrl) {
       setEditorVideoUrl(finalVideoUrl);
       setShowEditor(true);
+      setTimeout(() => editorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
     }
   }, [finalVideoUrl]);
 
@@ -1084,6 +1087,7 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
   const openEditorForUrl = useCallback((videoUrl: string) => {
     setEditorVideoUrl(videoUrl);
     setShowEditor(true);
+    setTimeout(() => editorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
   }, []);
 
   // ─── Library Caption: Open caption modal for library video ─────────────
@@ -1969,7 +1973,7 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
           VIDEO EDITOR (CapCut-like Timeline Editor) - Available for both create & library views
       ═══════════════════════════════════════════════════════════ */}
       {showEditor && editorVideoUrl && (
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-8 sm:pb-12">
+        <div ref={editorRef} className="max-w-6xl mx-auto px-4 sm:px-6 pb-8 sm:pb-12">
           <VideoEditor
             videoUrl={editorVideoUrl}
             onClose={() => { setShowEditor(false); setEditorVideoUrl(""); }}

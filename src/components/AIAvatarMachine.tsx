@@ -1642,10 +1642,13 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   }, [finalVideoUrl, isGeneratingSubtitles, subLanguage, subFontName, subFontSize, subFontWeight, subFontColor, subHighlightColor, subStrokeWidth, subStrokeColor, subPosition, subYOffset, subWordsPerLine, subAnimation, subBgColor, subBgOpacity, addLog]);
 
   // ─── Video Editor: Open editor for generated video ──────────────────
+  const editorRef = useRef<HTMLDivElement>(null);
+
   const openEditor = useCallback(() => {
     if (finalVideoUrl) {
       setEditorVideoUrl(finalVideoUrl);
       setShowEditor(true);
+      setTimeout(() => editorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
     }
   }, [finalVideoUrl]);
 
@@ -1653,6 +1656,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   const openEditorForUrl = useCallback((videoUrl: string) => {
     setEditorVideoUrl(videoUrl);
     setShowEditor(true);
+    setTimeout(() => editorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
   }, []);
 
   // ─── Library Caption: Open caption modal for library video ─────────────
@@ -3232,11 +3236,13 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
 
         {/* ─── Video Editor (works for both create & library views) ── */}
         {showEditor && editorVideoUrl && (
+          <div ref={editorRef}>
           <VideoEditor
             videoUrl={editorVideoUrl}
             onClose={() => { setShowEditor(false); setEditorVideoUrl(""); }}
             accentColor={T.lime}
           />
+          </div>
         )}
 
         {/* ─── Library Caption Modal ── */}
