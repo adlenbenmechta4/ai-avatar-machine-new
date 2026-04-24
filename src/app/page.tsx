@@ -6,6 +6,10 @@ import AIAvatarMachine from "@/components/AIAvatarMachine";
 import MainMenu from "@/components/MainMenu";
 import CarouselView from "@/components/CarouselView";
 import PodcastMachineView from "@/components/PodcastMachineView";
+import UnifiedVideoLibrary from "@/components/UnifiedVideoLibrary";
+import VideoEditor from "@/components/VideoEditor";
+import CaptionPanelModal from "@/components/CaptionPanelModal";
+import { updateVideoUrlInStorage } from "@/lib/video-store";
 import UserProfilePanel from "@/components/UserProfilePanel";
 
 // ─── Colors (matching the existing design) ────────────────────────────────────
@@ -295,14 +299,17 @@ function SubscriptionScreen({ userData, onComplete }: {
 export default function Home() {
   const { user, loading, signOut } = useAuth();
   const [showSubscription, setShowSubscription] = useState(false);
-  const [currentView, setCurrentView] = useState<"menu" | "avatar" | "carousel" | "podcast">("menu");
+  const [currentView, setCurrentView] = useState<"menu" | "avatar" | "carousel" | "podcast" | "library">("menu");
   const [initialView, setInitialView] = useState<string>("create");
+  const [libraryEditorUrl, setLibraryEditorUrl] = useState("");
+  const [libraryCaptionUrl, setLibraryCaptionUrl] = useState("");
+  const [libraryCaptionId, setLibraryCaptionId] = useState("");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
 
   // Redirect to menu if user logs out while on avatar view
   useEffect(() => {
-    if (!loading && !user && (currentView === "avatar" || currentView === "carousel" || currentView === "podcast")) {
+    if (!loading && !user && (currentView === "avatar" || currentView === "carousel" || currentView === "podcast" || currentView === "library")) {
       setCurrentView("menu");
     }
   }, [user, loading, currentView]);
@@ -345,8 +352,7 @@ export default function Home() {
           }
         }}
         onOpenLibrary={() => {
-          setInitialView("library");
-          setCurrentView("avatar");
+          setCurrentView("library");
         }}
       />
     );
@@ -360,6 +366,58 @@ export default function Home() {
   // AI Podcast Machine view
   if (currentView === "podcast") {
     return <PodcastMachineView onBack={() => setCurrentView("menu")} isAdmin={!!isAdmin} />;
+  }
+
+  // Unified Library view
+  if (currentView === "library") {
+    return (
+      <div className="relative">
+        {/* Video Editor for library videos */}
+        {libraryEditorUrl && (
+          <div ref={(el) => { if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }}>
+            <VideoEditor
+              videoUrl={libraryEditorUrl}
+              onClose={(editedUrl) => {
+                setLibraryEditorUrl("");
+                if (editedUrl) {
+                  // Could update the video URL in storage here
+                }
+              }}
+              accentColor={C.pink}
+            />
+          </div>
+        )}
+        <UnifiedVideoLibrary
+          onBack={() => { setLibraryEditorUrl(""); setLibraryCaptionUrl(""); setCurrentView("menu"); }}
+          onEditVideo={(url) => {
+            setLibraryEditorUrl(url);
+            setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 100);
+          }}
+          onCaptionVideo={(url, id) => {
+            setLibraryCaptionUrl(url);
+            setLibraryCaptionId(id);
+          }}
+          theme={theme}
+        />
+        {/* Caption Modal for library videos */}
+        {libraryCaptionUrl && libraryCaptionId && (
+          <CaptionPanelModal
+            videoUrl={libraryCaptionUrl}
+            onClose={(captionedUrl) => {
+              if (captionedUrl && libraryCaptionId) {
+                const userEmail = user?.email || "";
+                if (userEmail) {
+                  updateVideoUrlInStorage(userEmail, libraryCaptionId, captionedUrl);
+                }
+              }
+              setLibraryCaptionUrl("");
+              setLibraryCaptionId("");
+            }}
+            accentColor={C.cyan}
+          />
+        )}
+      </div>
+    );
   }
 
   // AI Avatar Machine view — only for authenticated users
