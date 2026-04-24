@@ -2,7 +2,6 @@
 
 import React, { useState, useRef, useCallback } from "react";
 import PodcastVideoLibrary from "@/components/PodcastVideoLibrary";
-import VideoEditor from "@/components/VideoEditor";
 import CaptionPanelModal from "@/components/CaptionPanelModal";
 import { saveVideoToStorage, updateVideoUrlInStorage } from "@/lib/video-store";
 import { useAuth } from "@/providers/auth-provider";
@@ -426,10 +425,6 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
   const [subAnimation, setSubAnimation] = useState(true);
   const [subBgColor, setSubBgColor] = useState("none");
   const [subBgOpacity, setSubBgOpacity] = useState(0);
-
-  // ─── Video Editor State (works for both create & library views) ─
-  const [showEditor, setShowEditor] = useState(false);
-  const [editorVideoUrl, setEditorVideoUrl] = useState("");
 
   // ─── Library Caption Modal State ──
   const [captionVideoUrl, setCaptionVideoUrl] = useState<string>("");
@@ -1067,24 +1062,8 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
     setCombineProgress(0);
     setLogs([]);
     setClips([]);
-    setShowEditor(false);
-    setEditorVideoUrl("");
     pipelineRunningRef.current = false;
     if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
-  }, []);
-
-  // ─── Video Editor: Open editor for generated video ────────────────────
-  const openEditor = useCallback(() => {
-    if (finalVideoUrl) {
-      setEditorVideoUrl(finalVideoUrl);
-      setShowEditor(true);
-    }
-  }, [finalVideoUrl]);
-
-  // ─── Video Editor: Open editor for library video ────────────────────────
-  const openEditorForUrl = useCallback((videoUrl: string) => {
-    setEditorVideoUrl(videoUrl);
-    setShowEditor(true);
   }, []);
 
   // ─── Library Caption: Open caption modal for library video ─────────────
@@ -1214,7 +1193,7 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
         {/* ─── Library View ──────────────────────────────────── */}
         {view === "library" && (
           <div className="mb-10 sm:mb-14">
-            <PodcastVideoLibrary user={user} onViewCreate={() => setView("create")} onEditVideo={openEditorForUrl} onCaptionVideo={openCaptionForUrl} />
+            <PodcastVideoLibrary user={user} onViewCreate={() => setView("create")} onCaptionVideo={openCaptionForUrl} />
           </div>
         )}
 
@@ -1880,12 +1859,7 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
                     Download Original
                   </a>
                 )}
-                <button onClick={openEditor} className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]" style={{ backgroundColor: C.gold, color: C.white, boxShadow: "0 4px 16px " + C.gold + "40" }}>
-                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                  </svg>
-                  Edit Your Video
-                </button>
+
                 <button onClick={() => setView("library")} className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]" style={{ backgroundColor: savedToLibrary ? "#22C55E" : C.cyan, color: C.white }}>
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
@@ -1965,19 +1939,6 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
         </React.Fragment>
         )}
       </main>
-
-      {/* ═══════════════════════════════════════════════════════════
-          VIDEO EDITOR (CapCut-like Timeline Editor) - Available for both create & library views
-      ═══════════════════════════════════════════════════════════ */}
-      {showEditor && editorVideoUrl && (
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-8 sm:pb-12">
-          <VideoEditor
-            videoUrl={editorVideoUrl}
-            onClose={() => { setShowEditor(false); setEditorVideoUrl(""); }}
-            accentColor={C.gold}
-          />
-        </div>
-      )}
 
       {/* ═══════════════════════════════════════════════════════════
           LIBRARY CAPTION MODAL - Add auto captions to library videos

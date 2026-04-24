@@ -296,7 +296,7 @@ export default function Home() {
   const { user, loading, signOut } = useAuth();
   const [showSubscription, setShowSubscription] = useState(false);
   const [currentView, setCurrentView] = useState<"menu" | "avatar" | "carousel" | "podcast">("menu");
-  const [openLibraryKey, setOpenLibraryKey] = useState(0);
+  const [initialView, setInitialView] = useState<string>("create");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
 
@@ -336,6 +336,7 @@ export default function Home() {
       <MainMenu
         onNavigate={(dest) => {
           if (dest === "ai-avatar-machine") {
+            setInitialView("create");
             setCurrentView("avatar");
           } else if (dest === "ai-viral-carousel") {
             setCurrentView("carousel");
@@ -344,8 +345,8 @@ export default function Home() {
           }
         }}
         onOpenLibrary={() => {
+          setInitialView("library");
           setCurrentView("avatar");
-          setOpenLibraryKey((k) => k + 1);
         }}
       />
     );
@@ -441,7 +442,7 @@ export default function Home() {
       </div>
 
       <div style={{ marginTop: isDark ? "52px" : "52px" }}>
-        <AIAvatarMachine isAdmin={isAdmin} theme={theme} openLibraryKey={openLibraryKey} />
+        <AIAvatarMachine isAdmin={isAdmin} theme={theme} initialView={initialView} />
       </div>
     </div>
   );

@@ -38,7 +38,6 @@ interface VideoItem {
 interface PodcastVideoLibraryProps {
   user?: { email?: string } | null;
   onViewCreate?: () => void;
-  onEditVideo?: (videoUrl: string) => void;
   onCaptionVideo?: (videoUrl: string, videoId: string) => void;
 }
 
@@ -135,13 +134,11 @@ function VideoCard({
   video,
   onDelete,
   onPlay,
-  onEdit,
   onCaption,
 }: {
   video: VideoItem;
   onDelete: (id: string) => void;
   onPlay: (video: VideoItem) => void;
-  onEdit?: (video: VideoItem) => void;
   onCaption?: (video: VideoItem) => void;
 }) {
   const [isDeleting, setIsDeleting] = useState(false);
@@ -318,7 +315,7 @@ function VideoCard({
             </svg>
             Play
           </button>
-          {(onEdit || onCaption) && (
+          {onCaption && (
             <div className="relative w-full">
               <button
                 onClick={() => setShowEditMenu(!showEditMenu)}
@@ -326,9 +323,9 @@ function VideoCard({
                 style={{ backgroundColor: C.gold, color: C.white }}
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
                 </svg>
-                Edit
+                Captions
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} style={{ transform: showEditMenu ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                 </svg>
@@ -337,30 +334,16 @@ function VideoCard({
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setShowEditMenu(false)} />
                   <div className="absolute bottom-full left-0 right-0 mb-1 rounded-xl overflow-hidden z-20" style={{ backgroundColor: C.white, border: "1.5px solid #E5E7EB", boxShadow: "0 8px 24px rgba(0,0,0,0.12)" }}>
-                    {onEdit && (
-                      <button
-                        onClick={() => { setShowEditMenu(false); onEdit(video); }}
-                        className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:bg-gray-50"
-                        style={{ color: C.text }}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.pink} strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                        </svg>
-                        Video Editor
-                      </button>
-                    )}
-                    {onCaption && (
-                      <button
-                        onClick={() => { setShowEditMenu(false); onCaption(video); }}
-                        className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:bg-gray-50"
-                        style={{ color: C.text, borderTop: onEdit ? "1px solid #F3F4F6" : "none" }}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.cyan} strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
-                        </svg>
-                        Add Captions
-                      </button>
-                    )}
+                    <button
+                      onClick={() => { setShowEditMenu(false); onCaption(video); }}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-bold uppercase tracking-wide transition-all cursor-pointer hover:bg-gray-50"
+                      style={{ color: C.text }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.cyan} strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+                      </svg>
+                      Add Captions
+                    </button>
                   </div>
                 </>
               )}
@@ -374,7 +357,7 @@ function VideoCard({
 
 // ─── Main Component ─────────────────────────────────────────────────────
 
-export default function PodcastVideoLibrary({ user, onViewCreate, onEditVideo, onCaptionVideo }: PodcastVideoLibraryProps) {
+export default function PodcastVideoLibrary({ user, onViewCreate, onCaptionVideo }: PodcastVideoLibraryProps) {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [playingVideo, setPlayingVideo] = useState<VideoItem | null>(null);
@@ -509,7 +492,6 @@ export default function PodcastVideoLibrary({ user, onViewCreate, onEditVideo, o
               video={video}
               onDelete={handleDelete}
               onPlay={setPlayingVideo}
-              onEdit={onEditVideo ? (video) => onEditVideo(video.videoUrl) : undefined}
               onCaption={onCaptionVideo ? (video) => onCaptionVideo(video.videoUrl, video.id) : undefined}
             />
           ))}
