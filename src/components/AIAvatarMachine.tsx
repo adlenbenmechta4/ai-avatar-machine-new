@@ -677,10 +677,12 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   const [subBgOpacity, setSubBgOpacity] = useState(0);
 
   const autoRetryCountRef = useRef<number>(0);
-  const MAX_AUTO_RETRIES = 3;
+  const MAX_AUTO_RETRIES = 5; // More retries for large scene counts to avoid losing progress
 
   // ── Refs ──
   const abortRef = useRef<AbortController | null>(null);
+  const scenesRef = useRef(scenes); // Keep a ref to latest scenes for resume data
+  scenesRef.current = scenes; // Update ref whenever scenes changes
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentJobIdRef = useRef<string | null>(null);
   const lastEventTimeRef = useRef<number>(0);
@@ -1162,25 +1164,35 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
     setFinalVideoUrl("");
     setFinalFrameUrls([]);
     setFinalVideoUrls([]);
-    setLogs([]);
     setPipelineError("");
-    if (autoRetryCountRef.current === 0) {
-      // Only clear logs on first attempt, keep them on retries
+    const isRetry = autoRetryCountRef.current > 0;
+
+    if (!isRetry) {
+      // Only clear logs on first attempt
+      setLogs([]);
+    } else {
+      // On retry: keep logs, add resume message
+      addLog("🔄 Resuming from where we left off — preserving completed scenes...");
     }
     lastEventTimeRef.current = Date.now();
-    setScenes((prev) =>
-      prev.map((s) => ({
-        ...s,
-        frameProgress: 0,
-        frameDone: false,
-        videoProgress: 0,
-        videoDone: false,
-        frameUrl: "",
-        videoUrl: "",
-        framePrompt: "",
-        videoPrompt: "",
-      }))
-    );
+
+    if (!isRetry) {
+      // Only reset scene progress on FIRST attempt (not on retry!)
+      setScenes((prev) =>
+        prev.map((s) => ({
+          ...s,
+          frameProgress: 0,
+          frameDone: false,
+          videoProgress: 0,
+          videoDone: false,
+          frameUrl: "",
+          videoUrl: "",
+          framePrompt: "",
+          videoPrompt: "",
+        }))
+      );
+    }
+    // On retry: keep scene progress (frameDone, videoDone, frameUrl, videoUrl preserved!)
 
     const abortController = new AbortController();
     abortRef.current = abortController;
@@ -1196,24 +1208,58 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
       }
 
       // Step 2: Start SSE pipeline
-      addLog("Starting generation pipeline...");
+      addLog(isRetry ? "Resuming generation pipeline..." : "Starting generation pipeline...");
+
+      // On retry, build resumeFrom data from current scene state
+      // This tells the server which scenes are already done so it can skip them
+      const requestBody: Record<string, unknown> = {
+        videoProvider,
+        avatarUrl: uploadedUrl,
+        frameMode: frameMode === "custom" && customPromptStyle === "v2" ? "custom_v2" : frameMode,
+        scenes: validScenes.map((s) => ({
+          description: s.description,
+          script: s.script,
+          customFrameImage: s.customFrameImage || undefined,
+        })),
+        kieApiKey,
+        falApiKey,
+        heygenApiKey,
+        heygenVoiceId,
+      };
+
+      if (isRetry) {
+        // Collect completed scene data to send to server for resume
+        const currentScenes = scenesRef.current || scenes;
+        const completedFrames: boolean[] = [];
+        const completedVideos: boolean[] = [];
+        const savedFrameUrls: string[] = [];
+        const savedVideoUrls: string[] = [];
+
+        for (const s of currentScenes) {
+          completedFrames.push(!!s.frameDone && !!s.frameUrl);
+          completedVideos.push(!!s.videoDone && !!s.videoUrl);
+          savedFrameUrls.push(s.frameUrl || "");
+          savedVideoUrls.push(s.videoUrl || "");
+        }
+
+        const doneCount = completedVideos.filter(Boolean).length;
+        const frameDoneCount = completedFrames.filter(Boolean).length;
+
+        if (doneCount > 0 || frameDoneCount > 0) {
+          requestBody.resumeFrom = {
+            frameUrls: savedFrameUrls,
+            videoUrls: savedVideoUrls,
+            videoDone: completedVideos,
+            frameDone: completedFrames,
+          };
+          addLog(`📋 Resume data: ${frameDoneCount} frames done, ${doneCount} videos done out of ${currentScenes.length} scenes`);
+        }
+      }
+
       const res = await authFetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          videoProvider,
-          avatarUrl: uploadedUrl,
-          frameMode: frameMode === "custom" && customPromptStyle === "v2" ? "custom_v2" : frameMode,
-          scenes: validScenes.map((s) => ({
-            description: s.description,
-            script: s.script,
-            customFrameImage: s.customFrameImage || undefined,
-          })),
-          kieApiKey,
-          falApiKey,
-          heygenApiKey,
-          heygenVoiceId,
-        }),
+        body: JSON.stringify(requestBody),
         signal: abortController.signal,
       });
 

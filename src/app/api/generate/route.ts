@@ -877,6 +877,7 @@ async function runPipelineSSE(
   jobId: string,
   userId: string,
   frameMode: string,
+  resumeFrom?: ResumeData,
 ) {
   const heartbeatStop = { stopped: false };
 
@@ -917,53 +918,100 @@ async function runPipelineSSE(
     // ══ Multi-Scene Pipeline ══
     const frameUrls: string[] = [];
     const videoUrls: string[] = [];
+    const isResume = !!resumeFrom?.frameUrls?.length;
+    const resumeFrameDone = resumeFrom?.frameDone || [];
+    const resumeVideoDone = resumeFrom?.videoDone || [];
+    const resumeFrameUrls = resumeFrom?.frameUrls || [];
+    const resumeVideoUrls = resumeFrom?.videoUrls || [];
+
+    // Count already completed
+    let completedFrames = 0;
+    let completedVideos = 0;
+    if (isResume) {
+      completedFrames = resumeFrameDone.filter(Boolean).length;
+      completedVideos = resumeVideoDone.filter(Boolean).length;
+      addJobLog(jobId, `🔄 Resuming pipeline — ${completedFrames} frames and ${completedVideos} videos already done, skipping them...`);
+      sse(writer, { type: "progress", step: 2, pct: 0, message: `Resuming: ${completedVideos} videos already done, processing remaining...` });
+    }
 
     // STEP 1: Frames
     const hasCustomFrames = validScenes.some(s => s.customFrameImage);
 
     if (hasCustomFrames) {
-      // Custom frames mode — upload each scene's base64 image
-      sse(writer, { type: "progress", step: 1, pct: 0, message: `Uploading ${validScenes.length} custom frames...` });
-      addJobLog(jobId, `Uploading ${validScenes.length} custom frames...`);
+      // Custom frames mode — upload each scene's base64 image (skip if already done)
+      const framesToProcess = validScenes.map((scene, i) => ({ scene, index: i })).filter((_, i) => isResume && resumeFrameDone[i] ? false : true);
+      const totalFrames = validScenes.length;
 
-      for (let i = 0; i < validScenes.length; i++) {
-        const scene = validScenes[i];
-        sse(writer, { type: "progress", step: 1, pct: Math.round((i / validScenes.length) * 80), message: `Uploading frame ${i + 1}/${validScenes.length}...` });
-
-        let frameUrl: string;
-        if (scene.customFrameImage) {
-          try {
-            frameUrl = await uploadImageToKie(scene.customFrameImage, `scene_${i + 1}_${jobId}_frame.jpg`, kieApiKey);
-          } catch (uploadErr) {
-            const msg = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
-            addJobLog(jobId, `Frame ${i + 1} upload failed: ${msg}`);
-            throw new Error(`Failed to upload frame ${i + 1}: ${msg}`);
+      if (isResume && completedFrames > 0) {
+        sse(writer, { type: "progress", step: 1, pct: Math.round((completedFrames / totalFrames) * 80), message: `Skipping ${completedFrames} already uploaded frames...` });
+        // Copy already completed frame URLs
+        for (let i = 0; i < validScenes.length; i++) {
+          if (resumeFrameDone[i] && resumeFrameUrls[i]) {
+            frameUrls.push(resumeFrameUrls[i]);
+            updateScene(jobId, i, { frameDone: true, frameProgress: 100, frameUrl: resumeFrameUrls[i] });
           }
-        } else {
-          throw new Error(`Scene ${i + 1} is missing a custom frame image.`);
         }
-
-        frameUrls.push(frameUrl);
-        updateScene(jobId, i, { frameDone: true, frameProgress: 100, frameUrl });
-        sse(writer, { type: "progress", step: 1, pct: Math.round(((i + 1) / validScenes.length) * 80), message: `Frame ${i + 1} ready!` });
+        addJobLog(jobId, `Skipped ${completedFrames} already uploaded frames`);
       }
 
-      sse(writer, { type: "progress", step: 1, pct: 85, message: "All custom frames uploaded!" });
-      addJobLog(jobId, "All custom frames uploaded!");
-    } else if (useSceneFrames) {
-      sse(writer, { type: "progress", step: 1, pct: 0, message: `Generating frames for ${validScenes.length} scenes...` });
-      addJobLog(jobId, `Generating ${validScenes.length} frames...`);
+      if (framesToProcess.length > 0) {
+        sse(writer, { type: "progress", step: 1, pct: Math.round((completedFrames / totalFrames) * 80), message: `Uploading ${framesToProcess.length} remaining frames...` });
+        addJobLog(jobId, `Uploading ${framesToProcess.length} remaining frames...`);
 
-      for (let i = 0; i < validScenes.length; i++) {
-        const scene = validScenes[i];
-        sse(writer, { type: "progress", step: 1, pct: Math.round((i / validScenes.length) * 80), message: `Generating frame ${i + 1}/${validScenes.length}...` });
-        const frameUrl = await generateFrame(jobId, i, scene.description, avatarUrl, kieApiKey, writer);
-        frameUrls.push(frameUrl);
-        sse(writer, { type: "progress", step: 1, pct: Math.round(((i + 1) / validScenes.length) * 80), message: `Frame ${i + 1} ready!` });
+        for (const { scene, index } of framesToProcess) {
+          sse(writer, { type: "progress", step: 1, pct: Math.round(((index + 1) / totalFrames) * 80), message: `Uploading frame ${index + 1}/${totalFrames}...` });
+
+          let frameUrl: string;
+          if (scene.customFrameImage) {
+            try {
+              frameUrl = await uploadImageToKie(scene.customFrameImage, `scene_${index + 1}_${jobId}_frame.jpg`, kieApiKey);
+            } catch (uploadErr) {
+              const msg = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
+              addJobLog(jobId, `Frame ${index + 1} upload failed: ${msg}`);
+              throw new Error(`Failed to upload frame ${index + 1}: ${msg}`);
+            }
+          } else {
+            throw new Error(`Scene ${index + 1} is missing a custom frame image.`);
+          }
+
+          frameUrls.push(frameUrl);
+          updateScene(jobId, index, { frameDone: true, frameProgress: 100, frameUrl });
+          sse(writer, { type: "progress", step: 1, pct: Math.round(((index + 1) / totalFrames) * 80), message: `Frame ${index + 1} ready!` });
+        }
+      }
+
+      sse(writer, { type: "progress", step: 1, pct: 85, message: "All custom frames ready!" });
+      addJobLog(jobId, "All custom frames ready!");
+    } else if (useSceneFrames) {
+      // AI-generated frames — skip if already done
+      const framesToProcess = validScenes.map((scene, i) => ({ scene, index: i })).filter((_, i) => isResume && resumeFrameDone[i] ? false : true);
+      const totalFrames = validScenes.length;
+
+      if (isResume && completedFrames > 0) {
+        sse(writer, { type: "progress", step: 1, pct: Math.round((completedFrames / totalFrames) * 80), message: `Skipping ${completedFrames} already generated frames...` });
+        for (let i = 0; i < validScenes.length; i++) {
+          if (resumeFrameDone[i] && resumeFrameUrls[i]) {
+            frameUrls.push(resumeFrameUrls[i]);
+            updateScene(jobId, i, { frameDone: true, frameProgress: 100, frameUrl: resumeFrameUrls[i] });
+          }
+        }
+        addJobLog(jobId, `Skipped ${completedFrames} already generated frames`);
+      }
+
+      if (framesToProcess.length > 0) {
+        sse(writer, { type: "progress", step: 1, pct: Math.round((completedFrames / totalFrames) * 80), message: `Generating ${framesToProcess.length} remaining frames...` });
+        addJobLog(jobId, `Generating ${framesToProcess.length} remaining frames...`);
+
+        for (const { scene, index } of framesToProcess) {
+          sse(writer, { type: "progress", step: 1, pct: Math.round(((index + 1) / totalFrames) * 80), message: `Generating frame ${index + 1}/${totalFrames}...` });
+          const frameUrl = await generateFrame(jobId, index, scene.description, avatarUrl, kieApiKey, writer);
+          frameUrls.push(frameUrl);
+          sse(writer, { type: "progress", step: 1, pct: Math.round(((index + 1) / totalFrames) * 80), message: `Frame ${index + 1} ready!` });
+        }
       }
 
       sse(writer, { type: "progress", step: 1, pct: 85, message: "All frames ready!" });
-      addJobLog(jobId, "All frames generated!");
+      addJobLog(jobId, "All frames ready!");
     } else {
       addJobLog(jobId, "Using avatar as frame for all scenes (no frame generation)");
       sse(writer, { type: "progress", step: 1, pct: 80, message: "Using avatar as frame for all scenes" });
@@ -973,22 +1021,39 @@ async function runPipelineSSE(
       }
     }
 
-    // STEP 2: Videos
-    sse(writer, { type: "progress", step: 2, pct: 0, message: `Generating ${validScenes.length} videos...` });
-    addJobLog(jobId, `Generating ${validScenes.length} videos (this takes 5-15 min per video)...`);
+    // STEP 2: Videos — skip scenes that already have completed videos
+    const videosToProcess = validScenes.map((scene, i) => ({ scene, index: i })).filter((_, i) => isResume && resumeVideoDone[i] ? false : true);
+    const totalVideos = validScenes.length;
 
-    for (let i = 0; i < validScenes.length; i++) {
-      const scene = validScenes[i];
-      sse(writer, { type: "progress", step: 2, pct: Math.round((i / validScenes.length) * 90), message: `Creating video ${i + 1}/${validScenes.length}...` });
-      const videoUrl = await generateVideo(
-        jobId, i,
-        scene.description, scene.script,
-        frameUrls[i], kieApiKey,
-        frameMode,
-        writer
-      );
-      videoUrls.push(videoUrl);
-      sse(writer, { type: "progress", step: 2, pct: Math.round(((i + 1) / validScenes.length) * 90), message: `Video ${i + 1} complete!` });
+    // Copy already completed video URLs
+    if (isResume && completedVideos > 0) {
+      for (let i = 0; i < validScenes.length; i++) {
+        if (resumeVideoDone[i] && resumeVideoUrls[i]) {
+          videoUrls.push(resumeVideoUrls[i]);
+          updateScene(jobId, i, { videoDone: true, videoProgress: 100, videoUrl: resumeVideoUrls[i] });
+        }
+      }
+      addJobLog(jobId, `Skipped ${completedVideos} already completed videos`);
+    }
+
+    if (videosToProcess.length > 0) {
+      sse(writer, { type: "progress", step: 2, pct: Math.round((completedVideos / totalVideos) * 90), message: `Generating ${videosToProcess.length} remaining videos...` });
+      addJobLog(jobId, `Generating ${videosToProcess.length} remaining videos (this takes 5-15 min per video)...`);
+
+      for (const { scene, index } of videosToProcess) {
+        sse(writer, { type: "progress", step: 2, pct: Math.round(((index + 1) / totalVideos) * 90), message: `Creating video ${index + 1}/${totalVideos}...` });
+        const videoUrl = await generateVideo(
+          jobId, index,
+          scene.description, scene.script,
+          frameUrls[index], kieApiKey,
+          frameMode,
+          writer
+        );
+        videoUrls.push(videoUrl);
+        sse(writer, { type: "progress", step: 2, pct: Math.round(((index + 1) / totalVideos) * 90), message: `Video ${index + 1} complete!` });
+      }
+    } else {
+      addJobLog(jobId, "All videos already completed from previous run!");
     }
 
     addJobLog(jobId, "All videos generated!");
@@ -1036,7 +1101,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON in request body" }, { status: 400 });
     }
 
-    const { avatarUrl, scenes, kieApiKey, falApiKey, frameMode, videoProvider, heygenApiKey, heygenVoiceId } = body;
+    const { avatarUrl, scenes, kieApiKey, falApiKey, frameMode, videoProvider, heygenApiKey, heygenVoiceId, resumeFrom } = body;
     // In custom frames mode, avatar is not required — each scene has its own image
     if (frameMode !== "custom" && frameMode !== "custom_v2") {
       if (!avatarUrl || typeof avatarUrl !== "string" || !avatarUrl.startsWith("http")) {
@@ -1106,30 +1171,52 @@ export async function POST(req: NextRequest) {
       // Continue without credit check if it fails (graceful degradation)
     }
 
+    // ═══ RESUME SUPPORT ═══
+    // Parse resumeFrom: { frameUrls: string[], videoUrls: string[], videoDone: boolean[], frameDone: boolean[] }
+    type ResumeData = {
+      frameUrls: string[];
+      videoUrls: string[];
+      videoDone: boolean[];
+      frameDone: boolean[];
+    };
+    const resumeData = resumeFrom as ResumeData | undefined;
+    const isResume = !!resumeData?.frameUrls?.length;
+
+    // Count how many scenes still need processing (for credit deduction)
+    let scenesNeedingWork = validScenes.length;
+    if (isResume && resumeData.videoDone) {
+      scenesNeedingWork = validScenes.filter((_, i) => !resumeData.videoDone[i]).length;
+    }
+
     // Create SSE stream
     const stream = new TransformStream();
     const writer = stream.writable.getWriter();
     const jobId = generateJobId();
 
-    console.log(`[Pipeline ${jobId}] Starting ${provider} pipeline with ${validScenes.length} scenes (SSE mode)`);
+    if (isResume) {
+      console.log(`[Pipeline ${jobId}] RESUMING: ${validScenes.length} scenes, ${validScenes.length - scenesNeedingWork} already done, ${scenesNeedingWork} remaining`);
+    } else {
+      console.log(`[Pipeline ${jobId}] Starting ${provider} pipeline with ${validScenes.length} scenes (SSE mode)`);
+    }
 
     // ═══ DEDUCT CREDITS ═══ (non-fatal — pipeline continues even if deduction fails)
-    if (userId) {
+    // On resume, only charge for scenes that still need work
+    if (userId && scenesNeedingWork > 0) {
       try {
         const costPerScene = await getCreditCostPerScene();
-        const totalCost = validScenes.length * costPerScene;
+        const totalCost = scenesNeedingWork * costPerScene;
         if (totalCost > 0) {
           const result = await deductCredits(
             userId,
             totalCost,
             "video_generation",
-            `Video generation: ${validScenes.length} scene(s) x ${costPerScene} credit(s) = ${totalCost} credit(s)`,
+            `Video generation: ${scenesNeedingWork} scene(s) x ${costPerScene} credit(s)${isResume ? ' (resume)' : ''} = ${totalCost} credit(s)`,
             jobId
           );
           if (result.error) {
             addJobLog(jobId, `Credits: ${result.error} (skipped, continuing)`);
           } else {
-            addJobLog(jobId, `Credits: ${totalCost} deducted (${validScenes.length} scenes x ${costPerScene}/scene)`);
+            addJobLog(jobId, `Credits: ${totalCost} deducted (${scenesNeedingWork} scenes x ${costPerScene}/scene)${isResume ? ' (resume — skipped already-done scenes)' : ''}`);
           }
         }
       } catch (creditErr) {
@@ -1138,6 +1225,8 @@ export async function POST(req: NextRequest) {
         addJobLog(jobId, `Credits: deduction skipped (DB unavailable)`);
         // Continue with pipeline — credit deduction is non-fatal
       }
+    } else if (isResume) {
+      addJobLog(jobId, `Credits: No deduction needed — all ${validScenes.length} scenes already processed`);
     }
 
     // Run pipeline with SSE streaming
@@ -1148,6 +1237,7 @@ export async function POST(req: NextRequest) {
       provider, (heygenApiKey as string) || "", (heygenVoiceId as string) || "",
       writer, jobId, userId || "anonymous",
       (frameMode as string) || "avatar",
+      resumeData,
     );
 
     return new Response(stream.readable, {
