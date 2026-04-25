@@ -578,6 +578,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   // ── Mode State ──
   const [mode, setMode] = useState<"ai" | "manual">("ai");
   const [frameMode, setFrameMode] = useState<"avatar" | "avatar_v2" | "scenes" | "custom">("avatar");
+  const [customPromptStyle, setCustomPromptStyle] = useState<"v1" | "v2">("v1");
   const [aiTopic, setAiTopic] = useState("");
   const [aiDuration, setAiDuration] = useState(30);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
@@ -1095,7 +1096,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
     }
 
     // Validate based on provider
-    let validScenes: Array<{ description: string; script: string }>;
+    let validScenes: Array<{ description: string; script: string; customFrameImage?: string | null }>;
 
     if (videoProvider === "heygen") {
       if (!heygenScript.trim()) {
@@ -1178,7 +1179,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
         body: JSON.stringify({
           videoProvider,
           avatarUrl: uploadedUrl,
-          frameMode,
+          frameMode: frameMode === "custom" && customPromptStyle === "v2" ? "custom_v2" : frameMode,
           scenes: validScenes.map((s) => ({
             description: s.description,
             script: s.script,
@@ -2139,6 +2140,37 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                       ))}
                     </div>
                   </div>
+
+                  {/* ── Custom Frames Prompt Style Toggle ── */}
+                  {frameMode === "custom" && (
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider mb-2" style={{ color: T.textMuted }}>
+                        Prompt Style (Custom Frames)
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {([
+                          { value: "v1" as const, label: "Static (v1)", emoji: "👤", desc: "No gestures, news anchor" },
+                          { value: "v2" as const, label: "Expressive (v2)", emoji: "🤚", desc: "Hand gestures & body language" },
+                        ]).map((ps) => (
+                          <button
+                            key={ps.value}
+                            onClick={() => setCustomPromptStyle(ps.value)}
+                            disabled={isRunning}
+                            className="py-2.5 px-3 rounded-xl text-xs font-bold uppercase tracking-wide transition-all duration-300 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed border-2 text-center"
+                            style={{
+                              backgroundColor: customPromptStyle === ps.value ? T.pink : T.cardBg,
+                              borderColor: customPromptStyle === ps.value ? T.pink : T.cardBorder,
+                              color: customPromptStyle === ps.value ? T.white : T.textMuted,
+                            }}
+                          >
+                            <div className="text-base mb-0.5">{ps.emoji}</div>
+                            <div>{ps.label}</div>
+                            <div className="text-[9px] font-normal lowercase tracking-normal mt-0.5 opacity-70">{ps.desc}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* ── Avatar API Provider Fields ── */}
                   {videoProvider === "heygen" && (

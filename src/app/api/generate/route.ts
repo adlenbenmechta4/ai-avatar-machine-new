@@ -346,7 +346,7 @@ async function generateVideo(
       }
 
       let videoPrompt: string;
-      if (frameMode === "avatar_v2") {
+      if (frameMode === "avatar_v2" || frameMode === "custom_v2") {
         videoPrompt =
           `${VIDEO_VISUAL_CONSTRAINTS_V2}\n\n` +
           `REFERENCE IMAGE: This is a talking-head video with expressive hand gestures and body language. The reference image is the ONLY source of truth for the person's appearance. ` +
@@ -1010,7 +1010,7 @@ export async function POST(req: NextRequest) {
 
     const { avatarUrl, scenes, kieApiKey, falApiKey, frameMode, videoProvider, heygenApiKey, heygenVoiceId } = body;
     // In custom frames mode, avatar is not required — each scene has its own image
-    if (frameMode !== "custom") {
+    if (frameMode !== "custom" && frameMode !== "custom_v2") {
       if (!avatarUrl || typeof avatarUrl !== "string" || !avatarUrl.startsWith("http")) {
         return NextResponse.json({ error: "avatarUrl is required. Please upload your avatar first." }, { status: 400 });
       }
@@ -1022,7 +1022,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Validate custom frames
-    if (frameMode === "custom") {
+    if (frameMode === "custom" || frameMode === "custom_v2") {
       for (let i = 0; i < validScenes.length; i++) {
         if (!validScenes[i].customFrameImage) {
           return NextResponse.json({ error: `Scene ${i + 1} is missing a custom frame image. Please upload an image for each scene.` }, { status: 400 });
@@ -1116,7 +1116,7 @@ export async function POST(req: NextRequest) {
     runPipelineSSE(
       avatarUrl as string, validScenes,
       (kieApiKey as string) || "", falApiKey as string || "",
-      frameMode === "scenes" || frameMode === "custom",
+      frameMode === "scenes" || frameMode === "custom" || frameMode === "custom_v2",
       provider, (heygenApiKey as string) || "", (heygenVoiceId as string) || "",
       writer, jobId, userId || "anonymous",
       (frameMode as string) || "avatar",
