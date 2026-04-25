@@ -1126,7 +1126,8 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
       setShowCaptionModal(true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to upload edited video";
-      alert(msg);
+      console.error("Caption upload error:", msg);
+      throw new Error(msg);
     } finally {
       setEditorCaptionUploading(false);
     }
