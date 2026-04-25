@@ -2551,7 +2551,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                                 📸 Start Frame
                               </label>
                             {scene.customFrameImage ? (
-                              <div className="relative rounded-xl overflow-hidden border-2" style={{ borderColor: T.cyan }}>
+                              <div className="relative rounded-xl overflow-hidden border-2 w-32 mx-auto" style={{ borderColor: T.cyan }}>
                                 <img
                                   src={scene.customFrameImage}
                                   alt={`Scene ${i + 1} frame`}
@@ -2572,7 +2572,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                               </div>
                             ) : (
                               <label
-                                className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed aspect-[9/16] w-full cursor-pointer transition-all hover:border-current"
+                                className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed aspect-[9/16] w-32 mx-auto cursor-pointer transition-all hover:border-current"
                                 style={{ borderColor: T.cardBorder, backgroundColor: T.cardBg, color: T.textMuted }}
                               >
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
