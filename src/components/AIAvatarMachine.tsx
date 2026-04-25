@@ -1646,14 +1646,15 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   const editorRef = useRef<HTMLDivElement>(null);
 
   const openEditor = useCallback(() => {
-    if (finalVideoUrl) {
-      setEditorVideoUrl(finalVideoUrl);
+    const url = subtitleDone && subtitleVideoUrl ? subtitleVideoUrl : finalVideoUrl;
+    if (url) {
+      setEditorVideoUrl(url);
       setShowEditor(true);
       requestAnimationFrame(() => {
         setTimeout(() => editorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
       });
     }
-  }, [finalVideoUrl]);
+  }, [finalVideoUrl, subtitleDone, subtitleVideoUrl]);
 
   // ─── Video Editor: Open editor for library video ────────────────────
   const openEditorForUrl = useCallback((videoUrl: string) => {
