@@ -154,6 +154,7 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
   const [isDragging, setIsDragging] = useState(false);
   const [dragSplitId, setDragSplitId] = useState<string | null>(null);
   const [liveZoomScale, setLiveZoomScale] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
   const segmentsRef = useRef<Segment[]>([]);
   const durationRef = useRef(0);
 
@@ -235,11 +236,13 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
     if (!video) return;
     if (video.paused) {
       try {
+        video.muted = isMuted;
         await video.play();
         setIsPlaying(true);
       } catch {
         // Autoplay may be blocked, try muted play
         video.muted = true;
+        setIsMuted(true);
         try {
           await video.play();
           setIsPlaying(true);
@@ -251,7 +254,7 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
       video.pause();
       setIsPlaying(false);
     }
-  }, []);
+  }, [isMuted]);
 
   // ─── Seek to time ──────────────────────────────────────────────
   const seekTo = useCallback((time: number) => {
@@ -680,7 +683,7 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
               onLoadedMetadata={handleVideoLoaded}
               preload="auto"
               playsInline
-              muted
+              muted={isMuted}
               onClick={togglePlay}
               className="w-full h-full object-cover block cursor-pointer"
               style={{
@@ -709,6 +712,36 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
                 <span className="text-[9px] font-mono" style={{ color: COLORS.white }}>
                   {formatTime(currentTime)} / {formatTimeShort(duration)}
                 </span>
+                <div className="flex-1" />
+                {/* Mute/Unmute button */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const video = videoRef.current;
+                    if (video) {
+                      const newMuted = !isMuted;
+                      video.muted = newMuted;
+                      setIsMuted(newMuted);
+                    }
+                  }}
+                  className="w-8 h-8 rounded-full flex items-center justify-center"
+                  style={{ backgroundColor: isMuted ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.4)", color: COLORS.white }}
+                  title={isMuted ? "Unmute" : "Mute"}
+                >
+                  {isMuted ? (
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M11 5L6 9H2v6h4l5 4V5z" />
+                      <line x1="23" y1="9" x2="17" y2="15" />
+                      <line x1="17" y1="9" x2="23" y2="15" />
+                    </svg>
+                  ) : (
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M11 5L6 9H2v6h4l5 4V5z" />
+                      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                    </svg>
+                  )}
+                </button>
               </div>
             </div>
 
@@ -759,6 +792,35 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
               </span>
 
               <div className="flex-1" />
+
+              {/* Mute/Unmute */}
+              <button
+                onClick={() => {
+                  const video = videoRef.current;
+                  if (video) {
+                    const newMuted = !isMuted;
+                    video.muted = newMuted;
+                    setIsMuted(newMuted);
+                  }
+                }}
+                className="w-10 h-10 rounded-xl flex items-center justify-center transition-all hover:scale-110"
+                style={{ backgroundColor: isMuted ? "#F3F4F6" : `${accentColor}20`, color: isMuted ? COLORS.textMuted : accentColor }}
+                title={isMuted ? "Unmute audio" : "Mute audio"}
+              >
+                {isMuted ? (
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M11 5L6 9H2v6h4l5 4V5z" />
+                    <line x1="23" y1="9" x2="17" y2="15" />
+                    <line x1="17" y1="9" x2="23" y2="15" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M11 5L6 9H2v6h4l5 4V5z" />
+                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                  </svg>
+                )}
+              </button>
 
               {/* Split Button */}
               <button
