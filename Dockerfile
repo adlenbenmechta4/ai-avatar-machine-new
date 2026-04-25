@@ -13,12 +13,12 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Generate Prisma client (use local version, not latest from npm)
+# Generate Prisma client (use local binary to avoid npx pulling wrong version)
 RUN ./node_modules/.bin/prisma generate
 
-# Build Next.js
+# Build Next.js directly (skip prisma generate since we already did it)
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+RUN ./node_modules/.bin/next build
 
 # Production stage
 FROM base AS runner
