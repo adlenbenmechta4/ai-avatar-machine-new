@@ -16,9 +16,12 @@ COPY . .
 # Generate Prisma client
 RUN npx prisma generate
 
-# Build Next.js (limit memory to avoid OOM on Railway)
+# Build Next.js
+# NEXT_DISABLE_TURBOPACK=1 forces Webpack instead of Turbopack (Turbopack OOMs on Railway)
+# NODE_OPTIONS limits V8 heap to avoid silent kill during build
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_OPTIONS="--max-old-space-size=2048"
+ENV NEXT_DISABLE_TURBOPACK=1
+ENV NODE_OPTIONS="--max-old-space-size=1536"
 RUN npm run build
 
 # Production stage
