@@ -153,6 +153,7 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
   const [ffmpegLoading, setFfmpegLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [dragSplitId, setDragSplitId] = useState<string | null>(null);
+  const [isPlayheadDragging, setIsPlayheadDragging] = useState(false);
   const [liveZoomScale, setLiveZoomScale] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const segmentsRef = useRef<Segment[]>([]);
@@ -355,6 +356,60 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
     setSegments([{ id: "seg-0", start: 0, end: duration, enabled: true, zoom: "none", zoomLevel: 1.5 }]);
     setSelectedSegmentId(null);
   }, [duration]);
+
+  // ─── Handle Playhead Drag ────────────────────────────────────
+  const handlePlayheadMouseDown = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setIsPlayheadDragging(true);
+
+    const video = videoRef.current;
+    if (video) video.pause();
+
+    const handleMouseMove = (moveE: MouseEvent) => {
+      if (!timelineRef.current || !duration) return;
+      const rect = timelineRef.current.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (moveE.clientX - rect.left) / rect.width));
+      const newTime = Math.round(ratio * duration * 100) / 100;
+      seekTo(newTime);
+    };
+
+    const handleMouseUp = () => {
+      setIsPlayheadDragging(false);
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  }, [duration, seekTo]);
+
+  // ─── Handle Playhead Touch Drag ────────────────────────────────
+  const handlePlayheadTouchStart = useCallback((e: React.TouchEvent) => {
+    e.stopPropagation();
+    setIsPlayheadDragging(true);
+
+    const video = videoRef.current;
+    if (video) video.pause();
+
+    const handleTouchMove = (moveE: TouchEvent) => {
+      if (!timelineRef.current || !duration) return;
+      const rect = timelineRef.current.getBoundingClientRect();
+      const touch = moveE.touches[0];
+      const ratio = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+      const newTime = Math.round(ratio * duration * 100) / 100;
+      seekTo(newTime);
+    };
+
+    const handleTouchEnd = () => {
+      setIsPlayheadDragging(false);
+      document.removeEventListener("touchmove", handleTouchMove);
+      document.removeEventListener("touchend", handleTouchEnd);
+    };
+
+    document.addEventListener("touchmove", handleTouchMove);
+    document.addEventListener("touchend", handleTouchEnd);
+  }, [duration, seekTo]);
 
   // ─── Handle Split Drag ─────────────────────────────────────────
   const handleSplitMouseDown = useCallback((e: React.MouseEvent, splitTime: number) => {
@@ -940,18 +995,51 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
                 </div>
               ))}
 
-              {/* Playhead */}
+              {/* Playhead - Draggable Scrubber */}
               <div
-                className="absolute top-0 bottom-0 w-0.5 z-20 pointer-events-none"
+                className="absolute top-0 bottom-0 z-30 flex flex-col items-center"
                 style={{
                   left: duration > 0 ? `${(currentTime / duration) * 100}%` : "0%",
-                  backgroundColor: accentColor,
                   transform: "translateX(-50%)",
                 }}
               >
+                {/* Time tooltip above playhead */}
+                {isPlayheadDragging && (
+                  <div
+                    className="absolute -top-8 px-2 py-0.5 rounded-md text-[10px] font-black font-mono whitespace-nowrap"
+                    style={{
+                      backgroundColor: COLORS.dark,
+                      color: COLORS.white,
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+                    }}
+                  >
+                    {formatTime(currentTime)}
+                  </div>
+                )}
+                {/* Grab handle at top */}
                 <div
-                  className="absolute -top-1 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full"
-                  style={{ backgroundColor: accentColor, boxShadow: `0 0 6px ${accentColor}` }}
+                  className="w-5 h-5 -mt-2 rounded-full flex items-center justify-center cursor-grab active:cursor-grabbing transition-transform hover:scale-125 z-30"
+                  style={{
+                    backgroundColor: accentColor,
+                    boxShadow: `0 0 0 2px ${COLORS.white}, 0 2px 8px rgba(0,0,0,0.3)`,
+                  }}
+                  onMouseDown={handlePlayheadMouseDown}
+                  onTouchStart={handlePlayheadTouchStart}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke={COLORS.white} strokeWidth={3} strokeLinecap="round">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </div>
+                {/* Vertical line */}
+                <div
+                  className="flex-1 w-0.5 min-h-0"
+                  style={{ backgroundColor: accentColor }}
+                />
+                {/* Bottom anchor */}
+                <div
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{ backgroundColor: accentColor }}
                 />
               </div>
             </div>
