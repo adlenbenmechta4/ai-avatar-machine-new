@@ -625,42 +625,38 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
         });
 
         if (seg.zoom !== "none") {
-          // Apply zoompan filter for this segment
-          // zoompan: z = zoom factor expression, d = duration in frames, fps
-          // For zoom in: z starts at 1 and increases to zoomLevel
-          // For zoom out: z starts at zoomLevel and decreases to 1
-          const fps = 30;
-          const totalFrames = Math.round(parseFloat(segDuration) * fps);
           const zl = seg.zoomLevel;
 
-          let zoomExpr: string;
-          if (seg.zoom === "in") {
-            // Gradually zoom from 1.0 to zoomLevel
-            zoomExpr = `min(1.0+(${zl}-1.0)*on/${totalFrames},${zl})`;
-          } else {
-            // Gradually zoom from zoomLevel to 1.0
-            zoomExpr = `max(${zl}-(${zl}-1.0)*on/${totalFrames},1.0)`;
-          }
-
-          // x,y center the zoom
-          const xExpr = "iw/2-(iw/zoom/2)";
-          const yExpr = "ih/2-(ih/zoom/2)";
-
-          // First extract the segment, then apply zoompan
+          // Pass 1: Extract segment (trim only, keep original quality)
+          setProcessProgress(`Extracting segment ${i + 1}...`);
           await ffmpeg.exec([
             "-i", "input.mp4",
             "-ss", seg.start.toFixed(2),
             "-t", segDuration,
-            "-vf", `zoompan=z='${zoomExpr}':d=${totalFrames}:x='${xExpr}':y='${yExpr}':s=1080x1920:fps=${fps}`,
             "-c:v", "libx264",
             "-preset", "ultrafast",
-            "-crf", "28",
+            "-crf", "18",
+            "-an",
+            "-movflags", "+faststart",
+            `trimmed${i}.mp4`,
+          ]);
+
+          // Pass 2: Apply instant zoom using scale + crop (matches CSS transform)
+          // This scales the video UP by zoomLevel, then crops back to original size from center
+          // Equivalent to CSS: transform: scale(zl); transform-origin: center center;
+          setProcessProgress(`Applying zoom to segment ${i + 1}...`);
+          await ffmpeg.exec([
+            "-i", `trimmed${i}.mp4`,
+            "-vf", `scale=iw*${zl}:ih*${zl},crop=iw/${zl}:ih/${zl}`,
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "20",
             "-an",
             "-movflags", "+faststart",
             `part${i}.mp4`,
           ]);
 
-          // Extract audio separately for this segment
+          // Extract audio for this segment (from original, no re-encoding)
           await ffmpeg.exec([
             "-i", "input.mp4",
             "-ss", seg.start.toFixed(2),
@@ -671,27 +667,27 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
             `audio${i}.aac`,
           ]);
 
-          // Merge video and audio
+          // Merge zoomed video + audio
           await ffmpeg.exec([
             "-i", `part${i}.mp4`,
             "-i", `audio${i}.aac`,
             "-c:v", "copy",
             "-c:a", "aac",
             "-b:a", "128k",
-            "-shortest",
             "-movflags", "+faststart",
             `seg${i}.mp4`,
           ]);
         } else {
-          // No zoom — simple trim
+          // No zoom — simple trim with audio
           await ffmpeg.exec([
             "-i", "input.mp4",
             "-ss", seg.start.toFixed(2),
             "-t", segDuration,
             "-c:v", "libx264",
             "-preset", "ultrafast",
-            "-crf", "28",
-            "-c:a", "copy",
+            "-crf", "20",
+            "-c:a", "aac",
+            "-b:a", "128k",
             "-movflags", "+faststart",
             `seg${i}.mp4`,
           ]);
@@ -700,12 +696,7 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
 
       // Step 2: Concatenate all segments
       if (enabledSegs.length === 1) {
-        // Only one segment — rename to output
-        if (hasZoom) {
-          await ffmpeg.exec(["-i", "seg0.mp4", "-c", "copy", "-movflags", "+faststart", "output.mp4"]);
-        } else {
-          await ffmpeg.exec(["-i", "seg0.mp4", "-c", "copy", "-movflags", "+faststart", "output.mp4"]);
-        }
+        await ffmpeg.exec(["-i", "seg0.mp4", "-c", "copy", "-movflags", "+faststart", "output.mp4"]);
       } else {
         setProcessProgress("Merging segments...");
         const concatContent = enabledSegs.map((_, i) => `file 'seg${i}.mp4'`).join("\n");
