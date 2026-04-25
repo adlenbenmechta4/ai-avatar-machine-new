@@ -467,10 +467,11 @@ interface VideoLibraryProps {
   onViewCreate?: () => void;
   onEditVideo?: (videoUrl: string) => void;
   onCaptionVideo?: (videoUrl: string, videoId: string) => void;
+  refreshKey?: number;
   theme?: string;
 }
 
-export default function VideoLibrary({ onViewCreate, onEditVideo, onCaptionVideo, theme }: VideoLibraryProps) {
+export default function VideoLibrary({ onViewCreate, onEditVideo, onCaptionVideo, refreshKey, theme }: VideoLibraryProps) {
   const T = theme === "dark" ? DC : C;
   const isDark = theme === "dark";
   const { authFetch, user } = useAuth();
@@ -508,7 +509,7 @@ export default function VideoLibrary({ onViewCreate, onEditVideo, onCaptionVideo
     } finally {
       setLoading(false);
     }
-  }, [authFetch, user?.email]);
+  }, [authFetch, user?.email, refreshKey]);
 
   useEffect(() => {
     fetchVideos();

@@ -1668,6 +1668,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   // ─── Library Caption: Open caption modal for library video ─────────────
   const [captionVideoUrl, setCaptionVideoUrl] = useState<string>("");
   const [captionVideoId, setCaptionVideoId] = useState<string>("");
+  const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
   const [showCaptionModal, setShowCaptionModal] = useState(false);
   const openCaptionForUrl = useCallback((videoUrl: string, videoId: string) => {
     setCaptionVideoUrl(videoUrl);
@@ -1766,7 +1767,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
           {/* ─── Library View ────────────────────────────────────────── */}
           {view === "library" && (
             <div className="mb-10 sm:mb-14">
-              <VideoLibrary onViewCreate={() => setView("create")} onEditVideo={openEditorForUrl} onCaptionVideo={openCaptionForUrl} theme={theme} />
+              <VideoLibrary onViewCreate={() => setView("create")} onEditVideo={openEditorForUrl} onCaptionVideo={openCaptionForUrl} refreshKey={libraryRefreshKey} theme={theme} />
             </div>
           )}
 
@@ -3295,6 +3296,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
               setShowCaptionModal(false);
               setCaptionVideoUrl("");
               setCaptionVideoId("");
+              setLibraryRefreshKey((k) => k + 1);
             }}
             accentColor={T.pink}
           />

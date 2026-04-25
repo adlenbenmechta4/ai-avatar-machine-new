@@ -456,10 +456,14 @@ export default function UnifiedVideoLibrary({ onBack, onEditVideo, onCaptionVide
         }
       }
 
-      // Merge (deduplicate by videoUrl)
-      const apiUrls = new Set(apiVideos.map((v) => v.videoUrl));
-      const uniqueLocals = localVideos.filter((v) => !apiUrls.has(v.videoUrl));
-      const merged = [...apiVideos, ...uniqueLocals];
+      // Merge (deduplicate by id — localStorage takes precedence for captioned URLs)
+      const apiIds = new Set(apiVideos.map((v) => v.id));
+      const localById = new Map<string, VideoItem>();
+      for (const v of localVideos) {
+        if (!localById.has(v.id)) localById.set(v.id, v);
+      }
+      const uniqueApis = apiVideos.filter((v) => !localById.has(v.id));
+      const merged = [...Array.from(localById.values()), ...uniqueApis];
       merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
       setVideos(merged);

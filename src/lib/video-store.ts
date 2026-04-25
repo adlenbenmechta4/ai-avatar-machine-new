@@ -91,15 +91,21 @@ export function updateVideoUrlInStorage(email: string, videoId: string, newUrl: 
 }
 
 /**
- * Merge API videos with localStorage videos (deduplicate by videoUrl).
- * API videos take precedence (they have the canonical ID).
+ * Merge API videos with localStorage videos (deduplicate by id).
+ * When the same video exists in both API and localStorage, the localStorage
+ * version takes precedence because it may have an updated URL (e.g. after captions).
  */
 export function mergeVideos(apiVideos: StoredVideo[], localVideos: StoredVideo[]): StoredVideo[] {
-  const apiUrls = new Set(apiVideos.map((v) => v.videoUrl));
-  // Add local videos that are NOT in the API response
-  const uniqueLocals = localVideos.filter((v) => !apiUrls.has(v.videoUrl));
-  // Combine and sort by createdAt descending
-  const merged = [...apiVideos, ...uniqueLocals];
+  const apiIds = new Set(apiVideos.map((v) => v.id));
+  // Build a map of local videos by id (most recent first in array)
+  const localById = new Map<string, StoredVideo>();
+  for (const v of localVideos) {
+    if (!localById.has(v.id)) localById.set(v.id, v);
+  }
+  // Keep API videos that DON'T exist in localStorage
+  const uniqueApis = apiVideos.filter((v) => !localById.has(v.id));
+  // Combine: local versions (have precedence) + API-only videos
+  const merged = [...Array.from(localById.values()), ...uniqueApis];
   merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   return merged;
 }
