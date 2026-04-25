@@ -16,7 +16,9 @@ COPY . .
 # Generate Prisma client
 RUN npx prisma generate
 
-# Build Next.js
+# Build Next.js (limit memory to avoid OOM on Railway)
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_OPTIONS="--max-old-space-size=2048"
 RUN npm run build
 
 # Production stage
