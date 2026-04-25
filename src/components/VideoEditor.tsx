@@ -1031,34 +1031,53 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
         {/* ─── Timeline ──────────────────────────────────────────── */}
         {duration > 0 && (
           <div className="max-w-lg mx-auto mb-5">
-            {/* Time labels */}
-            <div className="flex items-center justify-between mb-1.5 px-1">
-              <div className="flex items-center gap-1.5">
+            {/* Time labels + Zoom controls row */}
+            <div className="flex items-center justify-between mb-2 px-1">
+              <div className="flex items-center gap-2">
                 <span className="text-[9px] font-mono" style={{ color: COLORS.textMuted }}>0:00</span>
-                {/* Timeline Zoom Controls */}
-                <div className="flex items-center gap-0.5 ml-1">
+              </div>
+              {/* Timeline Zoom Controls - prominent */}
+              <div className="flex items-center gap-1 px-2 py-1 rounded-lg" style={{ backgroundColor: "#F3F4F6" }}>
+                <span className="text-[8px] font-bold uppercase tracking-wider mr-1" style={{ color: COLORS.textMuted }}>Timeline</span>
+                <button
+                  onClick={() => setTimelineZoom((z) => Math.max(1, z - 1))}
+                  disabled={timelineZoom <= 1}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:scale-110 disabled:opacity-25"
+                  style={{ backgroundColor: timelineZoom > 1 ? accentColor : "#E5E7EB", color: timelineZoom > 1 ? COLORS.white : COLORS.textMuted }}
+                  title="Zoom out timeline"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    <line x1="8" y1="11" x2="14" y2="11" />
+                  </svg>
+                </button>
+                <span className="text-[10px] font-black font-mono px-1.5 py-0.5 rounded min-w-[36px] text-center" style={{ backgroundColor: COLORS.white, color: accentColor, boxShadow: "0 1px 2px rgba(0,0,0,0.05)" }}>
+                  {timelineZoom}x
+                </span>
+                <button
+                  onClick={() => setTimelineZoom((z) => Math.min(10, z + 1))}
+                  disabled={timelineZoom >= 10}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:scale-110 disabled:opacity-25"
+                  style={{ backgroundColor: timelineZoom < 10 ? accentColor : "#E5E7EB", color: timelineZoom < 10 ? COLORS.white : COLORS.textMuted }}
+                  title="Zoom in timeline"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    <line x1="8" y1="11" x2="14" y2="11" />
+                    <line x1="11" y1="8" x2="11" y2="14" />
+                  </svg>
+                </button>
+                {timelineZoom > 1 && (
                   <button
-                    onClick={() => setTimelineZoom((z) => Math.max(1, z - 1))}
-                    disabled={timelineZoom <= 1}
-                    className="w-5 h-5 rounded flex items-center justify-center transition-all hover:scale-110 disabled:opacity-30"
-                    style={{ backgroundColor: timelineZoom > 1 ? `${accentColor}15` : "transparent", color: timelineZoom > 1 ? accentColor : COLORS.textMuted }}
-                    title="Zoom out timeline"
+                    onClick={() => setTimelineZoom(1)}
+                    className="text-[8px] font-bold px-1.5 py-0.5 rounded transition-all hover:opacity-80"
+                    style={{ backgroundColor: `${accentColor}15`, color: accentColor }}
                   >
-                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                    Reset
                   </button>
-                  <span className="text-[8px] font-black font-mono px-1 min-w-[24px] text-center" style={{ color: accentColor }}>
-                    {timelineZoom}x
-                  </span>
-                  <button
-                    onClick={() => setTimelineZoom((z) => Math.min(10, z + 1))}
-                    disabled={timelineZoom >= 10}
-                    className="w-5 h-5 rounded flex items-center justify-center transition-all hover:scale-110 disabled:opacity-30"
-                    style={{ backgroundColor: timelineZoom < 10 ? `${accentColor}15` : "transparent", color: timelineZoom < 10 ? accentColor : COLORS.textMuted }}
-                    title="Zoom in timeline"
-                  >
-                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                  </button>
-                </div>
+                )}
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={{ backgroundColor: `${accentColor}15`, color: accentColor }}>
@@ -1069,8 +1088,8 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
                     {zoomCount} zoom
                   </span>
                 )}
+                <span className="text-[9px] font-mono" style={{ color: COLORS.textMuted }}>{formatTimeShort(duration)}</span>
               </div>
-              <span className="text-[9px] font-mono" style={{ color: COLORS.textMuted }}>{formatTimeShort(duration)}</span>
             </div>
 
             {/* Scrollable Timeline Container */}
