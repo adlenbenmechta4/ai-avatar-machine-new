@@ -165,26 +165,35 @@ async function generateFrame(
   apiKey: string,
   writer: WritableStreamDefaultWriter<Uint8Array> | null
 ): Promise<string> {
-  const MAX_RETRIES = 3;
+  const MAX_RETRIES = 5;
+  let lastErrorWasPermanent = false;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       if (attempt > 1) {
-        addJobLog(jobId, `Frame ${sceneIndex + 1}: retrying... (attempt ${attempt}/${MAX_RETRIES})`);
-        await sleep(10000); // Wait 10s before retry
+        const backoff = 10 + (attempt - 2) * 5;
+        addJobLog(jobId, `Frame ${sceneIndex + 1}: retrying... (attempt ${attempt}/${MAX_RETRIES}), waiting ${backoff}s...`);
+        await sleep(backoff * 1000);
       }
 
-      // Check if we already have a pending frameTaskId — avoid duplicate submission
+      // Check if we already have a pending frameTaskId
       const existingJob = getJob(jobId);
       const existingFrameTaskId = existingJob?.scenes[sceneIndex]?.frameTaskId;
+      const existingError = existingJob?.scenes[sceneIndex]?.error || "";
       let taskId: string;
 
-      if (attempt > 1 && existingFrameTaskId) {
-        // Reuse existing taskId — KIE may already be processing it
+      const isPermanentKieFailure = existingError.includes("submit failed") ||
+        existingError.includes("code !== 200") ||
+        existingError.includes("No taskId");
+
+      if (attempt > 1 && existingFrameTaskId && !isPermanentKieFailure && !lastErrorWasPermanent) {
         taskId = existingFrameTaskId;
-        addJobLog(jobId, `Frame ${sceneIndex + 1}: reusing existing taskId (${taskId.slice(0, 8)}...) instead of resubmitting`);
+        addJobLog(jobId, `Frame ${sceneIndex + 1}: reusing existing taskId (${taskId.slice(0, 8)}...) — previous error was transient`);
         updateScene(jobId, sceneIndex, { frameProgress: 15 });
       } else {
+        if (attempt > 1 && existingFrameTaskId) {
+          addJobLog(jobId, `Frame ${sceneIndex + 1}: submitting NEW task (previous taskId ${existingFrameTaskId.slice(0, 8)}... failed permanently)`);
+        }
         const imgPrompt =
           "ONLY change the background and environment. Keep the EXACT SAME person from the reference image — " +
           "same face, same facial features, same hair, same skin tone, same body, same clothing, same expression. " +
@@ -221,17 +230,25 @@ async function generateFrame(
       addJobLog(jobId, `Frame ${sceneIndex + 1}: generated!`);
 
       const kieFrameUrl = await downloadAndReuploadFrame(jobId, sceneIndex, rawFrameUrl, apiKey);
-      updateScene(jobId, sceneIndex, { frameProgress: 100, frameDone: true, frameUrl: kieFrameUrl });
+      updateScene(jobId, sceneIndex, { frameProgress: 100, frameDone: true, frameUrl: kieFrameUrl, frameTaskId: "" });
       addJobLog(jobId, `Frame ${sceneIndex + 1}: ready!`);
       return kieFrameUrl;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       addJobLog(jobId, `Frame ${sceneIndex + 1} attempt ${attempt} failed: ${msg}`);
+
+      lastErrorWasPermanent = msg.includes("submit failed") ||
+        msg.includes("code !== 200");
+
+      if (lastErrorWasPermanent) {
+        addJobLog(jobId, `Frame ${sceneIndex + 1}: permanent KIE failure detected — will submit NEW task on next retry`);
+      }
+
+      updateScene(jobId, sceneIndex, { error: msg, frameProgress: 0 });
+
       if (attempt === MAX_RETRIES) {
         throw new Error(`Frame ${sceneIndex + 1} failed after ${MAX_RETRIES} attempts: ${msg}`);
       }
-      // Reset progress for retry
-      updateScene(jobId, sceneIndex, { frameProgress: 0 });
     }
   }
   throw new Error(`Frame ${sceneIndex + 1}: unexpected exit from retry loop`);
@@ -349,27 +366,45 @@ async function generateVideo(
  frameMode: string,
   writer: WritableStreamDefaultWriter<Uint8Array> | null
 ): Promise<string> {
-  const MAX_RETRIES = 3;
+  const MAX_RETRIES = 5;
+
+  // Track last error to decide whether to resubmit or reuse taskId
+  let lastErrorWasPermanent = false;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       if (attempt > 1) {
-        addJobLog(jobId, `Video ${sceneIndex + 1}: retrying... (attempt ${attempt}/${MAX_RETRIES}), waiting 15s...`);
+        // Exponential backoff: 15s, 25s, 35s, 45s
+        const backoff = 15 + (attempt - 2) * 10;
+        addJobLog(jobId, `Video ${sceneIndex + 1}: retrying... (attempt ${attempt}/${MAX_RETRIES}), waiting ${backoff}s...`);
         updateScene(jobId, sceneIndex, { videoProgress: 0 });
-        await sleep(15000); // Wait 15s before retry (API needs time to recover)
+        await sleep(backoff * 1000);
       }
 
-      // Check if we already have a pending taskId — avoid duplicate submission
+      // Check if we already have a pending taskId
       const existingJob = getJob(jobId);
       const existingTaskId = existingJob?.scenes[sceneIndex]?.taskId;
+      const existingError = existingJob?.scenes[sceneIndex]?.error || "";
       let taskId: string;
 
-      if (attempt > 1 && existingTaskId) {
-        // Reuse existing taskId — KIE may already be processing it
+      // IMPORTANT: Only reuse taskId if the previous failure was NOT a permanent KIE failure.
+      // Permanent failures (e.g. "unable to generate audio") mean the taskId is dead on KIE's side.
+      // Network timeouts and transient errors are safe to reuse (KIE may still be processing).
+      const isPermanentKieFailure = existingError.includes("gen failed") ||
+        existingError.includes("unable to generate") ||
+        existingError.includes("code !== 200") ||
+        existingError.includes("No taskId");
+
+      if (attempt > 1 && existingTaskId && !isPermanentKieFailure && !lastErrorWasPermanent) {
+        // SAFE to reuse: the task might still be processing on KIE's side (network timeout scenario)
         taskId = existingTaskId;
-        addJobLog(jobId, `Video ${sceneIndex + 1}: reusing existing taskId (${taskId.slice(0, 8)}...) instead of resubmitting`);
+        addJobLog(jobId, `Video ${sceneIndex + 1}: reusing existing taskId (${taskId.slice(0, 8)}...) — previous error was transient`);
         updateScene(jobId, sceneIndex, { videoProgress: 15 });
       } else {
+        // Submit a NEW task to KIE (fresh start)
+        if (attempt > 1 && existingTaskId) {
+          addJobLog(jobId, `Video ${sceneIndex + 1}: submitting NEW task (previous taskId ${existingTaskId.slice(0, 8)}... failed permanently)`);
+        }
         let videoPrompt: string;
         if (frameMode === "avatar_v2" || frameMode === "custom_v2") {
           videoPrompt =
@@ -428,17 +463,28 @@ async function generateVideo(
       }
 
       const videoUrl = await pollKieVideo(jobId, sceneIndex, taskId, apiKey, writer);
-      updateScene(jobId, sceneIndex, { videoProgress: 100, videoDone: true, videoUrl });
+      updateScene(jobId, sceneIndex, { videoProgress: 100, videoDone: true, videoUrl, taskId: "" });
       addJobLog(jobId, `Video ${sceneIndex + 1}: complete!`);
       return videoUrl;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       addJobLog(jobId, `Video ${sceneIndex + 1} attempt ${attempt} failed: ${msg}`);
+
+      // Detect if this is a permanent KIE failure (not a network issue)
+      lastErrorWasPermanent = msg.includes("gen failed") ||
+        msg.includes("unable to generate") ||
+        msg.includes("code !== 200");
+
+      if (lastErrorWasPermanent) {
+        addJobLog(jobId, `Video ${sceneIndex + 1}: permanent KIE failure detected — will submit NEW task on next retry`);
+      }
+
+      // Save error in scene state so retry can check it
+      updateScene(jobId, sceneIndex, { error: msg, videoProgress: 0 });
+
       if (attempt === MAX_RETRIES) {
         throw new Error(`Video ${sceneIndex + 1} failed after ${MAX_RETRIES} attempts: ${msg}`);
       }
-      // Reset progress for retry
-      updateScene(jobId, sceneIndex, { videoProgress: 0 });
     }
   }
   throw new Error(`Video ${sceneIndex + 1}: unexpected exit from retry loop`);
@@ -1041,17 +1087,34 @@ async function runPipelineSSE(
       sse(writer, { type: "progress", step: 2, pct: Math.round((completedVideos / totalVideos) * 90), message: `Generating ${videosToProcess.length} remaining videos...` });
       addJobLog(jobId, `Generating ${videosToProcess.length} remaining videos (this takes 5-15 min per video)...`);
 
+      let failedScenes: number[] = [];
+
       for (const { scene, index } of videosToProcess) {
-        sse(writer, { type: "progress", step: 2, pct: Math.round(((index + 1) / totalVideos) * 90), message: `Creating video ${index + 1}/${totalVideos}...` });
-        const videoUrl = await generateVideo(
-          jobId, index,
-          scene.description, scene.script,
-          frameUrls[index], kieApiKey,
-          frameMode,
-          writer
-        );
-        videoUrls[index] = videoUrl;
-        sse(writer, { type: "progress", step: 2, pct: Math.round(((index + 1) / totalVideos) * 90), message: `Video ${index + 1} complete!` });
+        try {
+          sse(writer, { type: "progress", step: 2, pct: Math.round(((index + 1) / totalVideos) * 90), message: `Creating video ${index + 1}/${totalVideos}...` });
+          const videoUrl = await generateVideo(
+            jobId, index,
+            scene.description, scene.script,
+            frameUrls[index], kieApiKey,
+            frameMode,
+            writer
+          );
+          videoUrls[index] = videoUrl;
+          sse(writer, { type: "progress", step: 2, pct: Math.round(((index + 1) / totalVideos) * 90), message: `Video ${index + 1} complete!` });
+        } catch (sceneErr) {
+          const errMsg = sceneErr instanceof Error ? sceneErr.message : String(sceneErr);
+          addJobLog(jobId, `Video ${index + 1}: FAILED after all retries — ${errMsg}`);
+          sse(writer, { type: "progress", step: 2, pct: Math.round(((index + 1) / totalVideos) * 90), message: `Video ${index + 1} FAILED: ${errMsg.slice(0, 80)}...` });
+          updateScene(jobId, index, { error: errMsg });
+          failedScenes.push(index + 1);
+          // Continue with remaining scenes instead of aborting entire pipeline
+        }
+      }
+
+      if (failedScenes.length > 0) {
+        const warningMsg = `WARNING: ${failedScenes.length} scene(s) failed: video(s) ${failedScenes.join(", ")}. Pipeline will merge the successful videos.`;
+        addJobLog(jobId, warningMsg);
+        sse(writer, { type: "progress", step: 2, pct: 90, message: warningMsg });
       }
     } else {
       addJobLog(jobId, "All videos already completed from previous run!");
