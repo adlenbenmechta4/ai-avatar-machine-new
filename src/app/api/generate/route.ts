@@ -945,10 +945,10 @@ async function runPipelineSSE(
 
       if (isResume && completedFrames > 0) {
         sse(writer, { type: "progress", step: 1, pct: Math.round((completedFrames / totalFrames) * 80), message: `Skipping ${completedFrames} already uploaded frames...` });
-        // Copy already completed frame URLs
+        // Copy already completed frame URLs (use index to preserve correct order)
         for (let i = 0; i < validScenes.length; i++) {
           if (resumeFrameDone[i] && resumeFrameUrls[i]) {
-            frameUrls.push(resumeFrameUrls[i]);
+            frameUrls[i] = resumeFrameUrls[i];
             updateScene(jobId, i, { frameDone: true, frameProgress: 100, frameUrl: resumeFrameUrls[i] });
           }
         }
@@ -975,7 +975,7 @@ async function runPipelineSSE(
             throw new Error(`Scene ${index + 1} is missing a custom frame image.`);
           }
 
-          frameUrls.push(frameUrl);
+          frameUrls[index] = frameUrl;
           updateScene(jobId, index, { frameDone: true, frameProgress: 100, frameUrl });
           sse(writer, { type: "progress", step: 1, pct: Math.round(((index + 1) / totalFrames) * 80), message: `Frame ${index + 1} ready!` });
         }
@@ -992,7 +992,7 @@ async function runPipelineSSE(
         sse(writer, { type: "progress", step: 1, pct: Math.round((completedFrames / totalFrames) * 80), message: `Skipping ${completedFrames} already generated frames...` });
         for (let i = 0; i < validScenes.length; i++) {
           if (resumeFrameDone[i] && resumeFrameUrls[i]) {
-            frameUrls.push(resumeFrameUrls[i]);
+            frameUrls[i] = resumeFrameUrls[i];
             updateScene(jobId, i, { frameDone: true, frameProgress: 100, frameUrl: resumeFrameUrls[i] });
           }
         }
@@ -1006,7 +1006,7 @@ async function runPipelineSSE(
         for (const { scene, index } of framesToProcess) {
           sse(writer, { type: "progress", step: 1, pct: Math.round(((index + 1) / totalFrames) * 80), message: `Generating frame ${index + 1}/${totalFrames}...` });
           const frameUrl = await generateFrame(jobId, index, scene.description, avatarUrl, kieApiKey, writer);
-          frameUrls.push(frameUrl);
+          frameUrls[index] = frameUrl;
           sse(writer, { type: "progress", step: 1, pct: Math.round(((index + 1) / totalFrames) * 80), message: `Frame ${index + 1} ready!` });
         }
       }
@@ -1017,7 +1017,7 @@ async function runPipelineSSE(
       addJobLog(jobId, "Using avatar as frame for all scenes (no frame generation)");
       sse(writer, { type: "progress", step: 1, pct: 80, message: "Using avatar as frame for all scenes" });
       for (let i = 0; i < validScenes.length; i++) {
-        frameUrls.push(avatarUrl);
+        frameUrls[i] = avatarUrl;
         updateScene(jobId, i, { frameDone: true, frameProgress: 100, frameUrl: avatarUrl });
       }
     }
@@ -1030,7 +1030,7 @@ async function runPipelineSSE(
     if (isResume && completedVideos > 0) {
       for (let i = 0; i < validScenes.length; i++) {
         if (resumeVideoDone[i] && resumeVideoUrls[i]) {
-          videoUrls.push(resumeVideoUrls[i]);
+          videoUrls[i] = resumeVideoUrls[i];
           updateScene(jobId, i, { videoDone: true, videoProgress: 100, videoUrl: resumeVideoUrls[i] });
         }
       }
@@ -1050,7 +1050,7 @@ async function runPipelineSSE(
           frameMode,
           writer
         );
-        videoUrls.push(videoUrl);
+        videoUrls[index] = videoUrl;
         sse(writer, { type: "progress", step: 2, pct: Math.round(((index + 1) / totalVideos) * 90), message: `Video ${index + 1} complete!` });
       }
     } else {
@@ -1060,16 +1060,28 @@ async function runPipelineSSE(
     addJobLog(jobId, "All videos generated!");
 
     // STEP 3: Merge
-    if (videoUrls.length > 1) {
-      sse(writer, { type: "progress", step: 3, pct: 0, message: "Merging video clips..." });
-      const mergedUrl = await mergeVideos(jobId, videoUrls, falApiKey);
+    // Filter out any undefined entries from sparse array (safety check)
+    const validVideoUrls = videoUrls.filter((url): url is string => !!url && url.startsWith("http"));
+    const validFrameUrls = frameUrls.filter((url): url is string => !!url && url.startsWith("http"));
+
+    addJobLog(jobId, `Merge: ${validVideoUrls.length} valid video URLs out of ${validScenes.length} scenes`);
+
+    if (validVideoUrls.length !== validScenes.length) {
+      addJobLog(jobId, `WARNING: Expected ${validScenes.length} videos but found ${validVideoUrls.length}. Some scenes may be missing.`);
+    }
+
+    if (validVideoUrls.length > 1) {
+      sse(writer, { type: "progress", step: 3, pct: 0, message: `Merging ${validVideoUrls.length} video clips...` });
+      const mergedUrl = await mergeVideos(jobId, validVideoUrls, falApiKey);
       addJobLog(jobId, "Pipeline complete! Merged video ready!");
-      sse(writer, { type: "done", videoUrl: mergedUrl, frameUrls, videoUrls });
-      setJobDone(jobId, mergedUrl, frameUrls, videoUrls);
-    } else {
+      sse(writer, { type: "done", videoUrl: mergedUrl, frameUrls: validFrameUrls, videoUrls: validVideoUrls });
+      setJobDone(jobId, mergedUrl, validFrameUrls, validVideoUrls);
+    } else if (validVideoUrls.length === 1) {
       addJobLog(jobId, "Pipeline complete! Single video ready!");
-      sse(writer, { type: "done", videoUrl: videoUrls[0], frameUrls, videoUrls });
-      setJobDone(jobId, videoUrls[0], frameUrls, videoUrls);
+      sse(writer, { type: "done", videoUrl: validVideoUrls[0], frameUrls: validFrameUrls, videoUrls: validVideoUrls });
+      setJobDone(jobId, validVideoUrls[0], validFrameUrls, validVideoUrls);
+    } else {
+      throw new Error("No valid video URLs to merge. All scene videos may have failed.");
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
