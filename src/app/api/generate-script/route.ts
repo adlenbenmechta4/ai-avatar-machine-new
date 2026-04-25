@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     }
 
     const dur = typeof duration === "number" ? duration : 30;
-    const sceneCount = Math.max(1, Math.min(10, Math.ceil(dur / 8)));
+    const sceneCount = Math.max(1, Math.ceil(dur / 8));
     const isSingleScript = singleScript === true;
     const isFree = useFreeAi === true;
 

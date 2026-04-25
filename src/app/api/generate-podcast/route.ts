@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createJob, updateJob, updateScene, setJobDone, setJobError, addJobLog } from "@/lib/job-store";
+import { createJob, getJob, updateJob, updateScene, setJobDone, setJobError, addJobLog } from "@/lib/job-store";
 
 export const maxDuration = 300; // 5 minutes (Vercel hobby plan max)
 export const dynamic = "force-dynamic";
@@ -132,33 +132,47 @@ async function generateCharacterVideo(
         await sleep(retryDelay);
       }
 
-      const videoPrompt =
-        `realistic arm movements, the woman/man says exactly with direct clear energy: "${dialogueText}"`;
+      // Check if we already have a pending taskId — avoid duplicate submission
+      const existingJob = getJob(jobId);
+      const existingTaskId = existingJob?.scenes[sceneIndex]?.taskId;
+      let taskId: string;
 
-      addJobLog(jobId, `Video ${videoIndex}/${totalVideos}: submitting to AI video engine${attempt > 1 ? ` (attempt ${attempt})` : ""}...`);
-      updateScene(jobId, sceneIndex, { videoProgress: 5 });
+      if (attempt > 1 && existingTaskId) {
+        // Reuse existing taskId — KIE may already be processing it
+        taskId = existingTaskId;
+        addJobLog(jobId, `Video ${videoIndex}: reusing existing taskId (${taskId.slice(0, 8)}...) instead of resubmitting`);
+        updateScene(jobId, sceneIndex, { videoProgress: 15 });
+      } else {
+        const videoPrompt =
+          `realistic arm movements, the woman/man says exactly with direct clear energy: "${dialogueText}"`;
 
-      const res = await fetch("https://api.kie.ai/api/v1/veo/generate", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: videoPrompt,
-          imageUrls: [characterImageUrl],
-          model: "veo3_lite",
-          generationType: "FIRST_AND_LAST_FRAMES_2_VIDEO",
-          aspect_ratio: "9:16",
-          enableTranslation: true,
-        }),
-      });
-      const json = await res.json();
-      updateScene(jobId, sceneIndex, { videoProgress: 10 });
+        addJobLog(jobId, `Video ${videoIndex}/${totalVideos}: submitting to AI video engine${attempt > 1 ? ` (attempt ${attempt})` : ""}...`);
+        updateScene(jobId, sceneIndex, { videoProgress: 5 });
 
-      if (json.code !== 200) throw new Error("Video submit failed: " + (json.msg || JSON.stringify(json)));
-      const taskId = json.data?.taskId;
-      if (!taskId) throw new Error("No taskId for video generation");
+        const res = await fetch("https://api.kie.ai/api/v1/veo/generate", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: videoPrompt,
+            imageUrls: [characterImageUrl],
+            model: "veo3_lite",
+            generationType: "FIRST_AND_LAST_FRAMES_2_VIDEO",
+            aspect_ratio: "9:16",
+            enableTranslation: true,
+          }),
+        });
+        const json = await res.json();
+        updateScene(jobId, sceneIndex, { videoProgress: 10 });
 
-      updateScene(jobId, sceneIndex, { videoProgress: 15 });
-      addJobLog(jobId, `Video ${videoIndex}/${totalVideos}: task submitted (${taskId.slice(0, 8)}...), waiting (5-15 min)...`);
+        if (json.code !== 200) throw new Error("Video submit failed: " + (json.msg || JSON.stringify(json)));
+        taskId = json.data?.taskId;
+        if (!taskId) throw new Error("No taskId for video generation");
+
+        // Store taskId so retries can reuse it
+        updateScene(jobId, sceneIndex, { taskId });
+        updateScene(jobId, sceneIndex, { videoProgress: 15 });
+        addJobLog(jobId, `Video ${videoIndex}/${totalVideos}: task submitted (${taskId.slice(0, 8)}...), waiting (5-15 min)...`);
+      }
 
       const videoUrl = await pollKieVideo(jobId, sceneIndex, taskId, apiKey, writer);
       updateScene(jobId, sceneIndex, { videoProgress: 100, videoDone: true, videoUrl });

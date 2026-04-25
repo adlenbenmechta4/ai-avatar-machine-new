@@ -7,6 +7,8 @@ export interface SceneState {
   frameUrl: string;
   videoUrl: string;
   error: string;
+  taskId: string;   // KIE video taskId — avoid duplicate submissions on retry
+  frameTaskId: string; // KIE frame taskId — avoid duplicate submissions on retry
 }
 
 export interface JobState {
@@ -42,7 +44,7 @@ export function createJob(id: string, sceneCount: number, provider: string, user
     message: "Starting pipeline...",
     scenes: Array.from({ length: sceneCount }, () => ({
       frameProgress: 0, frameDone: false, videoProgress: 0, videoDone: false,
-      frameUrl: "", videoUrl: "", error: "",
+      frameUrl: "", videoUrl: "", error: "", taskId: "", frameTaskId: "",
     })),
     mergeProgress: 0,
     finalVideoUrl: "",

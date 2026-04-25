@@ -783,11 +783,10 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
 
   // ─── Scene Management ─────────────────────────────────────────────────
   const addScene = useCallback(() => {
-    if (scenes.length >= 10) return;
     setScenes((prev) => [
       ...prev,
       { id: generateId(), description: "", script: "", framePrompt: "", videoPrompt: "", frameProgress: 0, frameDone: false, videoProgress: 0, videoDone: false, frameUrl: "", videoUrl: "", customFrameImage: null },
-    ]);
+    });
   }, [scenes.length]);
 
   const removeScene = useCallback((id: string) => {
@@ -2407,7 +2406,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                         >✋ Manual</button>
                       </div>
                       <button onClick={fillSampleData} disabled={isRunning} className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed border-2" style={{ backgroundColor: T.cardBg, borderColor: T.cardBorder, color: T.textMuted }}>🎲 Sample</button>
-                      <button onClick={addScene} disabled={isRunning || scenes.length >= 10} className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed border-2" style={{ backgroundColor: T.lightPink, borderColor: T.pink, color: T.pink }}>+ Scene</button>
+                      <button onClick={addScene} disabled={isRunning} className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed border-2" style={{ backgroundColor: T.lightPink, borderColor: T.pink, color: T.pink }}>+ Scene</button>
                     </div>
                   </div>
 

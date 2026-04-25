@@ -38,6 +38,7 @@ interface PodcastVideoClip {
   videoDone: boolean;
   videoUrl: string;
   error: string;
+  taskId: string; // KIE taskId — avoid duplicate submissions on retry
 }
 
 interface PodcastMachineViewProps {
@@ -562,9 +563,18 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
     addLog(`🔄 Retrying video ${clipIndex}...`);
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const style = getPromptStyle(attempt);
-        const taskId = await submitVideo(imageUrl, clip.text, style);
-        addLog(`📋 Video ${clipIndex}: Submitted (taskId: ${taskId.slice(0, 8)}..., attempt ${attempt})`);
+        // Check if we already have a pending taskId — avoid duplicate submission
+        let taskId: string;
+        if (attempt > 1 && clip.taskId) {
+          taskId = clip.taskId;
+          addLog(`📋 Video ${clipIndex}: Reusing existing taskId (${taskId.slice(0, 8)}...) instead of resubmitting`);
+        } else {
+          const style = getPromptStyle(attempt);
+          taskId = await submitVideo(imageUrl, clip.text, style);
+          addLog(`📋 Video ${clipIndex}: Submitted (taskId: ${taskId.slice(0, 8)}..., attempt ${attempt})`);
+          // Store taskId so retries can reuse it
+          setClips((prev) => prev.map((c) => c.index === clipIndex ? { ...c, taskId } : c));
+        }
         setClips((prev) => prev.map((c) => c.index === clipIndex ? { ...c, videoProgress: 20, error: "" } : c));
         let pollCount = 0;
         while (true) {
@@ -611,9 +621,18 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
     addLog(`🔄 Retrying video ${idx} with new dialogue...`);
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const style = getPromptStyle(attempt);
-        const taskId = await submitVideo(imageUrl, newText, style);
-        addLog(`📋 Video ${idx}: Submitted (taskId: ${taskId.slice(0, 8)}..., attempt ${attempt})`);
+        // Check if we already have a pending taskId — avoid duplicate submission
+        let taskId: string;
+        if (attempt > 1 && clip.taskId) {
+          taskId = clip.taskId;
+          addLog(`📋 Video ${idx}: Reusing existing taskId (${taskId.slice(0, 8)}...) instead of resubmitting`);
+        } else {
+          const style = getPromptStyle(attempt);
+          taskId = await submitVideo(imageUrl, newText, style);
+          addLog(`📋 Video ${idx}: Submitted (taskId: ${taskId.slice(0, 8)}..., attempt ${attempt})`);
+          // Store taskId so retries can reuse it
+          setClips((prev) => prev.map((c) => c.index === idx ? { ...c, taskId } : c));
+        }
         setClips((prev) => prev.map((c) => c.index === idx ? { ...c, videoProgress: 20, error: "", text: newText } : c));
         let pollCount = 0;
         while (true) {
@@ -689,6 +708,7 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
       videoDone: false,
       videoUrl: "",
       error: "",
+      taskId: "",
     }));
     setClips(initialClips);
     addLog(`Starting podcast generation: ${sequence.length} video clips`);
@@ -713,13 +733,23 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
           if (!pipelineRunningRef.current) throw new DOMException("Aborted", "AbortError");
 
           try {
-            // Submit — use different visual prompt style on retries, dialogue text stays EXACTLY the same
-            const style = getPromptStyle(attempt);
-            if (attempt > 1) {
-              addLog(`📝 Video ${clipIdx}: Retry ${attempt} — trying different visual style (dialogue unchanged)`);
+            // Check if we already have a pending taskId — avoid duplicate submission
+            let taskId: string;
+            const currentClipState = clips.find((c) => c.index === clipIdx);
+            if (attempt > 1 && currentClipState?.taskId) {
+              taskId = currentClipState.taskId;
+              addLog(`📋 Video ${clipIdx}: Reusing existing taskId (${taskId.slice(0, 8)}...) instead of resubmitting`);
+            } else {
+              // Submit — use different visual prompt style on retries, dialogue text stays EXACTLY the same
+              const style = getPromptStyle(attempt);
+              if (attempt > 1) {
+                addLog(`📝 Video ${clipIdx}: Retry ${attempt} — trying different visual style (dialogue unchanged)`);
+              }
+              taskId = await submitVideo(imageUrl, clip.text, style);
+              addLog(`📋 Video ${clipIdx}: Submitted (taskId: ${taskId.slice(0, 8)}..., attempt ${attempt})`);
+              // Store taskId so retries can reuse it
+              setClips((prev) => prev.map((c) => c.index === clipIdx ? { ...c, taskId } : c));
             }
-            const taskId = await submitVideo(imageUrl, clip.text, style);
-            addLog(`📋 Video ${clipIdx}: Submitted (taskId: ${taskId.slice(0, 8)}..., attempt ${attempt})`);
             setClips((prev) => prev.map((c) => c.index === clipIdx ? { ...c, videoProgress: 20, error: "" } : c));
 
             // Poll until done/failed
@@ -876,9 +906,18 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
     let clipSucceeded = false;
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const style = getPromptStyle(attempt);
-        const taskId = await submitVideo(imageUrl, dialogue, style);
-        addLog(`📋 Video ${clipIndex}: Submitted (taskId: ${taskId.slice(0, 8)}..., attempt ${attempt})`);
+        // Check if we already have a pending taskId — avoid duplicate submission
+        let taskId: string;
+        if (attempt > 1 && clip.taskId) {
+          taskId = clip.taskId;
+          addLog(`📋 Video ${clipIndex}: Reusing existing taskId (${taskId.slice(0, 8)}...) instead of resubmitting`);
+        } else {
+          const style = getPromptStyle(attempt);
+          taskId = await submitVideo(imageUrl, dialogue, style);
+          addLog(`📋 Video ${clipIndex}: Submitted (taskId: ${taskId.slice(0, 8)}..., attempt ${attempt})`);
+          // Store taskId so retries can reuse it
+          setClips((prev) => prev.map((c) => c.index === clipIndex ? { ...c, taskId } : c));
+        }
         setClips((prev) => prev.map((c) => c.index === clipIndex ? { ...c, videoProgress: 20, error: "" } : c));
 
         let pollCount = 0;

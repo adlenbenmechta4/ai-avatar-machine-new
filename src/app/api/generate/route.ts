@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth-server";
-import { createJob, updateJob, updateScene, setJobDone, setJobError, addJobLog } from "@/lib/job-store";
+import { createJob, getJob, updateJob, updateScene, setJobDone, setJobError, addJobLog } from "@/lib/job-store";
 import { deductCredits, getCreditBalance, getCreditCostPerScene } from "@/lib/credits";
 
 export const maxDuration = 300;
@@ -174,33 +174,47 @@ async function generateFrame(
         await sleep(10000); // Wait 10s before retry
       }
 
-      const imgPrompt =
-        "ONLY change the background and environment. Keep the EXACT SAME person from the reference image — " +
-        "same face, same facial features, same hair, same skin tone, same body, same clothing, same expression. " +
-        "Do NOT alter, modify, or regenerate the person in any way. " +
-        "New background/setting: " + description.trim() +
-        ". The person stays in the exact same pose and position, facing the camera directly. Photorealistic, high quality.";
+      // Check if we already have a pending frameTaskId — avoid duplicate submission
+      const existingJob = getJob(jobId);
+      const existingFrameTaskId = existingJob?.scenes[sceneIndex]?.frameTaskId;
+      let taskId: string;
 
-      addJobLog(jobId, `Frame ${sceneIndex + 1}: submitting to AI frame generator${attempt > 1 ? ` (attempt ${attempt})` : ""}...`);
-      updateScene(jobId, sceneIndex, { frameProgress: 5 });
+      if (attempt > 1 && existingFrameTaskId) {
+        // Reuse existing taskId — KIE may already be processing it
+        taskId = existingFrameTaskId;
+        addJobLog(jobId, `Frame ${sceneIndex + 1}: reusing existing taskId (${taskId.slice(0, 8)}...) instead of resubmitting`);
+        updateScene(jobId, sceneIndex, { frameProgress: 15 });
+      } else {
+        const imgPrompt =
+          "ONLY change the background and environment. Keep the EXACT SAME person from the reference image — " +
+          "same face, same facial features, same hair, same skin tone, same body, same clothing, same expression. " +
+          "Do NOT alter, modify, or regenerate the person in any way. " +
+          "New background/setting: " + description.trim() +
+          ". The person stays in the exact same pose and position, facing the camera directly. Photorealistic, high quality.";
 
-      const res = await fetch("https://api.kie.ai/api/v1/jobs/createTask", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "google/nano-banana-edit",
-          input: { prompt: imgPrompt, image_urls: [avatarUrl], image_size: "9:16", output_format: "png", strength: 0.35 },
-        }),
-      });
-      const json = await res.json();
-      updateScene(jobId, sceneIndex, { frameProgress: 10 });
+        addJobLog(jobId, `Frame ${sceneIndex + 1}: submitting to AI frame generator${attempt > 1 ? ` (attempt ${attempt})` : ""}...`);
+        updateScene(jobId, sceneIndex, { frameProgress: 5 });
 
-      if (json.code !== 200) throw new Error("Frame submit failed: " + (json.msg || JSON.stringify(json)));
-      const taskId = json.data?.taskId;
-      if (!taskId) throw new Error("No taskId for frame generation");
+        const res = await fetch("https://api.kie.ai/api/v1/jobs/createTask", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "google/nano-banana-edit",
+            input: { prompt: imgPrompt, image_urls: [avatarUrl], image_size: "9:16", output_format: "png", strength: 0.35 },
+          }),
+        });
+        const json = await res.json();
+        updateScene(jobId, sceneIndex, { frameProgress: 10 });
 
-      updateScene(jobId, sceneIndex, { frameProgress: 15 });
-      addJobLog(jobId, `Frame ${sceneIndex + 1}: task submitted, waiting...`);
+        if (json.code !== 200) throw new Error("Frame submit failed: " + (json.msg || JSON.stringify(json)));
+        taskId = json.data?.taskId;
+        if (!taskId) throw new Error("No taskId for frame generation");
+
+        // Store taskId so retries can reuse it
+        updateScene(jobId, sceneIndex, { frameTaskId: taskId });
+        updateScene(jobId, sceneIndex, { frameProgress: 15 });
+        addJobLog(jobId, `Frame ${sceneIndex + 1}: task submitted, waiting...`);
+      }
 
       const rawFrameUrl = await pollKieImage(jobId, sceneIndex, taskId, apiKey, writer);
       updateScene(jobId, sceneIndex, { frameProgress: 92 });
@@ -345,59 +359,73 @@ async function generateVideo(
         await sleep(15000); // Wait 15s before retry (API needs time to recover)
       }
 
-      let videoPrompt: string;
-      if (frameMode === "avatar_v2" || frameMode === "custom_v2") {
-        videoPrompt =
-          `${VIDEO_VISUAL_CONSTRAINTS_V2}\n\n` +
-          `REFERENCE IMAGE: This is a talking-head video with expressive hand gestures and body language. The reference image is the ONLY source of truth for the person's appearance. ` +
-          `Output must look like a raw, unedited, continuous webcam recording of an engaging speaker who uses natural hand gestures, head movements, and facial expressions while speaking. ` +
-          `CRITICAL REMINDERS: NO fade-in at start. NO fade-out at end. NO transitions whatsoever. NO cuts. Camera stays STATIC (locked tripod). ` +
-          `RAW FOOTAGE ONLY. INSTANT start, INSTANT end. Full brightness at all times. ` +
-          `The person should use hand gestures, natural head movement, and expressive body language that MATCHES the dialogue content. ` +
-          `Dialogue: "${script}" ${VIDEO_VOICE_PROMPT}`;
-      } else if (frameMode === "avatar") {
-        videoPrompt =
-          `${VIDEO_VISUAL_CONSTRAINTS}\n\n` +
-          `REFERENCE IMAGE: This is a talking-head video. The reference image is the ONLY source of truth. ` +
-          `Output must look like a raw, unedited, continuous webcam recording of a person speaking. ` +
-          `CRITICAL REMINDERS: NO fade-in at start. NO fade-out at end. NO transitions whatsoever. NO cuts. ` +
-          `RAW FOOTAGE ONLY. INSTANT start, INSTANT end. Full brightness at all times. ` +
-          `Dialogue: "${script}" ${VIDEO_VOICE_PROMPT}`;
+      // Check if we already have a pending taskId — avoid duplicate submission
+      const existingJob = getJob(jobId);
+      const existingTaskId = existingJob?.scenes[sceneIndex]?.taskId;
+      let taskId: string;
+
+      if (attempt > 1 && existingTaskId) {
+        // Reuse existing taskId — KIE may already be processing it
+        taskId = existingTaskId;
+        addJobLog(jobId, `Video ${sceneIndex + 1}: reusing existing taskId (${taskId.slice(0, 8)}...) instead of resubmitting`);
+        updateScene(jobId, sceneIndex, { videoProgress: 15 });
       } else {
-        videoPrompt =
-          `${VIDEO_VISUAL_CONSTRAINTS}\n\n` +
-          `REFERENCE IMAGE: The first frame is the ONLY source of truth for every visual element. ` +
-          `Output must look like raw, unedited, continuous footage from a locked camera. ` +
-          `CRITICAL REMINDERS: NO fade-in at start. NO fade-out at end. NO transitions whatsoever. NO cuts. ` +
-          `RAW FOOTAGE ONLY. INSTANT start, INSTANT end. Full brightness at all times. ` +
-          `Dialogue spoken by the person: "${script}"\n\n` +
-          `REPEATED FOR EMPHASIS: NO MUSIC. NO BACKGROUND SOUND. VOICE ONLY. NO transitions. NO fade-in. NO fade-out. ` +
-          `NO new objects. MINIMAL movement. STATIC camera. IDENTICAL background to reference frame. RAW UNEDITED FOOTAGE.`;
+        let videoPrompt: string;
+        if (frameMode === "avatar_v2" || frameMode === "custom_v2") {
+          videoPrompt =
+            `${VIDEO_VISUAL_CONSTRAINTS_V2}\n\n` +
+            `REFERENCE IMAGE: This is a talking-head video with expressive hand gestures and body language. The reference image is the ONLY source of truth for the person's appearance. ` +
+            `Output must look like a raw, unedited, continuous webcam recording of an engaging speaker who uses natural hand gestures, head movements, and facial expressions while speaking. ` +
+            `CRITICAL REMINDERS: NO fade-in at start. NO fade-out at end. NO transitions whatsoever. NO cuts. Camera stays STATIC (locked tripod). ` +
+            `RAW FOOTAGE ONLY. INSTANT start, INSTANT end. Full brightness at all times. ` +
+            `The person should use hand gestures, natural head movement, and expressive body language that MATCHES the dialogue content. ` +
+            `Dialogue: "${script}" ${VIDEO_VOICE_PROMPT}`;
+        } else if (frameMode === "avatar") {
+          videoPrompt =
+            `${VIDEO_VISUAL_CONSTRAINTS}\n\n` +
+            `REFERENCE IMAGE: This is a talking-head video. The reference image is the ONLY source of truth. ` +
+            `Output must look like a raw, unedited, continuous webcam recording of a person speaking. ` +
+            `CRITICAL REMINDERS: NO fade-in at start. NO fade-out at end. NO transitions whatsoever. NO cuts. ` +
+            `RAW FOOTAGE ONLY. INSTANT start, INSTANT end. Full brightness at all times. ` +
+            `Dialogue: "${script}" ${VIDEO_VOICE_PROMPT}`;
+        } else {
+          videoPrompt =
+            `${VIDEO_VISUAL_CONSTRAINTS}\n\n` +
+            `REFERENCE IMAGE: The first frame is the ONLY source of truth for every visual element. ` +
+            `Output must look like raw, unedited, continuous footage from a locked camera. ` +
+            `CRITICAL REMINDERS: NO fade-in at start. NO fade-out at end. NO transitions whatsoever. NO cuts. ` +
+            `RAW FOOTAGE ONLY. INSTANT start, INSTANT end. Full brightness at all times. ` +
+            `Dialogue spoken by the person: "${script}"\n\n` +
+            `REPEATED FOR EMPHASIS: NO MUSIC. NO BACKGROUND SOUND. VOICE ONLY. NO transitions. NO fade-in. NO fade-out. ` +
+            `NO new objects. MINIMAL movement. STATIC camera. IDENTICAL background to reference frame. RAW UNEDITED FOOTAGE.`;
+        }
+
+        addJobLog(jobId, `Video ${sceneIndex + 1}: submitting to AI video engine${attempt > 1 ? ` (attempt ${attempt})` : ""}...`);
+        updateScene(jobId, sceneIndex, { videoProgress: 5 });
+
+        const res = await fetch("https://api.kie.ai/api/v1/veo/generate", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: videoPrompt,
+            imageUrls: [frameUrl],
+            model: "veo3_lite",
+            aspect_ratio: "9:16",
+            enableTranslation: true,
+          }),
+        });
+        const json = await res.json();
+        updateScene(jobId, sceneIndex, { videoProgress: 10 });
+
+        if (json.code !== 200) throw new Error("Video submit failed: " + (json.msg || JSON.stringify(json)));
+        taskId = json.data?.taskId;
+        if (!taskId) throw new Error("No taskId for video generation");
+
+        // Store taskId so retries can reuse it
+        updateScene(jobId, sceneIndex, { taskId });
+        updateScene(jobId, sceneIndex, { videoProgress: 15 });
+        addJobLog(jobId, `Video ${sceneIndex + 1}: task submitted, waiting (5-15 min)...`);
       }
-
-      addJobLog(jobId, `Video ${sceneIndex + 1}: submitting to AI video engine${attempt > 1 ? ` (attempt ${attempt})` : ""}...`);
-      updateScene(jobId, sceneIndex, { videoProgress: 5 });
-
-      const res = await fetch("https://api.kie.ai/api/v1/veo/generate", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: videoPrompt,
-          imageUrls: [frameUrl],
-          model: "veo3_lite",
-          aspect_ratio: "9:16",
-          enableTranslation: true,
-        }),
-      });
-      const json = await res.json();
-      updateScene(jobId, sceneIndex, { videoProgress: 10 });
-
-      if (json.code !== 200) throw new Error("Video submit failed: " + (json.msg || JSON.stringify(json)));
-      const taskId = json.data?.taskId;
-      if (!taskId) throw new Error("No taskId for video generation");
-
-      updateScene(jobId, sceneIndex, { videoProgress: 15 });
-      addJobLog(jobId, `Video ${sceneIndex + 1}: task submitted, waiting (5-15 min)...`);
 
       const videoUrl = await pollKieVideo(jobId, sceneIndex, taskId, apiKey, writer);
       updateScene(jobId, sceneIndex, { videoProgress: 100, videoDone: true, videoUrl });
