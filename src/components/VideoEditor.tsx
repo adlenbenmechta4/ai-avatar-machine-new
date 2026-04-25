@@ -18,6 +18,7 @@ interface Segment {
 interface VideoEditorProps {
   videoUrl: string;
   onClose?: (editedUrl?: string) => void;
+  onCaptionEditedVideo?: (blobUrl: string) => void;
   accentColor?: string;
 }
 
@@ -136,7 +137,7 @@ function ZoomLevelSlider({ value, onChange, color }: { value: number; onChange: 
 
 // ─── VideoEditor Component ──────────────────────────────────────────────
 
-export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.gold }: VideoEditorProps) {
+export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, accentColor = COLORS.gold }: VideoEditorProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const [duration, setDuration] = useState(0);
@@ -1181,6 +1182,18 @@ export default function VideoEditor({ videoUrl, onClose, accentColor = COLORS.go
                   </svg>
                   Download Edited Video
                 </a>
+                {onCaptionEditedVideo && (
+                  <button
+                    onClick={() => onCaptionEditedVideo(resultUrl)}
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                    style={{ backgroundColor: COLORS.cyan, color: COLORS.white, boxShadow: "0 4px 16px rgba(22,177,222,0.4)" }}
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+                    </svg>
+                    Add Captions
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     setResultUrl("");

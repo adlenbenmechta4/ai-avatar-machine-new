@@ -434,6 +434,7 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
   const [captionVideoUrl, setCaptionVideoUrl] = useState<string>("");
   const [captionVideoId, setCaptionVideoId] = useState<string>("");
   const [showCaptionModal, setShowCaptionModal] = useState(false);
+  const [editorCaptionUploading, setEditorCaptionUploading] = useState(false);
 
   const { user } = useAuth();
 
@@ -1100,6 +1101,35 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
     setCaptionVideoUrl(videoUrl);
     setCaptionVideoId(videoId);
     setShowCaptionModal(true);
+  }, []);
+
+  // ─── Editor Caption: Upload edited blob then open caption modal ──────
+  const handleCaptionEditedVideo = useCallback(async (blobUrl: string) => {
+    setEditorCaptionUploading(true);
+    try {
+      const res = await fetch(blobUrl);
+      const blob = await res.blob();
+      const file = new File([blob], "edited-video.mp4", { type: "video/mp4" });
+      const formData = new FormData();
+      formData.append("video", file);
+
+      const uploadRes = await fetch("/api/upload-temp-video", {
+        method: "POST",
+        body: formData,
+      });
+      if (!uploadRes.ok) throw new Error("Upload failed");
+      const data = await uploadRes.json();
+      if (!data.url) throw new Error("No URL returned");
+
+      setCaptionVideoUrl(data.url);
+      setCaptionVideoId("");
+      setShowCaptionModal(true);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to upload edited video";
+      alert(msg);
+    } finally {
+      setEditorCaptionUploading(false);
+    }
   }, []);
 
   // ─── Download ────────────────────────────────────────────────────────
@@ -1982,6 +2012,7 @@ export default function PodcastMachineView({ onBack, isAdmin = false }: PodcastM
           <VideoEditor
             videoUrl={editorVideoUrl}
             onClose={() => { setShowEditor(false); setEditorVideoUrl(""); }}
+            onCaptionEditedVideo={handleCaptionEditedVideo}
             accentColor={C.gold}
           />
         </div>

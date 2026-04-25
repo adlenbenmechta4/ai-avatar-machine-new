@@ -305,6 +305,7 @@ export default function Home() {
   const [libraryEditorUrl, setLibraryEditorUrl] = useState("");
   const [libraryCaptionUrl, setLibraryCaptionUrl] = useState("");
   const [libraryCaptionId, setLibraryCaptionId] = useState("");
+  const [libraryEditorCaptionUploading, setLibraryEditorCaptionUploading] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
 
@@ -371,6 +372,33 @@ export default function Home() {
 
   // Unified Library view
   if (currentView === "library") {
+    const handleCaptionEditedVideo = async (blobUrl: string) => {
+      setLibraryEditorCaptionUploading(true);
+      try {
+        const res = await fetch(blobUrl);
+        const blob = await res.blob();
+        const file = new File([blob], "edited-video.mp4", { type: "video/mp4" });
+        const formData = new FormData();
+        formData.append("video", file);
+
+        const uploadRes = await fetch("/api/upload-temp-video", {
+          method: "POST",
+          body: formData,
+        });
+        if (!uploadRes.ok) throw new Error("Upload failed");
+        const data = await uploadRes.json();
+        if (!data.url) throw new Error("No URL returned");
+
+        setLibraryCaptionUrl(data.url);
+        setLibraryCaptionId("");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to upload edited video";
+        alert(msg);
+      } finally {
+        setLibraryEditorCaptionUploading(false);
+      }
+    };
+
     return (
       <div className="relative">
         {/* Video Editor for library videos */}
@@ -384,6 +412,7 @@ export default function Home() {
                   // Could update the video URL in storage here
                 }
               }}
+              onCaptionEditedVideo={handleCaptionEditedVideo}
               accentColor={C.pink}
             />
           </div>

@@ -1670,10 +1670,41 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   const [captionVideoId, setCaptionVideoId] = useState<string>("");
   const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
   const [showCaptionModal, setShowCaptionModal] = useState(false);
+  const [editorCaptionUploading, setEditorCaptionUploading] = useState(false);
+
   const openCaptionForUrl = useCallback((videoUrl: string, videoId: string) => {
     setCaptionVideoUrl(videoUrl);
     setCaptionVideoId(videoId);
     setShowCaptionModal(true);
+  }, []);
+
+  // ─── Editor Caption: Upload edited blob then open caption modal ──────
+  const handleCaptionEditedVideo = useCallback(async (blobUrl: string) => {
+    setEditorCaptionUploading(true);
+    try {
+      const res = await fetch(blobUrl);
+      const blob = await res.blob();
+      const file = new File([blob], "edited-video.mp4", { type: "video/mp4" });
+      const formData = new FormData();
+      formData.append("video", file);
+
+      const uploadRes = await fetch("/api/upload-temp-video", {
+        method: "POST",
+        body: formData,
+      });
+      if (!uploadRes.ok) throw new Error("Upload failed");
+      const data = await uploadRes.json();
+      if (!data.url) throw new Error("No URL returned");
+
+      setCaptionVideoUrl(data.url);
+      setCaptionVideoId(""); // no id for edited video
+      setShowCaptionModal(true);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to upload edited video";
+      alert(msg);
+    } finally {
+      setEditorCaptionUploading(false);
+    }
   }, []);
 
   // ─── Render ───────────────────────────────────────────────────────────
@@ -3279,6 +3310,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
           <VideoEditor
             videoUrl={editorVideoUrl}
             onClose={() => { setShowEditor(false); setEditorVideoUrl(""); }}
+            onCaptionEditedVideo={handleCaptionEditedVideo}
             accentColor={T.lime}
           />
           </div>
