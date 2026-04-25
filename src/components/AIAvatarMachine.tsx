@@ -568,7 +568,20 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   const [avatarImage, setAvatarImage] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string>("");
   const [scenes, setScenes] = useState<Scene[]>([
-    { id: generateId(), description: "", script: "", framePrompt: "", videoPrompt: "", frameProgress: 0, frameDone: false, videoProgress: 0, videoDone: false, frameUrl: "", videoUrl: "", customFrameImage: null },
+    {
+      id: generateId(),
+      description: "",
+      script: "",
+      framePrompt: "",
+      videoPrompt: "",
+      frameProgress: 0,
+      frameDone: false,
+      videoProgress: 0,
+      videoDone: false,
+      frameUrl: "",
+      videoUrl: "",
+      customFrameImage: null,
+    },
   ]);
   const [pipelineStep, setPipelineStep] = useState<PipelineStep>(0);
   const [isRunning, setIsRunning] = useState(false);
@@ -784,10 +797,21 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
 
   // ─── Scene Management ─────────────────────────────────────────────────
   const addScene = useCallback(() => {
-    setScenes((prev) => [
-      ...prev,
-      { id: generateId(), description: "", script: "", framePrompt: "", videoPrompt: "", frameProgress: 0, frameDone: false, videoProgress: 0, videoDone: false, frameUrl: "", videoUrl: "", customFrameImage: null },
-    });
+    const newScene: Scene = {
+      id: generateId(),
+      description: "",
+      script: "",
+      framePrompt: "",
+      videoPrompt: "",
+      frameProgress: 0,
+      frameDone: false,
+      videoProgress: 0,
+      videoDone: false,
+      frameUrl: "",
+      videoUrl: "",
+      customFrameImage: null,
+    };
+    setScenes((prev) => [...prev, newScene]);
   }, [scenes.length]);
 
   const removeScene = useCallback((id: string) => {
