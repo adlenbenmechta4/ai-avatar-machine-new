@@ -18,14 +18,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON in request body" }, { status: 400 });
     }
 
-    const { topic, duration, singleScript, aiApiKey, aiApiUrl, aiModel, useFreeAi } = body;
+    const { topic, duration, numScenes, singleScript, aiApiKey, aiApiUrl, aiModel, useFreeAi } = body;
 
     if (!topic || typeof topic !== "string" || topic.trim().length === 0) {
       return NextResponse.json({ error: "topic is required" }, { status: 400 });
     }
 
     const dur = typeof duration === "number" ? duration : 30;
-    const sceneCount = Math.max(1, Math.ceil(dur / 8));
+    // numScenes: 0 or undefined = auto (ceil(duration/8)), otherwise use the exact count
+    const userNumScenes = typeof numScenes === "number" ? numScenes : 0;
+    const sceneCount = userNumScenes > 0 ? Math.max(1, userNumScenes) : Math.max(1, Math.ceil(dur / 8));
     const isSingleScript = singleScript === true;
     const isFree = useFreeAi === true;
 
