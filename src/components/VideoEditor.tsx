@@ -154,6 +154,8 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
   const [isDragging, setIsDragging] = useState(false);
   const [dragSplitId, setDragSplitId] = useState<string | null>(null);
   const [isPlayheadDragging, setIsPlayheadDragging] = useState(false);
+  const [timelineZoom, setTimelineZoom] = useState(1);
+  const timelineScrollRef = useRef<HTMLDivElement>(null);
   const [liveZoomScale, setLiveZoomScale] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const segmentsRef = useRef<Segment[]>([]);
@@ -233,6 +235,24 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
   // ─── Keep refs in sync with state for animation loop ──
   useEffect(() => { segmentsRef.current = segments; }, [segments]);
   useEffect(() => { durationRef.current = duration; }, [duration]);
+
+  // ─── Auto-scroll timeline to keep playhead visible during playback ──
+  useEffect(() => {
+    if (!isPlaying || !timelineScrollRef.current || !timelineRef.current || timelineZoom <= 1) return;
+    const scrollEl = timelineScrollRef.current;
+    const trackRect = timelineRef.current.getBoundingClientRect();
+    const viewWidth = scrollEl.clientWidth;
+    const totalWidth = viewWidth * timelineZoom;
+    const playheadX = duration > 0 ? (currentTime / duration) * totalWidth : 0;
+    const scrollLeft = scrollEl.scrollLeft;
+    // Keep playhead in the center 60% of view
+    const margin = viewWidth * 0.2;
+    if (playheadX < scrollLeft + margin) {
+      scrollEl.scrollLeft = Math.max(0, playheadX - margin);
+    } else if (playheadX > scrollLeft + viewWidth - margin) {
+      scrollEl.scrollLeft = Math.min(totalWidth - viewWidth, playheadX - viewWidth + margin);
+    }
+  }, [currentTime, isPlaying, duration, timelineZoom]);
 
   // ─── Real-time zoom animation loop (updates CSS transform on playing video) ──
   useEffect(() => {
@@ -330,13 +350,16 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
     }
   }, [duration, segments]);
 
-  // ─── Timeline Click to Seek ────────────────────────────────────
+  // ─── Timeline Click to Seek (accounts for zoom + scroll) ─────
   const handleTimelineClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!duration || !timelineRef.current || isDragging) return;
-    const rect = timelineRef.current.getBoundingClientRect();
-    const ratio = (e.clientX - rect.left) / rect.width;
+    const trackRect = timelineRef.current.getBoundingClientRect();
+    const scrollEl = timelineScrollRef.current;
+    const scrollLeft = scrollEl ? scrollEl.scrollLeft : 0;
+    const totalWidth = trackRect.width * timelineZoom;
+    const ratio = Math.max(0, Math.min(1, (scrollLeft + e.clientX - trackRect.left) / totalWidth));
     seekTo(ratio * duration);
-  }, [duration, seekTo, isDragging]);
+  }, [duration, seekTo, isDragging, timelineZoom]);
 
   // ─── Add Split at Playhead ─────────────────────────────────────
   const addSplit = useCallback(() => {
@@ -414,7 +437,7 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
     setSelectedSegmentId(null);
   }, [duration, setSegmentsWithHistory]);
 
-  // ─── Handle Playhead Drag ────────────────────────────────────
+  // ─── Handle Playhead Drag (accounts for zoom + scroll) ──────
   const handlePlayheadMouseDown = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
@@ -425,8 +448,11 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
 
     const handleMouseMove = (moveE: MouseEvent) => {
       if (!timelineRef.current || !duration) return;
-      const rect = timelineRef.current.getBoundingClientRect();
-      const ratio = Math.max(0, Math.min(1, (moveE.clientX - rect.left) / rect.width));
+      const trackRect = timelineRef.current.getBoundingClientRect();
+      const scrollEl = timelineScrollRef.current;
+      const scrollLeft = scrollEl ? scrollEl.scrollLeft : 0;
+      const totalWidth = trackRect.width * timelineZoom;
+      const ratio = Math.max(0, Math.min(1, (scrollLeft + moveE.clientX - trackRect.left) / totalWidth));
       const newTime = Math.round(ratio * duration * 100) / 100;
       seekTo(newTime);
     };
@@ -439,9 +465,9 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
 
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
-  }, [duration, seekTo]);
+  }, [duration, seekTo, timelineZoom]);
 
-  // ─── Handle Playhead Touch Drag ────────────────────────────────
+  // ─── Handle Playhead Touch Drag (accounts for zoom + scroll) ─
   const handlePlayheadTouchStart = useCallback((e: React.TouchEvent) => {
     e.stopPropagation();
     setIsPlayheadDragging(true);
@@ -451,9 +477,12 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
 
     const handleTouchMove = (moveE: TouchEvent) => {
       if (!timelineRef.current || !duration) return;
-      const rect = timelineRef.current.getBoundingClientRect();
+      const trackRect = timelineRef.current.getBoundingClientRect();
+      const scrollEl = timelineScrollRef.current;
+      const scrollLeft = scrollEl ? scrollEl.scrollLeft : 0;
+      const totalWidth = trackRect.width * timelineZoom;
       const touch = moveE.touches[0];
-      const ratio = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+      const ratio = Math.max(0, Math.min(1, (scrollLeft + touch.clientX - trackRect.left) / totalWidth));
       const newTime = Math.round(ratio * duration * 100) / 100;
       seekTo(newTime);
     };
@@ -466,9 +495,9 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
 
     document.addEventListener("touchmove", handleTouchMove);
     document.addEventListener("touchend", handleTouchEnd);
-  }, [duration, seekTo]);
+  }, [duration, seekTo, timelineZoom]);
 
-  // ─── Handle Split Drag ─────────────────────────────────────────
+  // ─── Handle Split Drag (accounts for zoom + scroll) ───────
   const handleSplitMouseDown = useCallback((e: React.MouseEvent, splitTime: number) => {
     e.stopPropagation();
     setIsDragging(true);
@@ -479,8 +508,11 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
 
     const handleMouseMove = (moveE: MouseEvent) => {
       if (!timelineRef.current || !duration) return;
-      const rect = timelineRef.current.getBoundingClientRect();
-      const ratio = Math.max(0, Math.min(1, (moveE.clientX - rect.left) / rect.width));
+      const trackRect = timelineRef.current.getBoundingClientRect();
+      const scrollEl = timelineScrollRef.current;
+      const scrollLeft = scrollEl ? scrollEl.scrollLeft : 0;
+      const totalWidth = trackRect.width * timelineZoom;
+      const ratio = Math.max(0, Math.min(1, (scrollLeft + moveE.clientX - trackRect.left) / totalWidth));
       const newTime = Math.round(ratio * duration * 10) / 10;
 
       setSegments((prev) => {
@@ -512,7 +544,7 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
 
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
-  }, [duration, pushHistory]);
+  }, [duration, pushHistory, timelineZoom]);
 
   // ─── Load FFmpeg ───────────────────────────────────────────────
   const loadFFmpeg = useCallback(async () => {
@@ -1001,7 +1033,33 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
           <div className="max-w-lg mx-auto mb-5">
             {/* Time labels */}
             <div className="flex items-center justify-between mb-1.5 px-1">
-              <span className="text-[9px] font-mono" style={{ color: COLORS.textMuted }}>0:00</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[9px] font-mono" style={{ color: COLORS.textMuted }}>0:00</span>
+                {/* Timeline Zoom Controls */}
+                <div className="flex items-center gap-0.5 ml-1">
+                  <button
+                    onClick={() => setTimelineZoom((z) => Math.max(1, z - 1))}
+                    disabled={timelineZoom <= 1}
+                    className="w-5 h-5 rounded flex items-center justify-center transition-all hover:scale-110 disabled:opacity-30"
+                    style={{ backgroundColor: timelineZoom > 1 ? `${accentColor}15` : "transparent", color: timelineZoom > 1 ? accentColor : COLORS.textMuted }}
+                    title="Zoom out timeline"
+                  >
+                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                  </button>
+                  <span className="text-[8px] font-black font-mono px-1 min-w-[24px] text-center" style={{ color: accentColor }}>
+                    {timelineZoom}x
+                  </span>
+                  <button
+                    onClick={() => setTimelineZoom((z) => Math.min(10, z + 1))}
+                    disabled={timelineZoom >= 10}
+                    className="w-5 h-5 rounded flex items-center justify-center transition-all hover:scale-110 disabled:opacity-30"
+                    style={{ backgroundColor: timelineZoom < 10 ? `${accentColor}15` : "transparent", color: timelineZoom < 10 ? accentColor : COLORS.textMuted }}
+                    title="Zoom in timeline"
+                  >
+                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                  </button>
+                </div>
+              </div>
               <div className="flex items-center gap-1.5">
                 <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={{ backgroundColor: `${accentColor}15`, color: accentColor }}>
                   {formatTimeShort(keptDuration)} kept ({Math.round(keptPercent)}%)
@@ -1015,11 +1073,23 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
               <span className="text-[9px] font-mono" style={{ color: COLORS.textMuted }}>{formatTimeShort(duration)}</span>
             </div>
 
+            {/* Scrollable Timeline Container */}
+            <div
+              ref={timelineScrollRef}
+              className="rounded-xl overflow-x-auto overflow-y-hidden"
+              style={{
+                scrollbarWidth: timelineZoom > 1 ? "thin" : "none",
+              }}
+            >
             {/* Timeline Track */}
             <div
               ref={timelineRef}
               className="relative h-14 rounded-xl overflow-hidden cursor-pointer select-none"
-              style={{ backgroundColor: COLORS.track }}
+              style={{
+                backgroundColor: COLORS.track,
+                width: `${timelineZoom * 100}%`,
+                minWidth: "100%",
+              }}
               onClick={handleTimelineClick}
             >
               {/* Segments */}
@@ -1156,6 +1226,8 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
                   style={{ backgroundColor: accentColor }}
                 />
               </div>
+            </div>
+            {/* End scrollable container */}
             </div>
 
             {/* Segment Info */}
