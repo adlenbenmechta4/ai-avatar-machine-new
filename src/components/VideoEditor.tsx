@@ -350,16 +350,13 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
     }
   }, [duration, segments]);
 
-  // ─── Timeline Click to Seek (accounts for zoom + scroll) ─────
+  // ─── Timeline Click to Seek (getBoundingClientRect handles scroll) ──
   const handleTimelineClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!duration || !timelineRef.current || isDragging) return;
-    const trackRect = timelineRef.current.getBoundingClientRect();
-    const scrollEl = timelineScrollRef.current;
-    const scrollLeft = scrollEl ? scrollEl.scrollLeft : 0;
-    const totalWidth = trackRect.width * timelineZoom;
-    const ratio = Math.max(0, Math.min(1, (scrollLeft + e.clientX - trackRect.left) / totalWidth));
+    const rect = timelineRef.current.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     seekTo(ratio * duration);
-  }, [duration, seekTo, isDragging, timelineZoom]);
+  }, [duration, seekTo, isDragging]);
 
   // ─── Add Split at Playhead ─────────────────────────────────────
   const addSplit = useCallback(() => {
@@ -448,11 +445,8 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
 
     const handleMouseMove = (moveE: MouseEvent) => {
       if (!timelineRef.current || !duration) return;
-      const trackRect = timelineRef.current.getBoundingClientRect();
-      const scrollEl = timelineScrollRef.current;
-      const scrollLeft = scrollEl ? scrollEl.scrollLeft : 0;
-      const totalWidth = trackRect.width * timelineZoom;
-      const ratio = Math.max(0, Math.min(1, (scrollLeft + moveE.clientX - trackRect.left) / totalWidth));
+      const rect = timelineRef.current.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (moveE.clientX - rect.left) / rect.width));
       const newTime = Math.round(ratio * duration * 100) / 100;
       seekTo(newTime);
     };
@@ -465,9 +459,9 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
 
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
-  }, [duration, seekTo, timelineZoom]);
+  }, [duration, seekTo]);
 
-  // ─── Handle Playhead Touch Drag (accounts for zoom + scroll) ─
+  // ─── Handle Playhead Touch Drag ────────────────────────────────
   const handlePlayheadTouchStart = useCallback((e: React.TouchEvent) => {
     e.stopPropagation();
     setIsPlayheadDragging(true);
@@ -477,12 +471,9 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
 
     const handleTouchMove = (moveE: TouchEvent) => {
       if (!timelineRef.current || !duration) return;
-      const trackRect = timelineRef.current.getBoundingClientRect();
-      const scrollEl = timelineScrollRef.current;
-      const scrollLeft = scrollEl ? scrollEl.scrollLeft : 0;
-      const totalWidth = trackRect.width * timelineZoom;
+      const rect = timelineRef.current.getBoundingClientRect();
       const touch = moveE.touches[0];
-      const ratio = Math.max(0, Math.min(1, (scrollLeft + touch.clientX - trackRect.left) / totalWidth));
+      const ratio = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
       const newTime = Math.round(ratio * duration * 100) / 100;
       seekTo(newTime);
     };
@@ -495,7 +486,7 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
 
     document.addEventListener("touchmove", handleTouchMove);
     document.addEventListener("touchend", handleTouchEnd);
-  }, [duration, seekTo, timelineZoom]);
+  }, [duration, seekTo]);
 
   // ─── Handle Split Drag (accounts for zoom + scroll) ───────
   const handleSplitMouseDown = useCallback((e: React.MouseEvent, splitTime: number) => {
@@ -508,11 +499,8 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
 
     const handleMouseMove = (moveE: MouseEvent) => {
       if (!timelineRef.current || !duration) return;
-      const trackRect = timelineRef.current.getBoundingClientRect();
-      const scrollEl = timelineScrollRef.current;
-      const scrollLeft = scrollEl ? scrollEl.scrollLeft : 0;
-      const totalWidth = trackRect.width * timelineZoom;
-      const ratio = Math.max(0, Math.min(1, (scrollLeft + moveE.clientX - trackRect.left) / totalWidth));
+      const rect = timelineRef.current.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (moveE.clientX - rect.left) / rect.width));
       const newTime = Math.round(ratio * duration * 10) / 10;
 
       setSegments((prev) => {
@@ -544,7 +532,7 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
 
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
-  }, [duration, pushHistory, timelineZoom]);
+  }, [duration, pushHistory]);
 
   // ─── Load FFmpeg ───────────────────────────────────────────────
   const loadFFmpeg = useCallback(async () => {
