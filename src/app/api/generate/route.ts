@@ -878,6 +878,7 @@ async function runPipelineSSE(
   userId: string,
   frameMode: string,
   resumeFrom?: ResumeData,
+  resumeJobId?: string | null,
 ) {
   const heartbeatStop = { stopped: false };
 
@@ -1101,7 +1102,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON in request body" }, { status: 400 });
     }
 
-    const { avatarUrl, scenes, kieApiKey, falApiKey, frameMode, videoProvider, heygenApiKey, heygenVoiceId, resumeFrom } = body;
+    const { avatarUrl, scenes, kieApiKey, falApiKey, frameMode, videoProvider, heygenApiKey, heygenVoiceId, resumeFrom, resumeJobId } = body;
     // In custom frames mode, avatar is not required — each scene has its own image
     if (frameMode !== "custom" && frameMode !== "custom_v2") {
       if (!avatarUrl || typeof avatarUrl !== "string" || !avatarUrl.startsWith("http")) {
@@ -1179,8 +1180,49 @@ export async function POST(req: NextRequest) {
       videoDone: boolean[];
       frameDone: boolean[];
     };
-    const resumeData = resumeFrom as ResumeData | undefined;
-    const isResume = !!resumeData?.frameUrls?.length;
+    let resumeData = resumeFrom as ResumeData | undefined;
+    let isResume = !!resumeData?.frameUrls?.length;
+
+    // ═══ RESUME VIA JOB STORE (more reliable than client-side resumeFrom) ═══
+    // If resumeJobId is provided, look up the previous job's completed scenes from server memory.
+    // This is the authoritative source since the server updates scene state directly.
+    if (resumeJobId && typeof resumeJobId === "string") {
+      const prevJob = getJob(resumeJobId);
+      if (prevJob && prevJob.scenes && prevJob.scenes.length > 0) {
+        const prevFrameDone: boolean[] = [];
+        const prevVideoDone: boolean[] = [];
+        const prevFrameUrls: string[] = [];
+        const prevVideoUrls: string[] = [];
+        let prevCompletedVideos = 0;
+        let prevCompletedFrames = 0;
+
+        for (let i = 0; i < Math.min(prevJob.scenes.length, validScenes.length); i++) {
+          const ps = prevJob.scenes[i];
+          prevFrameDone.push(!!ps.frameDone && !!ps.frameUrl);
+          prevVideoDone.push(!!ps.videoDone && !!ps.videoUrl);
+          prevFrameUrls.push(ps.frameUrl || "");
+          prevVideoUrls.push(ps.videoUrl || "");
+          if (ps.videoDone && ps.videoUrl) prevCompletedVideos++;
+          if (ps.frameDone && ps.frameUrl) prevCompletedFrames++;
+        }
+
+        // Use job-store data as primary (it's more reliable), client data as fallback
+        if (prevCompletedVideos > 0) {
+          resumeData = {
+            frameUrls: prevFrameUrls,
+            videoUrls: prevVideoUrls,
+            videoDone: prevVideoDone,
+            frameDone: prevFrameDone,
+          };
+          isResume = true;
+          console.log(`[Pipeline] RESUME via job-store: ${prevCompletedVideos}/${validScenes.length} videos, ${prevCompletedFrames}/${validScenes.length} frames already done`);
+        } else {
+          console.log(`[Pipeline] RESUME via job-store: no completed scenes found, falling back to client data`);
+        }
+      } else {
+        console.log(`[Pipeline] RESUME via job-store: previous job not found (may have expired), falling back to client data`);
+      }
+    }
 
     // Count how many scenes still need processing (for credit deduction)
     let scenesNeedingWork = validScenes.length;
@@ -1238,6 +1280,7 @@ export async function POST(req: NextRequest) {
       writer, jobId, userId || "anonymous",
       (frameMode as string) || "avatar",
       resumeData,
+      (resumeJobId as string) || null,
     );
 
     return new Response(stream.readable, {

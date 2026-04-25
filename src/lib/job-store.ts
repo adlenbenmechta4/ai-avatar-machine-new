@@ -61,10 +61,10 @@ export function createJob(id: string, sceneCount: number, provider: string, user
 }
 
 export function getJob(id: string, requestingUserId?: string): JobState | undefined {
-  // Lazy cleanup: remove jobs older than 60 minutes
+  // Lazy cleanup: remove jobs older than 120 minutes (increased for resume support)
   const now = Date.now();
   for (const [jobId, job] of jobs) {
-    if (now - job.createdAt > 60 * 60 * 1000) {
+    if (now - job.createdAt > 120 * 60 * 1000) {
       jobs.delete(jobId);
     }
   }

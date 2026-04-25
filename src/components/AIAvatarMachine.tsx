@@ -1228,6 +1228,14 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
       };
 
       if (isRetry) {
+        // Send the previous jobId so the server can look up completed scenes from its job store
+        // This is MORE reliable than client-side scene state (server data is always up-to-date)
+        if (currentJobIdRef.current) {
+          requestBody.resumeJobId = currentJobIdRef.current;
+          addLog(`📋 Sending resumeJobId: ${currentJobIdRef.current.slice(0, 16)}...`);
+        }
+
+        // Also send client-side resumeFrom data as fallback
         // Collect completed scene data to send to server for resume
         const currentScenes = scenesRef.current || scenes;
         const completedFrames: boolean[] = [];
