@@ -13,15 +13,11 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Generate Prisma client
-RUN npx prisma generate
+# Generate Prisma client (use local version, not latest from npm)
+RUN ./node_modules/.bin/prisma generate
 
 # Build Next.js
-# NEXT_DISABLE_TURBOPACK=1 forces Webpack instead of Turbopack (Turbopack OOMs on Railway)
-# NODE_OPTIONS limits V8 heap to avoid silent kill during build
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV NEXT_DISABLE_TURBOPACK=1
-ENV NODE_OPTIONS="--max-old-space-size=1536"
 RUN npm run build
 
 # Production stage
