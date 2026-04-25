@@ -232,7 +232,7 @@ export default function CarouselView({ onBack, isAdmin = false }: CarouselViewPr
   const handleGenerate = async () => {
     if (!idea.trim()) return;
     if (isAdmin && (!kieApiKey.trim() || kieApiKey.trim().length < 10)) {
-      setError("Please enter your Image Generation API key");
+      setError("Please enter your kie.ai API key");
       return;
     }
 
@@ -679,7 +679,7 @@ export default function CarouselView({ onBack, isAdmin = false }: CarouselViewPr
                 </svg>
               </div>
               <label className="text-xs font-bold uppercase tracking-wider" style={{ color: C.text }}>
-                Image Generation API Key
+                kie.ai API Key
               </label>
             </div>
             <div className="relative">
@@ -687,7 +687,7 @@ export default function CarouselView({ onBack, isAdmin = false }: CarouselViewPr
                 type={showApiKey ? "text" : "password"}
                 value={kieApiKey}
                 onChange={(e) => setKieApiKey(e.target.value)}
-                placeholder="Enter your API key..."
+                placeholder="Enter your kie.ai API key..."
                 className="w-full px-4 py-3 pr-12 rounded-xl text-sm outline-none transition-all duration-200"
                 style={{
                   backgroundColor: `${C.lightGold}40`,
@@ -1044,7 +1044,7 @@ export default function CarouselView({ onBack, isAdmin = false }: CarouselViewPr
                     </svg>
                   ),
                   title: "AI Image Generation",
-                  desc: "Stunning images powered by advanced AI models",
+                  desc: "Stunning images powered by Nano Banana 2 via kie.ai",
                 },
                 {
                   icon: (

@@ -82,7 +82,7 @@ async function generateSlideImage(
   try {
     submitJson = JSON.parse(submitText);
   } catch {
-    throw new Error("Image API returned non-JSON: " + submitText.slice(0, 200));
+    throw new Error("kie.ai API returned non-JSON: " + submitText.slice(0, 200));
   }
 
   if (submitJson.code !== 200) {
@@ -197,7 +197,7 @@ export async function POST(req: NextRequest) {
 
     if (!finalApiKey || finalApiKey.length < 10) {
       return NextResponse.json(
-        { error: "Image generation API key is not configured. Please contact support." },
+        { error: "kie.ai API key is not configured. Please contact support." },
         { status: 400 }
       );
     }

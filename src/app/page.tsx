@@ -5,11 +5,6 @@ import { useAuth } from "@/providers/auth-provider";
 import AIAvatarMachine from "@/components/AIAvatarMachine";
 import MainMenu from "@/components/MainMenu";
 import CarouselView from "@/components/CarouselView";
-import PodcastMachineView from "@/components/PodcastMachineView";
-import UnifiedVideoLibrary from "@/components/UnifiedVideoLibrary";
-import VideoEditor from "@/components/VideoEditor";
-import CaptionPanelModal from "@/components/CaptionPanelModal";
-import { updateVideoUrlInStorage } from "@/lib/video-store";
 import UserProfilePanel from "@/components/UserProfilePanel";
 
 // ─── Colors (matching the existing design) ────────────────────────────────────
@@ -238,11 +233,10 @@ function SubscriptionScreen({ userData, onComplete }: {
                       }
                     }}
                     disabled={isCurrent || upgrading !== null}
-                    className="w-full py-3 rounded-2xl text-sm font-bold uppercase tracking-wider transition-all duration-300 disabled:opacity-40 hover:scale-[1.02]"
+                    className="w-full py-3 rounded-2xl text-sm font-bold uppercase tracking-wider transition-all duration-200 disabled:opacity-40"
                     style={{
                       backgroundColor: isCurrent ? "#F3F4F6" : p.id === "free" ? C.dark : p.color,
                       color: isCurrent ? C.textMuted : C.white,
-                      boxShadow: !isCurrent ? `0 4px 20px ${p.color}35, 0 0 30px ${p.color}15` : "none",
                     }}
                   >
                     {upgrading === p.id ? (
@@ -300,18 +294,13 @@ function SubscriptionScreen({ userData, onComplete }: {
 export default function Home() {
   const { user, loading, signOut } = useAuth();
   const [showSubscription, setShowSubscription] = useState(false);
-  const [currentView, setCurrentView] = useState<"menu" | "avatar" | "carousel" | "podcast" | "library">("menu");
-  const [initialView, setInitialView] = useState<string>("create");
-  const [libraryEditorUrl, setLibraryEditorUrl] = useState("");
-  const [libraryCaptionUrl, setLibraryCaptionUrl] = useState("");
-  const [libraryCaptionId, setLibraryCaptionId] = useState("");
-  const [libraryEditorCaptionUploading, setLibraryEditorCaptionUploading] = useState(false);
+  const [currentView, setCurrentView] = useState<"menu" | "avatar" | "carousel">("menu");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
 
   // Redirect to menu if user logs out while on avatar view
   useEffect(() => {
-    if (!loading && !user && (currentView === "avatar" || currentView === "carousel" || currentView === "podcast" || currentView === "library")) {
+    if (!loading && !user && (currentView === "avatar" || currentView === "carousel")) {
       setCurrentView("menu");
     }
   }, [user, loading, currentView]);
@@ -345,16 +334,10 @@ export default function Home() {
       <MainMenu
         onNavigate={(dest) => {
           if (dest === "ai-avatar-machine") {
-            setInitialView("create");
             setCurrentView("avatar");
           } else if (dest === "ai-viral-carousel") {
             setCurrentView("carousel");
-          } else if (dest === "ai-podcast-machine") {
-            setCurrentView("podcast");
           }
-        }}
-        onOpenLibrary={() => {
-          setCurrentView("library");
         }}
       />
     );
@@ -363,92 +346,6 @@ export default function Home() {
   // AI Carousel view
   if (currentView === "carousel") {
     return <CarouselView onBack={() => setCurrentView("menu")} isAdmin={!!isAdmin} />;
-  }
-
-  // AI Podcast Machine view
-  if (currentView === "podcast") {
-    return <PodcastMachineView onBack={() => setCurrentView("menu")} isAdmin={!!isAdmin} />;
-  }
-
-  // Unified Library view
-  if (currentView === "library") {
-    const handleCaptionEditedVideo = async (blobUrl: string) => {
-      setLibraryEditorCaptionUploading(true);
-      try {
-        const res = await fetch(blobUrl);
-        const blob = await res.blob();
-        const file = new File([blob], "edited-video.mp4", { type: "video/mp4" });
-        const formData = new FormData();
-        formData.append("video", file);
-
-        const uploadRes = await fetch("/api/upload-temp-video", {
-          method: "POST",
-          body: formData,
-        });
-        if (!uploadRes.ok) throw new Error("Upload failed");
-        const data = await uploadRes.json();
-        if (!data.url) throw new Error("No URL returned");
-
-        setLibraryCaptionUrl(data.url);
-        setLibraryCaptionId("");
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to upload edited video";
-        console.error("Caption upload error:", msg);
-        throw new Error(msg);
-      } finally {
-        setLibraryEditorCaptionUploading(false);
-      }
-    };
-
-    return (
-      <div className="relative">
-        {/* Video Editor for library videos */}
-        {libraryEditorUrl && (
-          <div ref={(el) => { if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }}>
-            <VideoEditor
-              videoUrl={libraryEditorUrl}
-              onClose={(editedUrl) => {
-                setLibraryEditorUrl("");
-                if (editedUrl) {
-                  // Could update the video URL in storage here
-                }
-              }}
-              onCaptionEditedVideo={handleCaptionEditedVideo}
-              accentColor={C.pink}
-            />
-          </div>
-        )}
-        <UnifiedVideoLibrary
-          onBack={() => { setLibraryEditorUrl(""); setLibraryCaptionUrl(""); setCurrentView("menu"); }}
-          onEditVideo={(url) => {
-            setLibraryEditorUrl(url);
-            setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 100);
-          }}
-          onCaptionVideo={(url, id) => {
-            setLibraryCaptionUrl(url);
-            setLibraryCaptionId(id);
-          }}
-          theme={theme}
-        />
-        {/* Caption Modal for library videos */}
-        {libraryCaptionUrl && (
-          <CaptionPanelModal
-            videoUrl={libraryCaptionUrl}
-            onClose={(captionedUrl) => {
-              if (captionedUrl && libraryCaptionId) {
-                const userEmail = user?.email || "";
-                if (userEmail) {
-                  updateVideoUrlInStorage(userEmail, libraryCaptionId, captionedUrl);
-                }
-              }
-              setLibraryCaptionUrl("");
-              setLibraryCaptionId("");
-            }}
-            accentColor={C.cyan}
-          />
-        )}
-      </div>
-    );
   }
 
   // AI Avatar Machine view — only for authenticated users
@@ -469,14 +366,12 @@ export default function Home() {
         {/* Back to Menu button */}
         <button
           onClick={() => setCurrentView("menu")}
-          className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-300 hover:shadow-lg"
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-200 hover:shadow-lg"
           style={{
             backgroundColor: isDark ? "#1A1A1A" : C.white,
             color: isDark ? "#E0E0E0" : C.text,
             border: `1.5px solid ${isDark ? "#333333" : C.lightPink}`,
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.boxShadow = `0 0 20px ${C.pink}25, 0 4px 12px ${C.pink}15`; }}
-          onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; }}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path d="M10 3L5 8l5 5" stroke={C.pink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -533,7 +428,7 @@ export default function Home() {
       </div>
 
       <div style={{ marginTop: isDark ? "52px" : "52px" }}>
-        <AIAvatarMachine isAdmin={isAdmin} theme={theme} initialView={initialView} />
+        <AIAvatarMachine isAdmin={isAdmin} theme={theme} />
       </div>
     </div>
   );
