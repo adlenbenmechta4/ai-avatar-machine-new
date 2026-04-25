@@ -242,9 +242,12 @@ async function generateFrame(
 
       if (lastErrorWasPermanent) {
         addJobLog(jobId, `Frame ${sceneIndex + 1}: permanent KIE failure detected — will submit NEW task on next retry`);
+        // Clear the dead frameTaskId so retry never tries to reuse it
+        updateScene(jobId, sceneIndex, { error: msg, frameProgress: 0, frameTaskId: "" });
+      } else {
+        // Transient error — keep frameTaskId so retry can poll it (KIE may still be processing)
+        updateScene(jobId, sceneIndex, { error: msg, frameProgress: 0 });
       }
-
-      updateScene(jobId, sceneIndex, { error: msg, frameProgress: 0 });
 
       if (attempt === MAX_RETRIES) {
         throw new Error(`Frame ${sceneIndex + 1} failed after ${MAX_RETRIES} attempts: ${msg}`);
@@ -477,10 +480,12 @@ async function generateVideo(
 
       if (lastErrorWasPermanent) {
         addJobLog(jobId, `Video ${sceneIndex + 1}: permanent KIE failure detected — will submit NEW task on next retry`);
+        // Clear the dead taskId so retry never tries to reuse it
+        updateScene(jobId, sceneIndex, { error: msg, videoProgress: 0, taskId: "" });
+      } else {
+        // Transient error — keep taskId so retry can poll it (KIE may still be processing)
+        updateScene(jobId, sceneIndex, { error: msg, videoProgress: 0 });
       }
-
-      // Save error in scene state so retry can check it
-      updateScene(jobId, sceneIndex, { error: msg, videoProgress: 0 });
 
       if (attempt === MAX_RETRIES) {
         throw new Error(`Video ${sceneIndex + 1} failed after ${MAX_RETRIES} attempts: ${msg}`);
@@ -1087,34 +1092,21 @@ async function runPipelineSSE(
       sse(writer, { type: "progress", step: 2, pct: Math.round((completedVideos / totalVideos) * 90), message: `Generating ${videosToProcess.length} remaining videos...` });
       addJobLog(jobId, `Generating ${videosToProcess.length} remaining videos (this takes 5-15 min per video)...`);
 
-      let failedScenes: number[] = [];
-
+      // Process videos sequentially — if ANY video fails after all internal retries,
+      // the entire pipeline STOPS and sends an SSE error. The client auto-retries with
+      // resumeJobId, the server skips completed scenes and retries ONLY the failed one.
+      // This ensures ALL videos are generated — no scene is ever skipped.
       for (const { scene, index } of videosToProcess) {
-        try {
-          sse(writer, { type: "progress", step: 2, pct: Math.round(((index + 1) / totalVideos) * 90), message: `Creating video ${index + 1}/${totalVideos}...` });
-          const videoUrl = await generateVideo(
-            jobId, index,
-            scene.description, scene.script,
-            frameUrls[index], kieApiKey,
-            frameMode,
-            writer
-          );
-          videoUrls[index] = videoUrl;
-          sse(writer, { type: "progress", step: 2, pct: Math.round(((index + 1) / totalVideos) * 90), message: `Video ${index + 1} complete!` });
-        } catch (sceneErr) {
-          const errMsg = sceneErr instanceof Error ? sceneErr.message : String(sceneErr);
-          addJobLog(jobId, `Video ${index + 1}: FAILED after all retries — ${errMsg}`);
-          sse(writer, { type: "progress", step: 2, pct: Math.round(((index + 1) / totalVideos) * 90), message: `Video ${index + 1} FAILED: ${errMsg.slice(0, 80)}...` });
-          updateScene(jobId, index, { error: errMsg });
-          failedScenes.push(index + 1);
-          // Continue with remaining scenes instead of aborting entire pipeline
-        }
-      }
-
-      if (failedScenes.length > 0) {
-        const warningMsg = `WARNING: ${failedScenes.length} scene(s) failed: video(s) ${failedScenes.join(", ")}. Pipeline will merge the successful videos.`;
-        addJobLog(jobId, warningMsg);
-        sse(writer, { type: "progress", step: 2, pct: 90, message: warningMsg });
+        sse(writer, { type: "progress", step: 2, pct: Math.round(((index + 1) / totalVideos) * 90), message: `Creating video ${index + 1}/${totalVideos}...` });
+        const videoUrl = await generateVideo(
+          jobId, index,
+          scene.description, scene.script,
+          frameUrls[index], kieApiKey,
+          frameMode,
+          writer
+        );
+        videoUrls[index] = videoUrl;
+        sse(writer, { type: "progress", step: 2, pct: Math.round(((index + 1) / totalVideos) * 90), message: `Video ${index + 1} complete!` });
       }
     } else {
       addJobLog(jobId, "All videos already completed from previous run!");
