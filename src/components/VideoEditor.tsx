@@ -939,6 +939,10 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
                       outline: isSelected ? `2px solid ${COLORS.dark}` : "none",
                       outlineOffset: "-1px",
                     }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      toggleSegment(seg.id);
+                    }}
                     onClick={(e) => {
                       e.stopPropagation();
                       setSelectedSegmentId(seg.id);
@@ -946,9 +950,17 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
                   >
                     {/* Segment label */}
                     <div className="flex items-center justify-center h-full gap-1">
-                      <span className="text-[8px] font-bold uppercase tracking-wider px-1 rounded" style={{ color: COLORS.white, backgroundColor: "rgba(0,0,0,0.25)" }}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleSegment(seg.id);
+                        }}
+                        className="text-[8px] font-bold uppercase tracking-wider px-2 py-0.5 rounded cursor-pointer transition-all hover:scale-110 hover:brightness-110"
+                        style={{ color: COLORS.white, backgroundColor: seg.enabled ? "rgba(34,197,94,0.6)" : "rgba(239,68,68,0.6)" }}
+                        title={seg.enabled ? "Click to CUT this segment" : "Click to KEEP this segment"}
+                      >
                         {seg.enabled ? "KEEP" : "CUT"}
-                      </span>
+                      </button>
                       {seg.zoom !== "none" && seg.enabled && (
                         <span className="text-[7px] font-black uppercase px-1 rounded" style={{ color: COLORS.white, backgroundColor: "rgba(0,0,0,0.35)" }}>
                           {seg.zoom === "in" ? "ZOOM+" : "ZOOM-"}
