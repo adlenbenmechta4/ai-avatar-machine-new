@@ -159,6 +159,58 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
   const segmentsRef = useRef<Segment[]>([]);
   const durationRef = useRef(0);
 
+  // ─── Undo / Redo History ─────────────────────────────────────
+  const historyRef = useRef<Segment[][]>([]);
+  const historyIndexRef = useRef<number>(-1);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  const pushHistory = useCallback((newSegments: Segment[]) => {
+    const hist = historyRef.current;
+    const idx = historyIndexRef.current;
+    // Remove any redo states ahead of current index
+    const trimmed = hist.slice(0, idx + 1);
+    trimmed.push(JSON.parse(JSON.stringify(newSegments)));
+    // Keep max 50 entries
+    if (trimmed.length > 50) trimmed.shift();
+    historyRef.current = trimmed;
+    historyIndexRef.current = trimmed.length - 1;
+    setCanUndo(trimmed.length > 1);
+    setCanRedo(false);
+  }, []);
+
+  const undo = useCallback(() => {
+    const hist = historyRef.current;
+    const idx = historyIndexRef.current;
+    if (idx <= 0) return;
+    const prevSegs = hist[idx - 1];
+    historyIndexRef.current = idx - 1;
+    setSegments(JSON.parse(JSON.stringify(prevSegs)));
+    setCanUndo(idx - 1 > 0);
+    setCanRedo(true);
+  }, []);
+
+  const redo = useCallback(() => {
+    const hist = historyRef.current;
+    const idx = historyIndexRef.current;
+    if (idx >= hist.length - 1) return;
+    const nextSegs = hist[idx + 1];
+    historyIndexRef.current = idx + 1;
+    setSegments(JSON.parse(JSON.stringify(nextSegs)));
+    setCanUndo(true);
+    setCanRedo(idx + 1 < hist.length - 1);
+  }, []);
+
+  // Wrap setSegments to auto-push history
+  const setSegmentsWithHistory = useCallback((updater: Segment[] | ((prev: Segment[]) => Segment[])) => {
+    setSegments((prev) => {
+      const newSegs = typeof updater === "function" ? updater(prev) : updater;
+      // Push to history in a microtask to avoid circular state
+      setTimeout(() => pushHistory(newSegs), 0);
+      return newSegs;
+    });
+  }, [pushHistory]);
+
   const ffmpegRef = useRef<unknown>(null);
   const progressCallbackRef = useRef<((msg: string) => void) | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -169,7 +221,12 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
     const video = videoRef.current;
     if (video && video.duration && isFinite(video.duration)) {
       setDuration(video.duration);
-      setSegments([{ id: "seg-0", start: 0, end: video.duration, enabled: true, zoom: "none", zoomLevel: 1.5 }]);
+      const initial: Segment[] = [{ id: "seg-0", start: 0, end: video.duration, enabled: true, zoom: "none", zoomLevel: 1.5 }];
+      setSegments(initial);
+      historyRef.current = [JSON.parse(JSON.stringify(initial))];
+      historyIndexRef.current = 0;
+      setCanUndo(false);
+      setCanRedo(false);
     }
   }, []);
 
@@ -287,7 +344,7 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
     const time = videoRef.current.currentTime;
     if (time <= 0.1 || time >= duration - 0.1) return;
 
-    setSegments((prev) => {
+    setSegmentsWithHistory((prev) => {
       const segIndex = prev.findIndex((s) => time > s.start + 0.05 && time < s.end - 0.05);
       if (segIndex === -1) return prev;
       const seg = prev[segIndex];
@@ -298,11 +355,11 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
       );
       return newSegs;
     });
-  }, [duration]);
+  }, [duration, setSegmentsWithHistory]);
 
   // ─── Remove Split ──────────────────────────────────────────────
   const removeSplit = useCallback((splitTime: number) => {
-    setSegments((prev) => {
+    setSegmentsWithHistory((prev) => {
       const idx = prev.findIndex((s) => Math.abs(s.start - splitTime) < 0.05);
       if (idx <= 0) return prev;
       const prevSeg = prev[idx - 1];
@@ -313,49 +370,49 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
       );
       return newSegs;
     });
-  }, []);
+  }, [setSegmentsWithHistory]);
 
   // ─── Toggle Segment ────────────────────────────────────────────
   const toggleSegment = useCallback((segId: string) => {
-    setSegments((prev) =>
+    setSegmentsWithHistory((prev) =>
       prev.map((s) => (s.id === segId ? { ...s, enabled: !s.enabled } : s))
     );
-  }, []);
+  }, [setSegmentsWithHistory]);
 
   // ─── Get split points (internal boundaries) ───────────────────
   const splitPoints = segments.slice(1).map((s) => s.start);
 
   // ─── Update Segment Zoom ───────────────────────────────────────
   const updateSegmentZoom = useCallback((segId: string, zoom: ZoomType) => {
-    setSegments((prev) =>
+    setSegmentsWithHistory((prev) =>
       prev.map((s) => (s.id === segId ? { ...s, zoom } : s))
     );
-  }, []);
+  }, [setSegmentsWithHistory]);
 
   const updateSegmentZoomLevel = useCallback((segId: string, zoomLevel: number) => {
-    setSegments((prev) =>
+    setSegmentsWithHistory((prev) =>
       prev.map((s) => (s.id === segId ? { ...s, zoomLevel } : s))
     );
-  }, []);
+  }, [setSegmentsWithHistory]);
 
   // ─── Apply Zoom to All Segments ────────────────────────────────
   const applyZoomToAll = useCallback((zoom: ZoomType) => {
-    setSegments((prev) =>
+    setSegmentsWithHistory((prev) =>
       prev.map((s) => ({ ...s, zoom }))
     );
-  }, []);
+  }, [setSegmentsWithHistory]);
 
   // ─── Enable All Segments ───────────────────────────────────────
   const enableAll = useCallback(() => {
-    setSegments((prev) => prev.map((s) => ({ ...s, enabled: true })));
-  }, []);
+    setSegmentsWithHistory((prev) => prev.map((s) => ({ ...s, enabled: true })));
+  }, [setSegmentsWithHistory]);
 
   // ─── Remove All Splits ─────────────────────────────────────────
   const removeAllSplits = useCallback(() => {
     if (!duration) return;
-    setSegments([{ id: "seg-0", start: 0, end: duration, enabled: true, zoom: "none", zoomLevel: 1.5 }]);
+    setSegmentsWithHistory([{ id: "seg-0", start: 0, end: duration, enabled: true, zoom: "none", zoomLevel: 1.5 }]);
     setSelectedSegmentId(null);
-  }, [duration]);
+  }, [duration, setSegmentsWithHistory]);
 
   // ─── Handle Playhead Drag ────────────────────────────────────
   const handlePlayheadMouseDown = useCallback((e: React.MouseEvent) => {
@@ -417,6 +474,9 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
     setIsDragging(true);
     setDragSplitId(`split-${splitTime}`);
 
+    // Save snapshot before drag for undo
+    const snapshotBefore = JSON.parse(JSON.stringify(segmentsRef.current));
+
     const handleMouseMove = (moveE: MouseEvent) => {
       if (!timelineRef.current || !duration) return;
       const rect = timelineRef.current.getBoundingClientRect();
@@ -441,13 +501,18 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
     const handleMouseUp = () => {
       setIsDragging(false);
       setDragSplitId(null);
+      // Push to history after drag ends (only if segments actually changed)
+      const currentSegs = JSON.parse(JSON.stringify(segmentsRef.current));
+      if (JSON.stringify(snapshotBefore) !== JSON.stringify(currentSegs)) {
+        pushHistory(currentSegs);
+      }
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
 
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
-  }, [duration]);
+  }, [duration, pushHistory]);
 
   // ─── Load FFmpeg ───────────────────────────────────────────────
   const loadFFmpeg = useCallback(async () => {
@@ -656,11 +721,17 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
     const handleKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.code === "Space") { e.preventDefault(); togglePlay(); }
-      if (e.code === "KeyS") { e.preventDefault(); addSplit(); }
+      if (e.code === "KeyS" && !e.ctrlKey && !e.metaKey) { e.preventDefault(); addSplit(); }
+      // Ctrl+Z / Cmd+Z = Undo
+      if (e.code === "KeyZ" && (e.ctrlKey || e.metaKey) && !e.shiftKey) { e.preventDefault(); undo(); }
+      // Ctrl+Shift+Z / Ctrl+Alt+Z = Redo
+      if (e.code === "KeyZ" && (e.ctrlKey || e.metaKey) && (e.shiftKey || e.altKey)) { e.preventDefault(); redo(); }
+      // Ctrl+Y = Redo (alternative)
+      if (e.code === "KeyY" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); redo(); }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [togglePlay, addSplit]);
+  }, [togglePlay, addSplit, undo, redo]);
 
   // ─── Cleanup ───────────────────────────────────────────────────
   useEffect(() => {
@@ -822,7 +893,38 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
         {/* ─── Playback Controls Bar ─────────────────────────────── */}
         {duration > 0 && (
           <div className="max-w-lg mx-auto mb-4">
-            <div className="flex items-center gap-3 px-2">
+            <div className="flex items-center gap-2 px-2">
+              {/* Undo */}
+              <button
+                onClick={undo}
+                disabled={!canUndo || isProcessing}
+                className="w-8 h-8 rounded-lg flex items-center justify-center transition-all hover:scale-110 disabled:opacity-30 disabled:cursor-not-allowed"
+                style={{ backgroundColor: canUndo ? `${accentColor}15` : "transparent", color: canUndo ? accentColor : COLORS.textMuted }}
+                title="Undo (Ctrl+Z)"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 7v6h6" />
+                  <path d="M3 13c1.5-4 5-6 9-6s6.5 2 7.5 5" />
+                </svg>
+              </button>
+
+              {/* Redo */}
+              <button
+                onClick={redo}
+                disabled={!canRedo || isProcessing}
+                className="w-8 h-8 rounded-lg flex items-center justify-center transition-all hover:scale-110 disabled:opacity-30 disabled:cursor-not-allowed"
+                style={{ backgroundColor: canRedo ? `${accentColor}15` : "transparent", color: canRedo ? accentColor : COLORS.textMuted }}
+                title="Redo (Ctrl+Shift+Z)"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 7v6h-6" />
+                  <path d="M21 13c-1.5-4-5-6-9-6S5.5 9 4.5 12" />
+                </svg>
+              </button>
+
+              {/* divider */}
+              <div className="w-px h-5" style={{ backgroundColor: COLORS.track }} />
+
               {/* Play/Pause */}
               <button
                 onClick={togglePlay}
