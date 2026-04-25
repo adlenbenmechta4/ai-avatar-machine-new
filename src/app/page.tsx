@@ -430,7 +430,7 @@ export default function Home() {
           theme={theme}
         />
         {/* Caption Modal for library videos */}
-        {libraryCaptionUrl && libraryCaptionId && (
+        {libraryCaptionUrl && (
           <CaptionPanelModal
             videoUrl={libraryCaptionUrl}
             onClose={(captionedUrl) => {
