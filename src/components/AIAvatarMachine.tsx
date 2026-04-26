@@ -616,6 +616,9 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   const [heygenScript, setHeygenScript] = useState("");
   const [isGeneratingHeygenScript, setIsGeneratingHeygenScript] = useState(false);
 
+  // ── Video Model (admin selects which KIE model to use) ──
+  const [videoModel, setVideoModel] = useState<"veo3_lite" | "veo3_fast">("veo3_lite");
+
   // ── View Mode ──
   const [view, setView] = useState<"create" | "library" | "create-avatar">(initialView as "create" | "library" | "create-avatar");
 
@@ -693,6 +696,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
     falApiKey: string;
     frameMode: string;
     videoProvider: string;
+    videoModel: string;
     heygenApiKey: string;
     heygenVoiceId: string;
     heygenScript: string;
@@ -733,6 +737,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
       if (checkpoint.falApiKey) setFalApiKey(checkpoint.falApiKey);
       if (checkpoint.frameMode) setFrameMode(checkpoint.frameMode as "avatar" | "avatar_v2" | "scenes" | "custom");
       if (checkpoint.videoProvider) setVideoProvider(checkpoint.videoProvider as "kie" | "heygen");
+      if (checkpoint.videoModel) setVideoModel(checkpoint.videoModel as "veo3_lite" | "veo3_fast");
       if (checkpoint.heygenApiKey) setHeygenApiKey(checkpoint.heygenApiKey);
       if (checkpoint.heygenVoiceId) setHeygenVoiceId(checkpoint.heygenVoiceId);
       if (checkpoint.heygenScript) setHeygenScript(checkpoint.heygenScript);
@@ -1335,6 +1340,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
         falApiKey,
         heygenApiKey,
         heygenVoiceId,
+        videoModel,
       };
 
       if (isRetry) {
@@ -1525,6 +1531,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                   falApiKey,
                   frameMode,
                   videoProvider,
+                  videoModel,
                   heygenApiKey,
                   heygenVoiceId,
                   heygenScript,
@@ -1702,7 +1709,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
     } finally {
       abortRef.current = null;
     }
-  }, [isRunning, avatarImage, scenes, kieApiKey, falApiKey, frameMode, videoProvider, heygenApiKey, heygenVoiceId, heygenScript, uploadAvatarToServer, addLog, startStatusPolling]);
+  }, [isRunning, avatarImage, scenes, kieApiKey, falApiKey, frameMode, videoProvider, videoModel, heygenApiKey, heygenVoiceId, heygenScript, uploadAvatarToServer, addLog, startStatusPolling]);
 
   // CRITICAL: Keep ref pointing to the latest runGeneration so retry always calls current version
   runGenerationRef.current = runGeneration;
@@ -2347,6 +2354,40 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                       ))}
                     </div>
                   </div>
+
+                  {/* Video Model Selector (Admin Only, KIE provider only) */}
+                  {videoProvider === "kie" && isAdmin && (
+                    <div className="mb-4">
+                      <label className="block text-xs font-bold uppercase tracking-wider mb-2" style={{ color: T.textMuted }}>
+                        Video Model
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {([
+                          { value: "veo3_lite" as const, label: "Veo3.1 Lite", emoji: "⚡", desc: "Standard quality, slower" },
+                          { value: "veo3_fast" as const, label: "Veo3.1 Fast", emoji: "🚀", desc: "Fast generation, high quality" },
+                        ]).map((model) => (
+                          <button
+                            key={model.value}
+                            onClick={() => setVideoModel(model.value)}
+                            disabled={isRunning}
+                            className="py-2.5 px-2 rounded-xl text-xs font-bold uppercase tracking-wide transition-all duration-300 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed border-2 text-center"
+                            style={{
+                              backgroundColor: videoModel === model.value ? T.cyan : T.cardBg,
+                              borderColor: videoModel === model.value ? T.cyan : T.cardBorder,
+                              color: videoModel === model.value ? T.white : T.textMuted,
+                            }}
+                          >
+                            <div className="text-base mb-0.5">{model.emoji}</div>
+                            <div>{model.label}</div>
+                            <div className="text-[9px] font-normal lowercase tracking-normal mt-0.5 opacity-70">{model.desc}</div>
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-[10px] mt-1.5" style={{ color: T.textMuted }}>
+                        {videoModel === "veo3_lite" ? "Image to Video First Frame — Veo3.1 Lite" : "Image to Video First Frame — Veo3.1 Fast"}
+                      </p>
+                    </div>
+                  )}
 
                   {!avatarImage ? (
                     <label

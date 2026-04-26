@@ -372,7 +372,8 @@ async function generateVideo(
   frameUrl: string,
   apiKey: string,
  frameMode: string,
-  writer: WritableStreamDefaultWriter<Uint8Array> | null
+  writer: WritableStreamDefaultWriter<Uint8Array> | null,
+  videoModel: string = "veo3_lite"
 ): Promise<string> {
   const MAX_RETRIES = 5;
 
@@ -459,7 +460,7 @@ async function generateVideo(
           body: JSON.stringify({
             prompt: videoPrompt,
             imageUrls: [frameUrl],
-            model: "veo3_lite",
+            model: videoModel,
             aspect_ratio: "9:16",
             enableTranslation: true,
           }),
@@ -943,6 +944,7 @@ async function runPipelineSSE(
   jobId: string,
   userId: string,
   frameMode: string,
+  videoModel: string = "veo3_lite",
   resumeFrom?: ResumeData,
   resumeJobId?: string | null,
   pendingTaskIds?: Map<number, { taskId: string; frameTaskId: string }>,
@@ -1150,7 +1152,8 @@ async function runPipelineSSE(
           scene.description, scene.script,
           frameUrls[index], kieApiKey,
           frameMode,
-          writer
+          writer,
+          videoModel
         );
         videoUrls[index] = videoUrl;
         // Send scene-level completion event so the client always has accurate state for resume
@@ -1218,7 +1221,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON in request body" }, { status: 400 });
     }
 
-    const { avatarUrl, scenes, kieApiKey, falApiKey, frameMode, videoProvider, heygenApiKey, heygenVoiceId, resumeFrom, resumeJobId } = body;
+    const { avatarUrl, scenes, kieApiKey, falApiKey, frameMode, videoProvider, videoModel, heygenApiKey, heygenVoiceId, resumeFrom, resumeJobId } = body;
     // In custom frames mode, avatar is not required — each scene has its own image
     if (frameMode !== "custom" && frameMode !== "custom_v2") {
       if (!avatarUrl || typeof avatarUrl !== "string" || !avatarUrl.startsWith("http")) {
@@ -1422,6 +1425,7 @@ export async function POST(req: NextRequest) {
       provider, (heygenApiKey as string) || "", (heygenVoiceId as string) || "",
       writer, jobId, userId || "anonymous",
       (frameMode as string) || "avatar",
+      (videoModel as string) || "veo3_lite",
       resumeData,
       (resumeJobId as string) || null,
       pendingTaskIds,
