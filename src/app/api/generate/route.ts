@@ -7,7 +7,7 @@ export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 // Pipeline version — increment when critical resume/credit changes are deployed
-const PIPELINE_VERSION = "v3.4";
+const PIPELINE_VERSION = "v3.5";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ─── Upload Image ─────────────────────────────────────────────────
@@ -403,10 +403,17 @@ async function generateVideo(
         existingError.includes("code !== 200") ||
         existingError.includes("No taskId");
 
-      if (attempt > 1 && existingTaskId && !isPermanentKieFailure && !lastErrorWasPermanent) {
-        // SAFE to reuse: the task might still be processing on KIE's side (network timeout scenario)
+      // FIXED v3.5: Removed "attempt > 1" check. When pipeline resumes (new job with carried-forward
+      // pending taskIds), generateVideo starts at attempt=1 but the taskId was copied from the
+      // previous run. We MUST reuse it instead of submitting a duplicate task to KIE.
+      if (existingTaskId && !isPermanentKieFailure && !lastErrorWasPermanent) {
+        // SAFE to reuse: the task might still be processing on KIE's side (network timeout or resume)
         taskId = existingTaskId;
-        addJobLog(jobId, `Video ${sceneIndex + 1}: reusing existing taskId (${taskId.slice(0, 8)}...) — previous error was transient`);
+        if (attempt === 1) {
+          addJobLog(jobId, `Video ${sceneIndex + 1}: reusing pending taskId (${taskId.slice(0, 8)}...) from previous run — no duplicate KIE task created`);
+        } else {
+          addJobLog(jobId, `Video ${sceneIndex + 1}: reusing existing taskId (${taskId.slice(0, 8)}...) — previous error was transient`);
+        }
         updateScene(jobId, sceneIndex, { videoProgress: 15 });
       } else {
         // Submit a NEW task to KIE (fresh start)
@@ -939,6 +946,7 @@ async function runPipelineSSE(
   resumeFrom?: ResumeData,
   resumeJobId?: string | null,
   pendingTaskIds?: Map<number, { taskId: string; frameTaskId: string }>,
+  clientSignal?: AbortSignal,
 ) {
   const heartbeatStop = { stopped: false };
 
@@ -1128,6 +1136,14 @@ async function runPipelineSSE(
       // resumeJobId, the server skips completed scenes and retries ONLY the failed one.
       // This ensures ALL videos are generated — no scene is ever skipped.
       for (const { scene, index } of videosToProcess) {
+        // FIXED v3.5: Check if client disconnected before starting next video.
+        // This prevents the OLD pipeline from continuing after auto-retry starts a NEW pipeline.
+        if (clientSignal?.aborted) {
+          addJobLog(jobId, `Pipeline aborted: client disconnected before scene ${index + 1}`);
+          heartbeatStop.stopped = true;
+          return;
+        }
+
         sse(writer, { type: "progress", step: 2, pct: Math.round(((index + 1) / totalVideos) * 90), message: `Creating video ${index + 1}/${totalVideos}...` });
         const videoUrl = await generateVideo(
           jobId, index,
@@ -1409,6 +1425,7 @@ export async function POST(req: NextRequest) {
       resumeData,
       (resumeJobId as string) || null,
       pendingTaskIds,
+      req.signal, // FIXED v3.5: pass client disconnect signal
     );
 
     return new Response(stream.readable, {
