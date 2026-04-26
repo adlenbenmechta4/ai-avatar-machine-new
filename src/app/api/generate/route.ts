@@ -7,7 +7,7 @@ export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 // Pipeline version — increment when critical resume/credit changes are deployed
-const PIPELINE_VERSION = "v3.2";
+const PIPELINE_VERSION = "v3.3";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ─── Upload Image ─────────────────────────────────────────────────
@@ -1252,6 +1252,10 @@ export async function POST(req: NextRequest) {
       // Continue without credit check if it fails (graceful degradation)
     }
 
+    // ═══ CREATE JOB ID EARLY ═══
+    // Must be created BEFORE any addJobLog() calls that reference it
+    const jobId = generateJobId();
+
     // ═══ RESUME SUPPORT ═══
     // Parse resumeFrom: { frameUrls: string[], videoUrls: string[], videoDone: boolean[], frameDone: boolean[] }
     type ResumeData = {
@@ -1322,7 +1326,6 @@ export async function POST(req: NextRequest) {
     // Create SSE stream
     const stream = new TransformStream();
     const writer = stream.writable.getWriter();
-    const jobId = generateJobId();
 
     if (isResume) {
       console.log(`[Pipeline ${jobId}] RESUMING: ${validScenes.length} scenes, ${validScenes.length - scenesNeedingWork} already done, ${scenesNeedingWork} remaining`);
