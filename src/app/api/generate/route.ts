@@ -6,6 +6,8 @@ import { deductCredits, getCreditBalance, getCreditCostPerScene } from "@/lib/cr
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
+// Pipeline version — increment when critical resume/credit changes are deployed
+const PIPELINE_VERSION = "v3.2";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ─── Upload Image ─────────────────────────────────────────────────
@@ -382,7 +384,7 @@ async function generateVideo(
       if (attempt > 1) {
         // Exponential backoff: 15s, 25s, 35s, 45s
         const backoff = 15 + (attempt - 2) * 10;
-        addJobLog(jobId, `Video ${sceneIndex + 1}: retrying... (attempt ${attempt}/${MAX_RETRIES}), waiting ${backoff}s...`);
+        addJobLog(jobId, `Video ${sceneIndex + 1}: retrying... (attempt ${attempt}/${MAX_RETRIES}) [${PIPELINE_VERSION}], waiting ${backoff}s...`);
         updateScene(jobId, sceneIndex, { videoProgress: 0 });
         await sleep(backoff * 1000);
       }
@@ -945,8 +947,8 @@ async function runPipelineSSE(
   try {
     // Also create job for /api/status fallback
     createJob(jobId, validScenes.length, provider, userId || "anonymous");
-    addJobLog(jobId, "Pipeline started");
-    sse(writer, { type: "started", jobId, message: "Pipeline started" });
+    addJobLog(jobId, `Pipeline started [${PIPELINE_VERSION}]`);
+    sse(writer, { type: "started", jobId, message: `Pipeline started [${PIPELINE_VERSION}]` });
 
     // ══ Avatar Pipeline ══
     if (provider === "heygen") {
