@@ -1338,39 +1338,94 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
       };
 
       if (isRetry) {
-        // Send the previous jobId so the server can look up completed scenes from its job store
-        // This is MORE reliable than client-side scene state (server data is always up-to-date)
+        // CRITICAL: Before building resume data, fetch authoritative state from the server.
+        // The client-side scene state may be stale (status polling hasn't run yet),
+        // which would cause completed scenes to be regenerated, wasting KIE credits.
         if (currentJobIdRef.current) {
           requestBody.resumeJobId = currentJobIdRef.current;
           addLog(`📋 Sending resumeJobId: ${currentJobIdRef.current.slice(0, 16)}...`);
+
+          try {
+            const statusRes = await authFetch(`/api/status?jobId=${encodeURIComponent(currentJobIdRef.current)}`);
+            if (statusRes.ok) {
+              const statusJob = await statusRes.json();
+              if (statusJob.scenes && Array.isArray(statusJob.scenes)) {
+                // Use AUTHORITATIVE server data for resume — NOT client state
+                const serverFrameDone: boolean[] = [];
+                const serverVideoDone: boolean[] = [];
+                const serverFrameUrls: string[] = [];
+                const serverVideoUrls: string[] = [];
+
+                for (const js of statusJob.scenes) {
+                  const fDone = !!(js.frameDone && js.frameUrl);
+                  const vDone = !!(js.videoDone && js.videoUrl);
+                  serverFrameDone.push(fDone);
+                  serverVideoDone.push(vDone);
+                  serverFrameUrls.push(js.frameUrl || "");
+                  serverVideoUrls.push(js.videoUrl || "");
+                }
+
+                const vDoneCount = serverVideoDone.filter(Boolean).length;
+                const fDoneCount = serverFrameDone.filter(Boolean).length;
+
+                if (vDoneCount > 0 || fDoneCount > 0) {
+                  requestBody.resumeFrom = {
+                    frameUrls: serverFrameUrls,
+                    videoUrls: serverVideoUrls,
+                    videoDone: serverVideoDone,
+                    frameDone: serverFrameDone,
+                  };
+                  addLog(`📋 Resume data (from server): ${fDoneCount} frames done, ${vDoneCount} videos done out of ${statusJob.scenes.length} scenes`);
+
+                  // Also update client-side state so the UI shows correct progress
+                  setScenes((prev) =>
+                    prev.map((s, i) => {
+                      const js = statusJob.scenes[i];
+                      if (!js) return s;
+                      return {
+                        ...s,
+                        frameDone: js.frameDone ?? s.frameDone,
+                        frameUrl: js.frameUrl || s.frameUrl,
+                        videoDone: js.videoDone ?? s.videoDone,
+                        videoUrl: js.videoUrl || s.videoUrl,
+                      };
+                    })
+                  );
+                }
+              }
+            }
+          } catch (statusErr) {
+            addLog(`⚠️ Could not fetch status for resume (using client data): ${statusErr instanceof Error ? statusErr.message : String(statusErr)}`);
+          }
         }
 
-        // Also send client-side resumeFrom data as fallback
-        // Collect completed scene data to send to server for resume
-        const currentScenes = scenesRef.current || scenes;
-        const completedFrames: boolean[] = [];
-        const completedVideos: boolean[] = [];
-        const savedFrameUrls: string[] = [];
-        const savedVideoUrls: string[] = [];
+        // Fallback: use client-side scene state if server fetch failed
+        if (!requestBody.resumeFrom) {
+          const currentScenes = scenesRef.current || scenes;
+          const completedFrames: boolean[] = [];
+          const completedVideos: boolean[] = [];
+          const savedFrameUrls: string[] = [];
+          const savedVideoUrls: string[] = [];
 
-        for (const s of currentScenes) {
-          completedFrames.push(!!s.frameDone && !!s.frameUrl);
-          completedVideos.push(!!s.videoDone && !!s.videoUrl);
-          savedFrameUrls.push(s.frameUrl || "");
-          savedVideoUrls.push(s.videoUrl || "");
-        }
+          for (const s of currentScenes) {
+            completedFrames.push(!!s.frameDone && !!s.frameUrl);
+            completedVideos.push(!!s.videoDone && !!s.videoUrl);
+            savedFrameUrls.push(s.frameUrl || "");
+            savedVideoUrls.push(s.videoUrl || "");
+          }
 
-        const doneCount = completedVideos.filter(Boolean).length;
-        const frameDoneCount = completedFrames.filter(Boolean).length;
+          const doneCount = completedVideos.filter(Boolean).length;
+          const frameDoneCount = completedFrames.filter(Boolean).length;
 
-        if (doneCount > 0 || frameDoneCount > 0) {
-          requestBody.resumeFrom = {
-            frameUrls: savedFrameUrls,
-            videoUrls: savedVideoUrls,
-            videoDone: completedVideos,
-            frameDone: completedFrames,
-          };
-          addLog(`📋 Resume data: ${frameDoneCount} frames done, ${doneCount} videos done out of ${currentScenes.length} scenes`);
+          if (doneCount > 0 || frameDoneCount > 0) {
+            requestBody.resumeFrom = {
+              frameUrls: savedFrameUrls,
+              videoUrls: savedVideoUrls,
+              videoDone: completedVideos,
+              frameDone: completedFrames,
+            };
+            addLog(`📋 Resume data (from client): ${frameDoneCount} frames done, ${doneCount} videos done out of ${currentScenes.length} scenes`);
+          }
         }
       }
 
@@ -1440,6 +1495,21 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
 
             if (eventType === "ping") {
               // Heartbeat from server — keeps connection alive, no action needed
+            } else if (eventType === "scene_done") {
+              // CRITICAL: Update scene-level state immediately when a scene completes.
+              // This ensures the client always has accurate data for building resumeFrom
+              // (no dependency on status polling timing).
+              const si = event.sceneIndex as number;
+              const st = event.sceneType as string;
+              const sUrl = event.url as string;
+              if (typeof si === "number" && sUrl) {
+                setScenes((prev) => prev.map((s, i) => {
+                  if (i !== si) return s;
+                  if (st === "video") return { ...s, videoDone: true, videoProgress: 100, videoUrl: sUrl };
+                  if (st === "frame") return { ...s, frameDone: true, frameProgress: 100, frameUrl: sUrl };
+                  return s;
+                }));
+              }
             } else if (eventType === "started") {
               addLog("Pipeline running...");
               if (event.jobId) {

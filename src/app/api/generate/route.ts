@@ -1034,6 +1034,8 @@ async function runPipelineSSE(
 
           frameUrls[index] = frameUrl;
           updateScene(jobId, index, { frameDone: true, frameProgress: 100, frameUrl });
+          // Send scene-level completion event so the client always has accurate state for resume
+          sse(writer, { type: "scene_done", sceneIndex: index, sceneType: "frame", url: frameUrl });
           sse(writer, { type: "progress", step: 1, pct: Math.round(((index + 1) / totalFrames) * 80), message: `Frame ${index + 1} ready!` });
         }
       }
@@ -1064,6 +1066,7 @@ async function runPipelineSSE(
           sse(writer, { type: "progress", step: 1, pct: Math.round(((index + 1) / totalFrames) * 80), message: `Generating frame ${index + 1}/${totalFrames}...` });
           const frameUrl = await generateFrame(jobId, index, scene.description, avatarUrl, kieApiKey, writer);
           frameUrls[index] = frameUrl;
+          sse(writer, { type: "scene_done", sceneIndex: index, sceneType: "frame", url: frameUrl });
           sse(writer, { type: "progress", step: 1, pct: Math.round(((index + 1) / totalFrames) * 80), message: `Frame ${index + 1} ready!` });
         }
       }
@@ -1112,6 +1115,8 @@ async function runPipelineSSE(
           writer
         );
         videoUrls[index] = videoUrl;
+        // Send scene-level completion event so the client always has accurate state for resume
+        sse(writer, { type: "scene_done", sceneIndex: index, sceneType: "video", url: videoUrl });
         sse(writer, { type: "progress", step: 2, pct: Math.round(((index + 1) / totalVideos) * 90), message: `Video ${index + 1} complete!` });
       }
     } else {
@@ -1288,13 +1293,22 @@ export async function POST(req: NextRequest) {
             frameDone: prevFrameDone,
           };
           isResume = true;
+          addJobLog(jobId, `RESUME via job-store: ${prevCompletedVideos}/${validScenes.length} videos, ${prevCompletedFrames}/${validScenes.length} frames already done — will NOT regenerate these`);
           console.log(`[Pipeline] RESUME via job-store: ${prevCompletedVideos}/${validScenes.length} videos, ${prevCompletedFrames}/${validScenes.length} frames already done`);
         } else {
+          addJobLog(jobId, `RESUME via job-store: no completed scenes found, falling back to client data`);
           console.log(`[Pipeline] RESUME via job-store: no completed scenes found, falling back to client data`);
         }
       } else {
-        console.log(`[Pipeline] RESUME via job-store: previous job not found (may have expired), falling back to client data`);
+        addJobLog(jobId, `RESUME via job-store: previous job ${resumeJobId?.slice(0, 16)} not found (server may have restarted), falling back to client resumeFrom data`);
+        console.log(`[Pipeline] RESUME via job-store: previous job not found (may have expired or server restarted), falling back to client data`);
       }
+    }
+
+    // Also log if client sent resumeFrom data
+    if (resumeData && resumeData.videoDone) {
+      const clientDoneCount = resumeData.videoDone.filter(Boolean).length;
+      addJobLog(jobId, `Client resumeFrom: ${clientDoneCount}/${resumeData.videoDone.length} videos marked as done`);
     }
 
     // Count how many scenes still need processing (for credit deduction)
