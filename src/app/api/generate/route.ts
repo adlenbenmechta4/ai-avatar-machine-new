@@ -7,7 +7,7 @@ export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 // Pipeline version — increment when critical resume/credit changes are deployed
-const PIPELINE_VERSION = "v3.3";
+const PIPELINE_VERSION = "v3.4";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ─── Upload Image ─────────────────────────────────────────────────
@@ -938,6 +938,7 @@ async function runPipelineSSE(
   frameMode: string,
   resumeFrom?: ResumeData,
   resumeJobId?: string | null,
+  pendingTaskIds?: Map<number, { taskId: string; frameTaskId: string }>,
 ) {
   const heartbeatStop = { stopped: false };
 
@@ -947,6 +948,25 @@ async function runPipelineSSE(
   try {
     // Also create job for /api/status fallback
     createJob(jobId, validScenes.length, provider, userId || "anonymous");
+
+    // ══ CARRY FORWARD PENDING TASKIDS FROM PREVIOUS RUN ══
+    // When the previous run crashed mid-pipeline, it may have submitted KIE tasks
+    // that are still running. If we don't carry those taskIds forward, generateVideo()
+    // will create DUPLICATE tasks on KIE's side (wasting credits).
+    // We copy pending taskIds into the new job so generateVideo() can poll them.
+    if (pendingTaskIds && pendingTaskIds.size > 0) {
+      for (const [sceneIndex, ids] of pendingTaskIds) {
+        if (ids.taskId) {
+          updateScene(jobId, sceneIndex, { taskId: ids.taskId });
+          addJobLog(jobId, `Resumed scene ${sceneIndex + 1}: reusing pending video taskId (${ids.taskId.slice(0, 8)}...) from previous run — no duplicate KIE task created`);
+        }
+        if (ids.frameTaskId) {
+          updateScene(jobId, sceneIndex, { frameTaskId: ids.frameTaskId });
+          addJobLog(jobId, `Resumed scene ${sceneIndex + 1}: reusing pending frame taskId (${ids.frameTaskId.slice(0, 8)}...) from previous run`);
+        }
+      }
+    }
+
     addJobLog(jobId, `Pipeline started [${PIPELINE_VERSION}]`);
     sse(writer, { type: "started", jobId, message: `Pipeline started [${PIPELINE_VERSION}]` });
 
@@ -1267,6 +1287,12 @@ export async function POST(req: NextRequest) {
     let resumeData = resumeFrom as ResumeData | undefined;
     let isResume = !!resumeData?.frameUrls?.length;
 
+    // ═══ COLLECT PENDING TASKIDS FROM PREVIOUS RUN ═══
+    // When the previous run crashed mid-pipeline, it may have submitted KIE tasks
+    // that are still processing. We carry these forward so generateVideo()/generateFrame()
+    // can POLL them instead of creating DUPLICATE tasks on KIE's side.
+    const pendingTaskIds = new Map<number, { taskId: string; frameTaskId: string }>();
+
     // ═══ RESUME VIA JOB STORE (more reliable than client-side resumeFrom) ═══
     // If resumeJobId is provided, look up the previous job's completed scenes from server memory.
     // This is the authoritative source since the server updates scene state directly.
@@ -1288,10 +1314,18 @@ export async function POST(req: NextRequest) {
           prevVideoUrls.push(ps.videoUrl || "");
           if (ps.videoDone && ps.videoUrl) prevCompletedVideos++;
           if (ps.frameDone && ps.frameUrl) prevCompletedFrames++;
+
+          // Carry forward PENDING taskIds for INCOMPLETE scenes
+          // (scenes that had a task submitted but didn't complete)
+          const hasPendingVideoTask = !!ps.taskId && !ps.videoDone;
+          const hasPendingFrameTask = !!ps.frameTaskId && !ps.frameDone;
+          if (hasPendingVideoTask || hasPendingFrameTask) {
+            pendingTaskIds.set(i, { taskId: ps.taskId || "", frameTaskId: ps.frameTaskId || "" });
+          }
         }
 
         // Use job-store data as primary (it's more reliable), client data as fallback
-        if (prevCompletedVideos > 0) {
+        if (prevCompletedVideos > 0 || pendingTaskIds.size > 0) {
           resumeData = {
             frameUrls: prevFrameUrls,
             videoUrls: prevVideoUrls,
@@ -1299,8 +1333,9 @@ export async function POST(req: NextRequest) {
             frameDone: prevFrameDone,
           };
           isResume = true;
-          addJobLog(jobId, `RESUME via job-store: ${prevCompletedVideos}/${validScenes.length} videos, ${prevCompletedFrames}/${validScenes.length} frames already done — will NOT regenerate these`);
-          console.log(`[Pipeline] RESUME via job-store: ${prevCompletedVideos}/${validScenes.length} videos, ${prevCompletedFrames}/${validScenes.length} frames already done`);
+          const pendingCount = pendingTaskIds.size;
+          addJobLog(jobId, `RESUME via job-store: ${prevCompletedVideos}/${validScenes.length} videos, ${prevCompletedFrames}/${validScenes.length} frames done, ${pendingCount} pending taskIds carried forward`);
+          console.log(`[Pipeline] RESUME via job-store: ${prevCompletedVideos}/${validScenes.length} videos, ${prevCompletedFrames}/${validScenes.length} frames done, ${pendingCount} pending taskIds carried forward`);
         } else {
           addJobLog(jobId, `RESUME via job-store: no completed scenes found, falling back to client data`);
           console.log(`[Pipeline] RESUME via job-store: no completed scenes found, falling back to client data`);
@@ -1373,6 +1408,7 @@ export async function POST(req: NextRequest) {
       (frameMode as string) || "avatar",
       resumeData,
       (resumeJobId as string) || null,
+      pendingTaskIds,
     );
 
     return new Response(stream.readable, {
