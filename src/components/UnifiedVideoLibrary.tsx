@@ -24,6 +24,38 @@ const C = {
   cardBorder: "#E5E7EB",
 };
 
+// ─── Video URL Helper (proxy with Range support for smooth streaming) ────
+function getStreamUrl(rawUrl: string): string {
+  if (!rawUrl || rawUrl.startsWith("data:") || rawUrl.startsWith("blob:") || rawUrl.startsWith("/api/")) {
+    return rawUrl;
+  }
+  return `/api/proxy-video?url=${encodeURIComponent(rawUrl)}`;
+}
+
+// ─── Lazy Video Thumbnail Hook (Intersection Observer) ──────────────────
+function useLazyVideoSrc(src: string) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [loadedSrc, setLoadedSrc] = useState("");
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setLoadedSrc(src);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [src]);
+
+  return { ref, loadedSrc };
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 interface VideoItem {
@@ -137,9 +169,10 @@ function VideoModal({
           ) : (
             <video
               ref={videoRef}
-              src={video.videoUrl}
+              src={getStreamUrl(video.videoUrl)}
               controls
               autoPlay
+              preload="auto"
               className="w-full"
               playsInline
             />
@@ -196,6 +229,12 @@ function VideoCard({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showEditMenu, setShowEditMenu] = useState(false);
 
+  // Lazy load video thumbnail — only load when card is visible on screen
+  const isImage = video.provider === "avatar" || video.provider === "carousel";
+  const { ref: thumbRef, loadedSrc } = useLazyVideoSrc(
+    !isImage ? video.videoUrl : ""
+  );
+
   const handleDeleteClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     setShowDeleteConfirm(true);
@@ -214,7 +253,6 @@ function VideoCard({
     year: "numeric",
   });
 
-  const isImage = video.provider === "avatar" || video.provider === "carousel";
   const providerColor = getProviderColor(video.provider);
   const aspect = getProviderAspect(video.provider);
 
@@ -243,7 +281,14 @@ function VideoCard({
         {isImage ? (
           <img src={video.videoUrl} alt={video.title} className="w-full h-full object-cover" />
         ) : (
-          <video src={video.videoUrl} className="w-full h-full object-cover" preload="metadata" playsInline />
+          <video
+            ref={thumbRef}
+            src={loadedSrc || undefined}
+            className="w-full h-full object-cover"
+            preload="metadata"
+            playsInline
+            muted
+          />
         )}
 
         {/* Gradient overlay */}

@@ -22,6 +22,38 @@ const C = {
   cream: "#FFF8F0",
 };
 
+// ─── Video URL Helper (proxy with Range support for smooth streaming) ────
+function getStreamUrl(rawUrl: string): string {
+  if (!rawUrl || rawUrl.startsWith("data:") || rawUrl.startsWith("blob:") || rawUrl.startsWith("/api/")) {
+    return rawUrl;
+  }
+  return `/api/proxy-video?url=${encodeURIComponent(rawUrl)}`;
+}
+
+// ─── Lazy Video Thumbnail Hook (Intersection Observer) ──────────────────
+function useLazyVideoSrc(src: string) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [loadedSrc, setLoadedSrc] = useState("");
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setLoadedSrc(src);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [src]);
+
+  return { ref, loadedSrc };
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────
 
 interface VideoItem {
@@ -91,9 +123,10 @@ function VideoModal({
         {/* Video */}
         <video
           ref={videoRef}
-          src={video.videoUrl}
+          src={getStreamUrl(video.videoUrl)}
           controls
           autoPlay
+          preload="auto"
           className="w-full"
           playsInline
           style={{ maxHeight: "80vh" }}
@@ -148,6 +181,9 @@ function VideoCard({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showEditMenu, setShowEditMenu] = useState(false);
 
+  // Lazy load video thumbnail
+  const { ref: thumbRef, loadedSrc } = useLazyVideoSrc(video.videoUrl);
+
   const handleDeleteClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     setShowDeleteConfirm(true);
@@ -193,10 +229,12 @@ function VideoCard({
         onClick={() => onPlay(video)}
       >
         <video
-          src={video.videoUrl}
+          ref={thumbRef}
+          src={loadedSrc || undefined}
           className="w-full h-full object-cover"
           preload="metadata"
           playsInline
+          muted
         />
 
         <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />

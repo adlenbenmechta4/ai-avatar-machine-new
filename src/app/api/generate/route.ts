@@ -7,7 +7,7 @@ export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 // Pipeline version — increment when critical resume/credit changes are deployed
-const PIPELINE_VERSION = "v3.5";
+const PIPELINE_VERSION = "v3.6";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ─── Upload Image ─────────────────────────────────────────────────

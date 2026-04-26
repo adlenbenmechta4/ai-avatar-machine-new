@@ -42,6 +42,41 @@ const DC = {
   cardBorder: "#2A2A2A",
 };
 
+// ─── Video URL Helper (proxy with Range support for smooth streaming) ────
+// Direct external URLs (KIE, fal.ai) often don't support Range requests properly,
+// causing choppy playback and slow seeking. Our proxy adds full Range support.
+function getStreamUrl(rawUrl: string): string {
+  // Skip proxy for data URLs, blob URLs, or already-proxied URLs
+  if (!rawUrl || rawUrl.startsWith("data:") || rawUrl.startsWith("blob:") || rawUrl.startsWith("/api/")) {
+    return rawUrl;
+  }
+  return `/api/proxy-video?url=${encodeURIComponent(rawUrl)}`;
+}
+
+// ─── Lazy Video Thumbnail Hook (Intersection Observer) ──────────────────
+function useLazyVideoSrc(src: string) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [loadedSrc, setLoadedSrc] = useState("");
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setLoadedSrc(src);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [src]);
+
+  return { ref, loadedSrc };
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 interface VideoItem {
@@ -117,9 +152,10 @@ function VideoModal({
         ) : (
           <video
             ref={videoRef}
-            src={video.videoUrl}
+            src={getStreamUrl(video.videoUrl)}
             controls
             autoPlay
+            preload="auto"
             className="w-full aspect-[9/16]"
             playsInline
             style={{ maxHeight: "80vh", objectFit: "contain" }}
@@ -180,6 +216,11 @@ function VideoCard({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showEditMenu, setShowEditMenu] = useState(false);
 
+  // Lazy load video thumbnail — only load when card is visible on screen
+  const { ref: thumbRef, loadedSrc } = useLazyVideoSrc(
+    video.provider !== "avatar" ? video.videoUrl : ""
+  );
+
   const handleDeleteClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     setShowDeleteConfirm(true);
@@ -232,10 +273,12 @@ function VideoCard({
           />
         ) : (
           <video
-            src={video.videoUrl}
+            ref={thumbRef}
+            src={loadedSrc || undefined}
             className="w-full h-full object-cover"
             preload="metadata"
             playsInline
+            muted
           />
         )}
 
