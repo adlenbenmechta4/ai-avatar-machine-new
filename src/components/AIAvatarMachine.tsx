@@ -687,6 +687,9 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   const currentJobIdRef = useRef<string | null>(null);
   const lastEventTimeRef = useRef<number>(0);
   const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isRunningRef = useRef(false); // Sync ref to avoid stale closure issues
+  const inactivityAbortRef = useRef(false); // Track if abort was from inactivity timer vs user
+  const runGenerationRef = useRef<() => Promise<void> | null>(null); // Always points to latest runGeneration
 
   // ── Cleanup ──
   useEffect(() => {
@@ -1107,7 +1110,10 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
 
   // ─── Run Generation Pipeline (SSE Streaming) ─────────────────────────
   const runGeneration = useCallback(async () => {
-    if (isRunning) return;
+    // CRITICAL: Use ref instead of stale closure state
+    if (isRunningRef.current) return;
+    isRunningRef.current = true;
+    setIsRunning(true);
 
     // ── Subscription / Plan Check ──
     if (user && user.plan === "free") {
@@ -1290,8 +1296,10 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
       if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
       inactivityTimerRef.current = setInterval(() => {
         const elapsed = Date.now() - lastEventTimeRef.current;
-        if (elapsed > INACTIVITY_TIMEOUT && isRunning) {
+        // CRITICAL: Use isRunningRef (not stale closure) to detect if pipeline is active
+        if (elapsed > INACTIVITY_TIMEOUT && isRunningRef.current) {
           addLog(`⚠️ No progress for ${Math.round(elapsed / 60000)} min — connection may have timed out`);
+          inactivityAbortRef.current = true; // Mark as inactivity abort (not user cancel)
           // Abort the stuck connection
           try { abortRef.current?.abort(); } catch {}
         }
@@ -1351,6 +1359,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
               setPipelineStep(4);
               setCombineProgress(100);
               setIsRunning(false);
+              isRunningRef.current = false;
               setPipelineError("");
               autoRetryCountRef.current = 0;
               setShowConfetti(true);
@@ -1377,6 +1386,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                 const retryNum = autoRetryCountRef.current;
                 addLog(`🔄 Auto-retrying... (attempt ${retryNum}/${MAX_AUTO_RETRIES}) — waiting 10s...`);
                 setIsRunning(false);
+                isRunningRef.current = false;
                 // Clean up inactivity timer
                 if (inactivityTimerRef.current) {
                   clearInterval(inactivityTimerRef.current as unknown as number);
@@ -1385,11 +1395,13 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                 // Close reader and retry
                 try { reader.cancel(); } catch {}
                 await new Promise(r => setTimeout(r, 10000));
-                runGeneration();
+                // CRITICAL: Use ref to call the LATEST version (not stale closure)
+                runGenerationRef.current?.();
                 return;
               } else {
                 addLog(`❌ Failed after ${MAX_AUTO_RETRIES} automatic retries.`);
                 setIsRunning(false);
+                isRunningRef.current = false;
                 setPipelineError(errMsg);
               }
             }
@@ -1406,13 +1418,13 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
       }
 
       // If stream ended but polling is active, let polling handle the rest
-      if (isRunning && pollIntervalRef.current) {
+      if (isRunningRef.current && pollIntervalRef.current) {
         addLog("SSE stream ended — status polling will continue tracking progress...");
         return;
       }
 
       // If stream ended without "done" or "error" and no polling — auto retry
-      if (isRunning) {
+      if (isRunningRef.current) {
         const errorMsg = "Connection lost or server timed out";
         addLog(`⚠️ ${errorMsg}`);
         autoRetryCountRef.current += 1;
@@ -1421,13 +1433,15 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
           const retryNum = autoRetryCountRef.current;
           addLog(`🔄 Auto-retrying... (attempt ${retryNum}/${MAX_AUTO_RETRIES}) — waiting 10s...`);
           setIsRunning(false);
+          isRunningRef.current = false;
           await new Promise(r => setTimeout(r, 10000));
-          // Retry automatically
-          runGeneration();
+          // CRITICAL: Use ref to call the LATEST version (not stale closure)
+          runGenerationRef.current?.();
           return;
         } else {
           addLog(`❌ Failed after ${MAX_AUTO_RETRIES} automatic retries.`);
           setIsRunning(false);
+          isRunningRef.current = false;
           setPipelineError("Failed after " + MAX_AUTO_RETRIES + " retries. Please reset and try again.");
         }
       }
@@ -1444,8 +1458,34 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
       }
 
       if ((err as Error).name === "AbortError" || (err as Error).message === "Aborted") {
-        addLog("Generation aborted by user.");
-        setIsRunning(false);
+        if (inactivityAbortRef.current) {
+          // This abort was triggered by the inactivity timer, NOT by the user
+          // Treat it as a retriable connection timeout
+          inactivityAbortRef.current = false;
+          addLog("⚠️ Connection was inactive too long — auto-retrying...");
+          autoRetryCountRef.current += 1;
+
+          if (autoRetryCountRef.current <= MAX_AUTO_RETRIES) {
+            const retryNum = autoRetryCountRef.current;
+            addLog(`🔄 Auto-retrying... (attempt ${retryNum}/${MAX_AUTO_RETRIES}) — waiting 10s...`);
+            setIsRunning(false);
+            isRunningRef.current = false;
+            await new Promise(r => setTimeout(r, 10000));
+            // CRITICAL: Use ref to call the LATEST version (not stale closure)
+            runGenerationRef.current?.();
+            return;
+          } else {
+            addLog(`❌ Failed after ${MAX_AUTO_RETRIES} automatic retries.`);
+            setPipelineError("Connection kept timing out. Please reset and try again.");
+            setIsRunning(false);
+            isRunningRef.current = false;
+          }
+        } else {
+          // User-initiated abort — do NOT retry
+          addLog("Generation aborted by user.");
+          setIsRunning(false);
+          isRunningRef.current = false;
+        }
       } else {
         const msg = err instanceof Error ? err.message : String(err);
         addLog(`ERROR: ${msg}`);
@@ -1456,19 +1496,25 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
           const retryNum = autoRetryCountRef.current;
           addLog(`🔄 Auto-retrying... (attempt ${retryNum}/${MAX_AUTO_RETRIES}) — waiting 10s...`);
           setIsRunning(false);
+          isRunningRef.current = false;
           await new Promise(r => setTimeout(r, 10000));
-          runGeneration();
+          // CRITICAL: Use ref to call the LATEST version (not stale closure)
+          runGenerationRef.current?.();
           return;
         } else {
           addLog(`❌ Failed after ${MAX_AUTO_RETRIES} automatic retries.`);
           setPipelineError(msg);
           setIsRunning(false);
+          isRunningRef.current = false;
         }
       }
     } finally {
       abortRef.current = null;
     }
   }, [isRunning, avatarImage, scenes, kieApiKey, falApiKey, frameMode, videoProvider, heygenApiKey, heygenVoiceId, heygenScript, uploadAvatarToServer, addLog, startStatusPolling]);
+
+  // CRITICAL: Keep ref pointing to the latest runGeneration so retry always calls current version
+  runGenerationRef.current = runGeneration;
 
   // ─── Reset ────────────────────────────────────────────────────────────
   const resetAll = useCallback(() => {
@@ -1483,6 +1529,8 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
     }
     currentJobIdRef.current = null;
     setIsRunning(false);
+    isRunningRef.current = false;
+    inactivityAbortRef.current = false;
     setPipelineStep(0);
     setCombineProgress(0);
     setShowConfetti(false);
