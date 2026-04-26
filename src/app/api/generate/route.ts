@@ -241,9 +241,12 @@ async function generateFrame(
         msg.includes("code !== 200");
 
       if (lastErrorWasPermanent) {
-        addJobLog(jobId, `Frame ${sceneIndex + 1}: permanent KIE failure detected — will submit NEW task on next retry`);
+        addJobLog(jobId, `Frame ${sceneIndex + 1}: permanent KIE failure detected — STOPPING (no retry, error is not recoverable)`);
         // Clear the dead frameTaskId so retry never tries to reuse it
         updateScene(jobId, sceneIndex, { error: msg, frameProgress: 0, frameTaskId: "" });
+        // IMPORTANT: Stop immediately on permanent failures — retrying would create duplicate
+        // dead KIE tasks and waste credits.
+        throw new Error(`Frame ${sceneIndex + 1} permanent failure: ${msg}`);
       } else {
         // Transient error — keep frameTaskId so retry can poll it (KIE may still be processing)
         updateScene(jobId, sceneIndex, { error: msg, frameProgress: 0 });
@@ -479,11 +482,14 @@ async function generateVideo(
         msg.includes("code !== 200");
 
       if (lastErrorWasPermanent) {
-        addJobLog(jobId, `Video ${sceneIndex + 1}: permanent KIE failure detected — will submit NEW task on next retry`);
+        addJobLog(jobId, `Video ${sceneIndex + 1}: permanent KIE failure detected — STOPPING (no retry, error is not recoverable)`);
         // Clear the dead taskId so retry never tries to reuse it
         updateScene(jobId, sceneIndex, { error: msg, videoProgress: 0, taskId: "" });
+        // IMPORTANT: Stop immediately on permanent failures — retrying would create duplicate
+        // dead KIE tasks and waste credits. The error will NOT resolve by resubmitting.
+        throw new Error(`Video ${sceneIndex + 1} permanent failure: ${msg}`);
       } else {
-        // Transient error — keep taskId so retry can poll it (KIE may still be processing)
+        // Transient error (network timeout, etc.) — keep taskId so retry can poll it (KIE may still be processing)
         updateScene(jobId, sceneIndex, { error: msg, videoProgress: 0 });
       }
 
