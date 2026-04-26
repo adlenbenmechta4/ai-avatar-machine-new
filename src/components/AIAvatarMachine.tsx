@@ -679,6 +679,71 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   const autoRetryCountRef = useRef<number>(0);
   const MAX_AUTO_RETRIES = 5; // More retries for large scene counts to avoid losing progress
 
+  // ── Pipeline Checkpoint (survives page refresh) ──
+  const PIPELINE_CHECKPOINT_KEY = "ai_avatar_pipeline_checkpoint";
+  const [hasActiveCheckpoint, setHasActiveCheckpoint] = useState(false);
+  const [restoredCheckpoint, setRestoredCheckpoint] = useState(false);
+
+  const savePipelineCheckpoint = useCallback((data: {
+    jobId: string;
+    avatarUrl: string;
+    avatarImage: string | null;
+    scenes: Scene[];
+    kieApiKey: string;
+    falApiKey: string;
+    frameMode: string;
+    videoProvider: string;
+    heygenApiKey: string;
+    heygenVoiceId: string;
+    heygenScript: string;
+    timestamp: number;
+  }) => {
+    try {
+      localStorage.setItem(PIPELINE_CHECKPOINT_KEY, JSON.stringify(data));
+    } catch {}
+  }, []);
+
+  const clearPipelineCheckpoint = useCallback(() => {
+    try {
+      localStorage.removeItem(PIPELINE_CHECKPOINT_KEY);
+    } catch {}
+    setHasActiveCheckpoint(false);
+    setRestoredCheckpoint(false);
+  }, []);
+
+  // On mount: check for active pipeline checkpoint and restore state
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(PIPELINE_CHECKPOINT_KEY);
+      if (!saved) return;
+      const checkpoint = JSON.parse(saved);
+      // Check if checkpoint is still valid (within 120 minutes)
+      const age = Date.now() - checkpoint.timestamp;
+      if (age > 120 * 60 * 1000) {
+        localStorage.removeItem(PIPELINE_CHECKPOINT_KEY);
+        return;
+      }
+      // Restore state from checkpoint
+      if (checkpoint.avatarUrl) setAvatarUrl(checkpoint.avatarUrl);
+      if (checkpoint.avatarImage) setAvatarImage(checkpoint.avatarImage);
+      if (checkpoint.scenes && checkpoint.scenes.length > 0) {
+        setScenes(checkpoint.scenes);
+      }
+      if (checkpoint.kieApiKey) setKieApiKey(checkpoint.kieApiKey);
+      if (checkpoint.falApiKey) setFalApiKey(checkpoint.falApiKey);
+      if (checkpoint.frameMode) setFrameMode(checkpoint.frameMode as "avatar" | "avatar_v2" | "scenes" | "custom");
+      if (checkpoint.videoProvider) setVideoProvider(checkpoint.videoProvider as "kie" | "heygen");
+      if (checkpoint.heygenApiKey) setHeygenApiKey(checkpoint.heygenApiKey);
+      if (checkpoint.heygenVoiceId) setHeygenVoiceId(checkpoint.heygenVoiceId);
+      if (checkpoint.heygenScript) setHeygenScript(checkpoint.heygenScript);
+      // Restore the jobId ref so resume works
+      currentJobIdRef.current = checkpoint.jobId;
+      setHasActiveCheckpoint(true);
+      setRestoredCheckpoint(true);
+      console.log("[Pipeline] Restored checkpoint with jobId:", checkpoint.jobId?.slice(0, 16));
+    } catch {}
+  }, []);
+
   // ── Refs ──
   const abortRef = useRef<AbortController | null>(null);
   const scenesRef = useRef(scenes); // Keep a ref to latest scenes for resume data
@@ -926,23 +991,47 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
           setCombineProgress(job.mergeProgress);
         }
 
-        // Update scene states
+        // Update scene states (and detect changes for checkpoint update)
+        let sceneStateChanged = false;
         if (job.scenes && Array.isArray(job.scenes)) {
-          setScenes((prev) =>
-            prev.map((s, i) => {
+          setScenes((prev) => {
+            let changed = false;
+            const updated = prev.map((s, i) => {
               const js = job.scenes[i];
               if (!js) return s;
+              const newFrameDone = js.frameDone ?? s.frameDone;
+              const newVideoDone = js.videoDone ?? s.videoDone;
+              const newFrameUrl = js.frameUrl || s.frameUrl;
+              const newVideoUrl = js.videoUrl || s.videoUrl;
+              if (newFrameDone !== s.frameDone || newVideoDone !== s.videoDone || newFrameUrl !== s.frameUrl || newVideoUrl !== s.videoUrl) {
+                changed = true;
+              }
               return {
                 ...s,
                 frameProgress: js.frameProgress ?? s.frameProgress,
-                frameDone: js.frameDone ?? s.frameDone,
+                frameDone: newFrameDone,
                 videoProgress: js.videoProgress ?? s.videoProgress,
-                videoDone: js.videoDone ?? s.videoDone,
-                frameUrl: js.frameUrl || s.frameUrl,
-                videoUrl: js.videoUrl || s.videoUrl,
+                videoDone: newVideoDone,
+                frameUrl: newFrameUrl,
+                videoUrl: newVideoUrl,
               };
-            })
-          );
+            });
+            sceneStateChanged = changed;
+            return changed ? updated : prev;
+          });
+        }
+
+        // Update checkpoint in localStorage when scene state changes (for resume after page refresh)
+        if (sceneStateChanged && currentJobIdRef.current) {
+          try {
+            const saved = localStorage.getItem("ai_avatar_pipeline_checkpoint");
+            if (saved) {
+              const checkpoint = JSON.parse(saved);
+              checkpoint.scenes = scenesRef.current || [];
+              checkpoint.timestamp = Date.now();
+              localStorage.setItem("ai_avatar_pipeline_checkpoint", JSON.stringify(checkpoint));
+            }
+          } catch {}
         }
 
         // Add new logs (avoid duplicates)
@@ -1109,6 +1198,17 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   }, [addLog]);
 
   // ─── Run Generation Pipeline (SSE Streaming) ─────────────────────────
+  // If we restored a checkpoint and user clicks Start, treat it as a retry (send resumeJobId)
+  // This handles the case where page refreshed during pipeline
+  useEffect(() => {
+    if (restoredCheckpoint && currentJobIdRef.current && !isRunning) {
+      // Auto-increment retry count so runGeneration knows it's a resume
+      autoRetryCountRef.current = 1;
+      setRestoredCheckpoint(false);
+      addLog("🔄 Found interrupted pipeline! Click 'Start' to resume from where it left off.");
+    }
+  }, [restoredCheckpoint]);
+
   const runGeneration = useCallback(async () => {
     // CRITICAL: Use ref instead of stale closure state
     if (isRunningRef.current) return;
@@ -1205,12 +1305,16 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
 
     try {
       // Step 1: Upload avatar (not needed in custom frames mode)
+      // On retry/resume, skip re-upload if we already have a valid avatarUrl
       let uploadedUrl = avatarUrl || "";
-      if (frameMode !== "custom" && avatarImage) {
+      const skipAvatarUpload = isRetry && uploadedUrl && uploadedUrl.startsWith("http");
+      if (frameMode !== "custom" && avatarImage && !skipAvatarUpload) {
         addLog("Uploading avatar to server...");
         uploadedUrl = await uploadAvatarToServer(avatarImage, kieApiKey, abortController.signal);
         setAvatarUrl(uploadedUrl);
         addLog("Avatar uploaded successfully!");
+      } else if (skipAvatarUpload) {
+        addLog("Using existing avatar URL (skip re-upload on resume)");
       }
 
       // Step 2: Start SSE pipeline
@@ -1341,6 +1445,21 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
               if (event.jobId) {
                 currentJobIdRef.current = event.jobId;
                 startStatusPolling(event.jobId);
+                // Save checkpoint to localStorage so resume works after page refresh
+                savePipelineCheckpoint({
+                  jobId: event.jobId,
+                  avatarUrl: uploadedUrl,
+                  avatarImage: avatarImage,
+                  scenes: scenesRef.current || scenes,
+                  kieApiKey,
+                  falApiKey,
+                  frameMode,
+                  videoProvider,
+                  heygenApiKey,
+                  heygenVoiceId,
+                  heygenScript,
+                  timestamp: Date.now(),
+                });
               }
             } else if (eventType === "progress") {
               const step = event.step as number;
@@ -1367,6 +1486,8 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
               setTimeout(() => setShowConfetti(false), 4000);
               // Auto-save to library
               if (videoUrl) doSaveToLibrary(videoUrl, frameUrls || []);
+              // Clear checkpoint — pipeline finished successfully
+              clearPipelineCheckpoint();
               // Stop polling
               if (pollIntervalRef.current) {
                 clearInterval(pollIntervalRef.current);
@@ -1538,6 +1659,9 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
     setFinalFrameUrls([]);
     setFinalVideoUrls([]);
     setLogs([]);
+    autoRetryCountRef.current = 0;
+    // Clear checkpoint — user explicitly reset
+    clearPipelineCheckpoint();
     setPipelineError("");
     autoRetryCountRef.current = 0;
     setSavedToLibrary(false);
