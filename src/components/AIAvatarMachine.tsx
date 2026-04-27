@@ -1760,6 +1760,58 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
     );
   }, []);
 
+  // ─── Delete All Scenes & Scripts ──────────────────────────────────────
+  const deleteAll = useCallback(() => {
+    abortRef.current?.abort();
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current);
+      inactivityTimerRef.current = null;
+    }
+    currentJobIdRef.current = null;
+    setIsRunning(false);
+    isRunningRef.current = false;
+    inactivityAbortRef.current = false;
+    setPipelineStep(0);
+    setCombineProgress(0);
+    setShowConfetti(false);
+    setFinalVideoUrl("");
+    setFinalFrameUrls([]);
+    setFinalVideoUrls([]);
+    setLogs([]);
+    autoRetryCountRef.current = 0;
+    clearPipelineCheckpoint();
+    setPipelineError("");
+    autoRetryCountRef.current = 0;
+    setSavedToLibrary(false);
+    setShowEditor(false);
+    setEditorVideoUrl("");
+    setAvatarUrl("");
+    // Reset to a single empty scene (delete all scenes & scripts)
+    setScenes([
+      {
+        id: generateId(),
+        description: "",
+        script: "",
+        framePrompt: "",
+        videoPrompt: "",
+        frameProgress: 0,
+        frameDone: false,
+        videoProgress: 0,
+        videoDone: false,
+        frameUrl: "",
+        videoUrl: "",
+        customFrameImage: null,
+      },
+    ]);
+    // Also reset AI script fields
+    setAiTopic("");
+    setHeygenScript("");
+  }, [clearPipelineCheckpoint]);
+
   // ─── Fill Sample Data ────────────────────────────────────────────────
   const fillSampleData = useCallback(() => {
     const sceneCount = mode === "ai" ? Math.ceil(aiDuration / 8) : scenes.length;
@@ -3112,21 +3164,43 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
             </div>
           )}
 
-          {/* ─── Generate / Reset Buttons ──────────────────────────── */}
+          {/* ─── Generate / Delete / Reset Buttons ──────────────────────── */}
           <div className="flex flex-wrap items-center justify-center gap-4 mb-10 sm:mb-14">
             {!isRunning && pipelineStep === 0 && (
-              <button
-                onClick={runGeneration}
-                disabled={frameMode === "custom" ? scenes.filter((s) => s.customFrameImage && s.script.trim()).length === 0 : !avatarImage || (videoProvider === "heygen" ? !heygenScript.trim() : scenes.filter((s) => s.description.trim() || s.script.trim()).length === 0)}
-                className="px-8 py-4 rounded-2xl text-base font-black uppercase tracking-wider transition-all duration-300 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl"
-                style={{
-                  backgroundColor: T.pink,
-                  color: T.white,
-                  boxShadow: (frameMode === "custom" || avatarImage) ? `0 8px 30px ${T.pink}40` : "none",
-                }}
-              >
-                🚀 Generate Video
-              </button>
+              <>
+                <button
+                  onClick={runGeneration}
+                  disabled={frameMode === "custom" ? scenes.filter((s) => s.customFrameImage && s.script.trim()).length === 0 : !avatarImage || (videoProvider === "heygen" ? !heygenScript.trim() : scenes.filter((s) => s.description.trim() || s.script.trim()).length === 0)}
+                  className="px-8 py-4 rounded-2xl text-base font-black uppercase tracking-wider transition-all duration-300 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl"
+                  style={{
+                    backgroundColor: T.pink,
+                    color: T.white,
+                    boxShadow: (frameMode === "custom" || avatarImage) ? `0 8px 30px ${T.pink}40` : "none",
+                  }}
+                >
+                  🚀 Generate Video
+                </button>
+
+                {/* Delete Button — only shown when there are scenes/scripts with content */}
+                {(scenes.some((s) => s.description.trim() || s.script.trim() || s.customFrameImage) || heygenScript.trim()) && (
+                  <button
+                    onClick={() => {
+                      if (confirm("Are you sure you want to delete all scenes and scripts? This cannot be undone.")) {
+                        deleteAll();
+                      }
+                    }}
+                    className="px-8 py-4 rounded-2xl text-base font-black uppercase tracking-wider transition-all duration-300 cursor-pointer hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl border-2"
+                    style={{
+                      backgroundColor: "transparent",
+                      borderColor: "#EF4444",
+                      color: "#EF4444",
+                      boxShadow: "0 8px 30px #EF444420",
+                    }}
+                  >
+                    🗑️ Delete
+                  </button>
+                )}
+              </>
             )}
 
             {isRunning && (
