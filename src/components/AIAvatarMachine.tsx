@@ -16,6 +16,7 @@ interface Scene {
   id: string;
   description: string;
   script: string;
+  expression: string;
   framePrompt: string;
   videoPrompt: string;
   frameProgress: number;
@@ -572,6 +573,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
       id: generateId(),
       description: "",
       script: "",
+      expression: "",
       framePrompt: "",
       videoPrompt: "",
       frameProgress: 0,
@@ -876,6 +878,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
       id: generateId(),
       description: "",
       script: "",
+      expression: "",
       framePrompt: "",
       videoPrompt: "",
       frameProgress: 0,
@@ -1334,6 +1337,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
         scenes: validScenes.map((s) => ({
           description: s.description,
           script: s.script,
+          expression: s.expression || undefined,
           customFrameImage: s.customFrameImage || undefined,
         })),
         kieApiKey,
@@ -1796,6 +1800,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
         id: generateId(),
         description: "",
         script: "",
+        expression: "",
         framePrompt: "",
         videoPrompt: "",
         frameProgress: 0,
@@ -3057,6 +3062,24 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                               style={{ backgroundColor: T.inputBg, borderColor: T.cardBorder, color: T.text, caretColor: T.pink }}
                             />
                           </div>
+
+                          {/* Expression / Gesture — only in Custom Frames + Expressive (v2) */}
+                          {frameMode === "custom" && customPromptStyle === "v2" && (
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: T.textMuted }}>
+                                🤚 Expression &amp; Gestures <span className="font-normal lowercase tracking-normal opacity-60">(optional)</span>
+                              </label>
+                              <input
+                                type="text"
+                                value={scene.expression}
+                                onChange={(e) => updateScene(scene.id, "expression", e.target.value)}
+                                placeholder="e.g. point with right hand, smile, raise eyebrows..."
+                                disabled={isRunning}
+                                className="w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 outline-none border-2 focus:border-current"
+                                style={{ backgroundColor: T.inputBg, borderColor: scene.expression ? T.cyan : T.cardBorder, color: T.text, caretColor: T.pink }}
+                              />
+                            </div>
+                          )}
 
                           {/* Frame Preview */}
                           {scene.frameDone && scene.frameUrl && (

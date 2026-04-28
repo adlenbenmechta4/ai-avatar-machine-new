@@ -373,7 +373,8 @@ async function generateVideo(
   apiKey: string,
  frameMode: string,
   writer: WritableStreamDefaultWriter<Uint8Array> | null,
-  videoModel: string = "veo3_lite"
+  videoModel: string = "veo3_lite",
+  expression?: string
 ): Promise<string> {
   const MAX_RETRIES = 5;
 
@@ -423,6 +424,9 @@ async function generateVideo(
         }
         let videoPrompt: string;
         if (frameMode === "avatar_v2" || frameMode === "custom_v2") {
+          const expressionPrompt = expression?.trim()
+            ? `\n\nSPECIFIC EXPRESSION & GESTURE INSTRUCTIONS FOR THIS SCENE: ${expression.trim()}. The person MUST perform these specific gestures and expressions while speaking this scene's dialogue.`
+            : "";
           videoPrompt =
             `${VIDEO_VISUAL_CONSTRAINTS_V2}\n\n` +
             `REFERENCE IMAGE: This is a talking-head video with expressive hand gestures and body language. The reference image is the ONLY source of truth for the person's appearance. ` +
@@ -430,7 +434,7 @@ async function generateVideo(
             `CRITICAL REMINDERS: NO fade-in at start. NO fade-out at end. NO transitions whatsoever. NO cuts. Camera stays STATIC (locked tripod). ` +
             `RAW FOOTAGE ONLY. INSTANT start, INSTANT end. Full brightness at all times. ` +
             `The person should use hand gestures, natural head movement, and expressive body language that MATCHES the dialogue content. ` +
-            `Dialogue: "${script}" ${VIDEO_VOICE_PROMPT}`;
+            `Dialogue: "${script}" ${VIDEO_VOICE_PROMPT}${expressionPrompt}`;
         } else if (frameMode === "avatar") {
           videoPrompt =
             `${VIDEO_VISUAL_CONSTRAINTS}\n\n` +
@@ -933,7 +937,7 @@ async function startHeartbeat(
 // ─── Pipeline Runner with SSE Streaming (Vercel-compatible) ──────────
 async function runPipelineSSE(
   avatarUrl: string,
-  validScenes: Array<{ description: string; script: string; customFrameImage?: string }>,
+  validScenes: Array<{ description: string; script: string; customFrameImage?: string; expression?: string }>,
   kieApiKey: string,
   falApiKey: string,
   useSceneFrames: boolean,
@@ -1153,7 +1157,8 @@ async function runPipelineSSE(
           frameUrls[index], kieApiKey,
           frameMode,
           writer,
-          videoModel
+          videoModel,
+          scene.expression
         );
         videoUrls[index] = videoUrl;
         // Send scene-level completion event so the client always has accurate state for resume
