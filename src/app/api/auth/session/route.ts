@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyIdToken } from "@/lib/firebase-admin";
 import { db } from "@/lib/db";
+import { getVipEmails } from "@/lib/auth-server";
 
 // VIP users with unlimited credits (enterprise access)
-// IMPORTANT: This list MUST match the one in src/lib/auth-server.ts
-const VIP_EMAILS = new Set([
-  "adlenbenmechta3@gmail.com",
-  "hello@fullynutrition.com",
-  "novaamz@gmail.com",
-]);
+// Source of truth: src/lib/auth-server.ts — imported here to avoid duplication
+const VIP_EMAILS = getVipEmails();
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,11 +39,46 @@ export async function POST(request: NextRequest) {
 
     const userName = decoded.name || decoded.firebase?.name || userEmail.split("@")[0];
 
-    // VIP users: return enterprise access without touching the database
+    // VIP users: sync to database for consistency, then return enterprise access
     if (VIP_EMAILS.has(userEmail)) {
+      // Best-effort DB sync: ensure the user record has admin role & enterprise plan
+      // This keeps the DB in sync with the VIP list (important for admin panel user list, etc.)
+      let dbUserId = decoded.uid || decoded.sub || "vip-user";
+      try {
+        const upsertedUser = await db.user.upsert({
+          where: { email: userEmail },
+          update: {
+            role: "admin",
+            plan: "enterprise",
+            creditsLimit: 999999,
+            updatedAt: new Date(),
+          },
+          create: {
+            name: userName,
+            email: userEmail,
+            password: "",
+            role: "admin",
+            plan: "enterprise",
+            creditsUsed: 0,
+            creditsLimit: 999999,
+            subscription: {
+              create: {
+                plan: "enterprise",
+                status: "active",
+              },
+            },
+          },
+          select: { id: true },
+        });
+        dbUserId = upsertedUser.id;
+      } catch (dbSyncErr) {
+        // DB sync failed — still return VIP data (graceful degradation)
+        console.warn("[session] VIP DB sync failed:", dbSyncErr);
+      }
+
       return NextResponse.json({
         user: {
-          id: decoded.uid || decoded.sub || "vip-user",
+          id: dbUserId,
           name: userName,
           email: userEmail,
           role: "admin",

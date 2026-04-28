@@ -20,6 +20,11 @@ export function getVipEmails(): Set<string> {
   return new Set(VIP_EMAILS);
 }
 
+// Exported function to check if an email is VIP (convenience helper)
+export function isVipEmail(email: string): boolean {
+  return VIP_EMAILS.has(email.toLowerCase().trim());
+}
+
 interface AuthUser {
   id: string;
   name: string;
@@ -67,11 +72,43 @@ export async function getAuthUser(request: NextRequest): Promise<AuthUser | null
 
     const normalizedEmail = decoded.email.toLowerCase().trim();
 
-    // VIP users: grant enterprise access with unlimited credits without DB dependency
+    // VIP users: grant enterprise access with unlimited credits
+    // Also sync to DB for consistency (ensures admin panel user list shows correct role)
     if (VIP_EMAILS.has(normalizedEmail)) {
       console.log("[getAuthUser] VIP user authenticated:", normalizedEmail);
+
+      // Best-effort DB sync: update role & plan in database
+      let dbUserId = decoded.uid || decoded.sub || "vip-user";
+      try {
+        const upsertedUser = await db.user.upsert({
+          where: { email: normalizedEmail },
+          update: {
+            role: "admin",
+            plan: "enterprise",
+            creditsLimit: 999999,
+            updatedAt: new Date(),
+          },
+          create: {
+            name: decoded.name || normalizedEmail.split("@")[0],
+            email: normalizedEmail,
+            password: "",
+            role: "admin",
+            plan: "enterprise",
+            creditsUsed: 0,
+            creditsLimit: 999999,
+            subscription: {
+              create: { plan: "enterprise", status: "active" },
+            },
+          },
+          select: { id: true },
+        });
+        dbUserId = upsertedUser.id;
+      } catch (dbSyncErr) {
+        console.warn("[getAuthUser] VIP DB sync failed:", dbSyncErr);
+      }
+
       return {
-        id: decoded.uid || decoded.sub || "vip-user",
+        id: dbUserId,
         name: decoded.name || decoded.email?.split("@")[0] || "VIP User",
         email: normalizedEmail,
         role: "admin",

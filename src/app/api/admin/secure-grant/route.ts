@@ -1,18 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyIdToken } from "@/lib/firebase-admin";
+import { getVipEmails, isVipEmail } from "@/lib/auth-server";
 import crypto from "crypto";
 
 // ══════════════════════════════════════════════════════════════════════════════
 // SECURITY CONFIGURATION — 7 Layers of Protection
 // ══════════════════════════════════════════════════════════════════════════════
 
-// Layer 1: Hardcoded VIP whitelist — only these emails can use this endpoint
-const GRANT_ADMIN_EMAILS = new Set([
-  "adlenbenmechta3@gmail.com",
-  "hello@fullynutrition.com",
-  "novaamz@gmail.com",
+// Layer 1: VIP whitelist — only these emails can use this endpoint
+// Additional grant-specific emails beyond the VIP list (e.g. partner accounts)
+const GRANT_EXTRA_EMAILS = new Set([
   "hello@holystrips.com",
 ]);
+
+// Combined admin check: VIP emails from auth-server.ts + extra grant-specific emails
+function isGrantAdmin(email: string): boolean {
+  return isVipEmail(email) || GRANT_EXTRA_EMAILS.has(email.toLowerCase().trim());
+}
 
 // Layer 2: HMAC secret for request signing (server-only, never exposed to client)
 const HMAC_SECRET = process.env.GRANT_HMAC_SECRET || "avm_secure_grant_2024_xK9mZ";
@@ -175,7 +179,7 @@ export async function POST(request: NextRequest) {
 
     // ── Layer 2: VIP admin email whitelist check ──
     const adminEmail = decoded.email.toLowerCase().trim();
-    if (!GRANT_ADMIN_EMAILS.has(adminEmail)) {
+    if (!isGrantAdmin(adminEmail)) {
       console.error(
         `[SECURE-GRANT] UNAUTHORIZED ACCESS ATTEMPT: email=${adminEmail}, ip=${clientIp}, target=${targetEmail}`
       );
