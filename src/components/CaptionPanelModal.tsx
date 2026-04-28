@@ -708,7 +708,32 @@ export default function CaptionPanelModal({
                   </div>
                 </ControlCard>
 
-                {/* 7. Font Color */}
+                {/* 7. Font Name */}
+                <ControlCard>
+                  <SectionLabel>Font</SectionLabel>
+                  <Select
+                    value={subFontName}
+                    onValueChange={setSubFontName}
+                  >
+                    <SelectTrigger className="w-full h-9 text-xs rounded-xl">
+                      <SelectValue placeholder="Select font" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Cairo">Cairo</SelectItem>
+                      <SelectItem value="Tajawal">Tajawal</SelectItem>
+                      <SelectItem value="Noto Sans Arabic">Noto Sans Arabic</SelectItem>
+                      <SelectItem value="Montserrat">Montserrat</SelectItem>
+                      <SelectItem value="Poppins">Poppins</SelectItem>
+                      <SelectItem value="Inter">Inter</SelectItem>
+                      <SelectItem value="Roboto">Roboto</SelectItem>
+                      <SelectItem value="Oswald">Oswald</SelectItem>
+                      <SelectItem value="Bebas Neue">Bebas Neue</SelectItem>
+                      <SelectItem value="Anton">Anton</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </ControlCard>
+
+                {/* 8. Font Color */}
                 <ControlCard>
                   <SectionLabel>Font Color</SectionLabel>
                   <div className="flex items-center gap-2">
@@ -753,7 +778,7 @@ export default function CaptionPanelModal({
                   </div>
                 </ControlCard>
 
-                {/* 8. Highlight Color */}
+                {/* 9. Highlight Color */}
                 <ControlCard>
                   <SectionLabel>Highlight Color</SectionLabel>
                   <div className="flex items-center gap-2">
@@ -804,7 +829,7 @@ export default function CaptionPanelModal({
                   </div>
                 </ControlCard>
 
-                {/* 9. Stroke Width */}
+                {/* 10. Stroke Width */}
                 <ControlCard>
                   <div className="flex items-center justify-between mb-2">
                     <SectionLabel className="mb-0">Stroke Width</SectionLabel>
@@ -847,7 +872,7 @@ export default function CaptionPanelModal({
                   </div>
                 </ControlCard>
 
-                {/* 10. Animation Toggle */}
+                {/* 11. Animation Toggle */}
                 <ControlCard>
                   <div className="flex items-center justify-between">
                     <div>
@@ -873,7 +898,7 @@ export default function CaptionPanelModal({
                   </div>
                 </ControlCard>
 
-                {/* 11. Background */}
+                {/* 12. Background */}
                 <ControlCard>
                   <div className="flex items-center justify-between mb-2">
                     <div>
@@ -935,7 +960,7 @@ export default function CaptionPanelModal({
                   )}
                 </ControlCard>
 
-                {/* 12. Generate Button ─────────────────────────────── */}
+                {/* 13. Generate Button ─────────────────────────────── */}
                 {!subtitleDone && (
                   <button
                     onClick={generateSubtitles}
