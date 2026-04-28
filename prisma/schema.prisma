@@ -82,6 +82,7 @@ model GeneratedVideo {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   title        String   @default("My AI Video")
   videoUrl     String
+  captionUrl   String?  // URL of the captioned version of the video (if captions were added)
   thumbnailUrl String?
   duration     String?
   scenesCount  Int      @default(1)

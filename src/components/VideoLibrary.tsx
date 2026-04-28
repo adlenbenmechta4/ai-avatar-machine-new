@@ -527,23 +527,63 @@ export default function VideoLibrary({ onViewCreate, onEditVideo, onCaptionVideo
     setLoading(true);
     setError("");
     try {
-      // Always load from localStorage first (persistent, works without DB)
       const userEmail = user?.email || "";
       const localVideos = userEmail ? loadVideosFromStorage(userEmail) : [];
 
-      // Try API as secondary source (works when DB is available)
+      // Step 1: Try API FIRST (database is primary storage)
       let apiVideos: VideoItem[] = [];
+      let apiAvailable = false;
       try {
         const res = await authFetch("/api/videos");
         if (res.ok) {
           const data = await res.json();
           apiVideos = (data.videos || []) as VideoItem[];
+          apiAvailable = true;
         }
       } catch {
-        // API failed — use localStorage only
+        // API failed — will fallback to localStorage
       }
 
-      // Merge: API videos + localStorage videos (deduplicated)
+      // Step 2: Sync localStorage videos to database (one-time upload)
+      // If DB is available and localStorage has videos not yet in DB, upload them
+      if (apiAvailable && userEmail && localVideos.length > 0) {
+        const apiUrls = new Set(apiVideos.map((v) => v.videoUrl));
+        const unsyncedLocal = localVideos.filter((v) => !apiUrls.has(v.videoUrl));
+
+        for (const localVideo of unsyncedLocal) {
+          try {
+            await authFetch("/api/videos", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                title: localVideo.title,
+                videoUrl: localVideo.videoUrl,
+                thumbnailUrl: localVideo.thumbnailUrl,
+                duration: localVideo.duration,
+                scenesCount: localVideo.scenesCount,
+                provider: localVideo.provider,
+              }),
+            });
+          } catch {
+            // Silently skip sync failures
+          }
+        }
+
+        // Re-fetch from API after sync to get DB IDs
+        if (unsyncedLocal.length > 0) {
+          try {
+            const res = await authFetch("/api/videos");
+            if (res.ok) {
+              const data = await res.json();
+              apiVideos = (data.videos || []) as VideoItem[];
+            }
+          } catch {
+            // Keep previous apiVideos
+          }
+        }
+      }
+
+      // Step 3: Merge API + localStorage videos (deduplicated)
       const merged = mergeVideos(apiVideos as StoredVideo[], localVideos as unknown as StoredVideo[]) as unknown as VideoItem[];
       setVideos(merged);
     } catch (err: unknown) {

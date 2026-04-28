@@ -1,6 +1,10 @@
 // ─── Client-side Video Library Persistence (localStorage) ────────────────
 // Videos are stored per-user, keyed by email, so they persist across
 // refresh, login/logout, and page navigation — all on the same browser.
+//
+// IMPORTANT: localStorage is a BACKUP/cache only. The database (via /api/videos)
+// is the PRIMARY storage. localStorage ensures videos are still visible
+// when the DB is temporarily unavailable.
 
 export interface StoredVideo {
   id: string;
@@ -30,9 +34,18 @@ export function saveVideoToStorage(email: string, video: StoredVideo): void {
   try {
     const key = getKey(email);
     const existing = loadVideosFromStorage(email);
-    // Don't add duplicates (check by videoUrl)
-    const alreadyExists = existing.some((v) => v.videoUrl === video.videoUrl);
-    if (alreadyExists) return;
+    // Don't add duplicates (check by videoUrl AND id)
+    const alreadyExists = existing.some((v) => v.videoUrl === video.videoUrl || v.id === video.id);
+    if (alreadyExists) {
+      // Update existing entry if we have a DB ID now (replace local_ ID)
+      const updated = existing.map((v) =>
+        (v.videoUrl === video.videoUrl || v.id === video.id)
+          ? { ...v, ...video }
+          : v
+      );
+      localStorage.setItem(key, JSON.stringify(updated));
+      return;
+    }
     // Prepend (newest first)
     const updated = [video, ...existing];
     localStorage.setItem(key, JSON.stringify(updated));
@@ -91,21 +104,44 @@ export function updateVideoUrlInStorage(email: string, videoId: string, newUrl: 
 }
 
 /**
- * Merge API videos with localStorage videos (deduplicate by id).
- * When the same video exists in both API and localStorage, the localStorage
- * version takes precedence because it may have an updated URL (e.g. after captions).
+ * Merge API (database) videos with localStorage videos (deduplicate by id AND videoUrl).
+ * When the same video exists in both API and localStorage, the API version
+ * takes precedence (has the correct DB ID) unless localStorage has a different
+ * videoUrl (e.g. after caption update).
  */
 export function mergeVideos(apiVideos: StoredVideo[], localVideos: StoredVideo[]): StoredVideo[] {
-  const apiIds = new Set(apiVideos.map((v) => v.id));
-  // Build a map of local videos by id (most recent first in array)
-  const localById = new Map<string, StoredVideo>();
-  for (const v of localVideos) {
-    if (!localById.has(v.id)) localById.set(v.id, v);
+  // Build a map of API videos by id and by URL (API is primary source)
+  const apiById = new Map<string, StoredVideo>();
+  const apiByUrl = new Map<string, StoredVideo>();
+  for (const v of apiVideos) {
+    apiById.set(v.id, v);
+    if (v.videoUrl) apiByUrl.set(v.videoUrl, v);
   }
-  // Keep API videos that DON'T exist in localStorage
-  const uniqueApis = apiVideos.filter((v) => !localById.has(v.id));
-  // Combine: local versions (have precedence) + API-only videos
-  const merged = [...Array.from(localById.values()), ...uniqueApis];
+
+  // Build a map of local videos by URL (for detecting caption-updated URLs)
+  const localByUrl = new Map<string, StoredVideo>();
+  for (const v of localVideos) {
+    if (v.videoUrl) localByUrl.set(v.videoUrl, v);
+  }
+
+  // Start with all API videos (they have correct DB IDs)
+  const result = new Map<string, StoredVideo>();
+  for (const v of apiVideos) {
+    result.set(v.id, v);
+  }
+
+  // Add local videos that are NOT in API (these are only in localStorage)
+  for (const v of localVideos) {
+    // Skip if this video's URL already exists in API (same video, already have DB version)
+    if (apiByUrl.has(v.videoUrl)) continue;
+    // Skip if this video's ID already exists in API
+    if (apiById.has(v.id)) continue;
+    // This is a local-only video — add it
+    result.set(v.id, v);
+  }
+
+  // Sort newest first
+  const merged = Array.from(result.values());
   merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   return merged;
 }

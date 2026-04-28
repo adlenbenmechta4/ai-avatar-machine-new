@@ -43,10 +43,29 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch all videos for this user, newest first
+    // Also search by Firebase UID as fallback (in case videos were saved before DB user was created)
     const videos = await db.generatedVideo.findMany({
-      where: { userId: dbUserId },
+      where: {
+        OR: [
+          { userId: dbUserId },
+          // Also include videos saved with Firebase UID (before DB user existed)
+          ...(dbUserId !== user.id ? [{ userId: user.id }] : []),
+        ],
+      },
       orderBy: { createdAt: "desc" },
     });
+
+    // If we found videos with a mismatched userId, fix them to use the correct DB ID
+    if (videos.some((v) => v.userId !== dbUserId)) {
+      try {
+        await db.generatedVideo.updateMany({
+          where: { userId: user.id },
+          data: { userId: dbUserId },
+        });
+      } catch {
+        // Silently ignore migration errors
+      }
+    }
 
     return NextResponse.json({ videos });
   } catch (error: unknown) {
@@ -110,5 +129,61 @@ export async function POST(request: NextRequest) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error("POST /api/videos error:", msg);
     return NextResponse.json({ error: "Failed to save video" }, { status: 500 });
+  }
+}
+
+// ─── PATCH /api/videos ─ Update video metadata (e.g. caption URL) ──────────
+export async function PATCH(request: NextRequest) {
+  try {
+    const user = await getAuthUser(request);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { id, videoUrl, title, captionUrl } = body;
+
+    if (!id) {
+      return NextResponse.json({ error: "Video ID is required" }, { status: 400 });
+    }
+
+    // Resolve the correct DB user ID
+    const dbUserId = await resolveUserId(user.id, user.email);
+
+    // Build update data (only include fields that are provided)
+    const updateData: Record<string, unknown> = {};
+    if (videoUrl !== undefined) updateData.videoUrl = videoUrl;
+    if (title !== undefined) updateData.title = title;
+    if (captionUrl !== undefined) updateData.captionUrl = captionUrl;
+
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json({ error: "No fields to update" }, { status: 400 });
+    }
+
+    // Find the video first to verify ownership
+    const video = await db.generatedVideo.findUnique({
+      where: { id },
+    });
+
+    if (!video) {
+      return NextResponse.json({ error: "Video not found" }, { status: 404 });
+    }
+
+    // Verify ownership
+    if (video.userId !== dbUserId && video.userId !== user.id) {
+      return NextResponse.json({ error: "Forbidden: you don't own this video" }, { status: 403 });
+    }
+
+    // Update the video
+    const updated = await db.generatedVideo.update({
+      where: { id },
+      data: updateData,
+    });
+
+    return NextResponse.json({ video: updated });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("PATCH /api/videos error:", msg);
+    return NextResponse.json({ error: "Failed to update video" }, { status: 500 });
   }
 }

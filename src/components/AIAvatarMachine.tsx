@@ -1878,6 +1878,8 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
 
   // ─── Save to Library ──────────────────────────────────────────────
   // ─── Auto-save to library on completion ──────────────────────────
+  // Database is the PRIMARY storage — localStorage is backup/cache only.
+  // This ensures videos persist even if browser data is cleared.
   const doSaveToLibrary = useCallback(async (videoUrl: string, frameUrls: string[]) => {
     if (!videoUrl) return;
     const videoData = {
@@ -1889,35 +1891,40 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
       provider: videoProvider,
     };
 
-    // Always save to localStorage (persistent, works without DB)
     const userEmail = user?.email || "";
-    if (userEmail) {
-      saveVideoToStorage(userEmail, {
-        id: "local_" + Date.now(),
-        ...videoData,
-        createdAt: new Date().toISOString(),
-      });
-    }
+    let apiVideoId: string | null = null;
 
-    // Also try API save (for when DB is available)
+    // Step 1: Try API save FIRST (database is primary storage)
     try {
       const res = await authFetch("/api/videos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(videoData),
       });
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        console.error("Auto-save to API failed:", res.status, errData);
-        addLog("✅ Video saved to library (local storage)");
-      } else {
+      if (res.ok) {
+        const data = await res.json();
+        apiVideoId = data.video?.id || null;
         setSavedToLibrary(true);
         addLog("✅ Video saved to library!");
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        console.error("Auto-save to API failed:", res.status, errData);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error("Auto-save API error:", msg);
-      addLog("✅ Video saved to library (local storage)");
+    }
+
+    // Step 2: Also save to localStorage as backup/cache
+    if (userEmail) {
+      saveVideoToStorage(userEmail, {
+        id: apiVideoId || "local_" + Date.now(),
+        ...videoData,
+        createdAt: new Date().toISOString(),
+      });
+      if (!apiVideoId) {
+        addLog("✅ Video saved to library (local backup — DB unavailable)");
+      }
     }
   }, [totalDuration, videoProvider, scenes.length, authFetch, user?.email]);
 
@@ -1934,33 +1941,43 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
       provider: videoProvider,
     };
 
-    // Always save to localStorage
     const userEmail = user?.email || "";
-    if (userEmail) {
-      saveVideoToStorage(userEmail, {
-        id: "local_" + Date.now(),
-        ...videoData,
-        createdAt: new Date().toISOString(),
-      });
-      setSavedToLibrary(true);
-      addLog("✅ Video saved to library!");
-      return;
-    }
+    let apiVideoId: string | null = null;
 
-    // Fallback: try API save
+    // Step 1: Try API save FIRST (database is primary)
     try {
       const res = await authFetch("/api/videos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(videoData),
       });
-      if (!res.ok) {
+      if (res.ok) {
+        const data = await res.json();
+        apiVideoId = data.video?.id || null;
+        setSavedToLibrary(true);
+        addLog("✅ Video saved to library!");
+      } else {
         throw new Error(`Save failed (${res.status})`);
       }
-      setSavedToLibrary(true);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      alert("Failed to save to library: " + msg);
+      console.error("Manual save API error:", msg);
+      // Don't alert yet — still try localStorage
+    }
+
+    // Step 2: Also save to localStorage as backup
+    if (userEmail) {
+      saveVideoToStorage(userEmail, {
+        id: apiVideoId || "local_" + Date.now(),
+        ...videoData,
+        createdAt: new Date().toISOString(),
+      });
+      if (!apiVideoId) {
+        setSavedToLibrary(true);
+        addLog("✅ Video saved to library (local backup — DB unavailable)");
+      }
+    } else if (!apiVideoId) {
+      alert("Failed to save to library: not authenticated");
     }
   }, [finalVideoUrl, finalFrameUrls, totalDuration, videoProvider, scenes.length, authFetch, savedToLibrary, user?.email]);
 
@@ -2229,7 +2246,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                     setAvatarProgress("");
                     addLog("Avatar image generated successfully!");
 
-                    // Auto-save to library
+                    // Auto-save to library (database first, localStorage backup)
                     const avatarData = {
                       title: "My AI Avatar",
                       videoUrl: data.imageUrl,
@@ -2239,25 +2256,30 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                       provider: "avatar" as string,
                     };
 
-                    // Always save to localStorage
-                    const userEmail = user?.email || "";
-                    if (userEmail) {
-                      saveVideoToStorage(userEmail, {
-                        id: "local_" + Date.now(),
-                        ...avatarData,
-                        createdAt: new Date().toISOString(),
-                      });
-                    }
-
-                    // Also try API save
+                    let avatarApiId: string | null = null;
+                    // Step 1: Try API save FIRST (database is primary)
                     try {
-                      await authFetch("/api/videos", {
+                      const saveRes = await authFetch("/api/videos", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify(avatarData),
                       });
+                      if (saveRes.ok) {
+                        const saveData = await saveRes.json();
+                        avatarApiId = saveData.video?.id || null;
+                      }
                     } catch {
-                      // API failed — localStorage save already done
+                      // API failed — will fallback to localStorage
+                    }
+
+                    // Step 2: Also save to localStorage as backup
+                    const userEmail = user?.email || "";
+                    if (userEmail) {
+                      saveVideoToStorage(userEmail, {
+                        id: avatarApiId || "local_" + Date.now(),
+                        ...avatarData,
+                        createdAt: new Date().toISOString(),
+                      });
                     }
                     setAvatarSaved(true);
                     addLog("Avatar saved to library!");
@@ -3798,10 +3820,21 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
         {showCaptionModal && captionVideoUrl && (
           <CaptionPanelModal
             videoUrl={captionVideoUrl}
-            onClose={(captionedUrl) => {
+            onClose={async (captionedUrl) => {
               if (captionedUrl && captionVideoId) {
                 const userEmail = user?.email || "";
+                // Update localStorage
                 if (userEmail) updateVideoUrlInStorage(userEmail, captionVideoId, captionedUrl);
+                // Also update in database (primary storage)
+                try {
+                  await authFetch("/api/videos", {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ id: captionVideoId, videoUrl: captionedUrl }),
+                  });
+                } catch {
+                  // DB update failed — localStorage is already updated
+                }
               }
               setShowCaptionModal(false);
               setCaptionVideoUrl("");
