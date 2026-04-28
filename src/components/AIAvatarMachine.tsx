@@ -3260,14 +3260,14 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                   </h2>
                 </div>
 
-                <div className="max-w-lg mx-auto mb-4">
-                  <div className="rounded-2xl overflow-hidden border-2 shadow-lg relative" style={{ borderColor: subtitleDone ? T.cyan : T.lime }}>
+                <div className="mx-auto mb-4" style={{ maxWidth: "240px" }}>
+                  <div className="rounded-2xl overflow-hidden border-2 shadow-lg relative" style={{ borderColor: subtitleDone ? T.cyan : T.lime, aspectRatio: "9/16" }}>
                     <video
                       key={subtitleDone ? subtitleVideoUrl : finalVideoUrl}
                       src={subtitleDone ? subtitleVideoUrl : finalVideoUrl}
                       controls
                       autoPlay
-                      className="w-full rounded-2xl"
+                      className="w-full h-full rounded-2xl object-contain"
                       preload="metadata"
                     />
                     {subtitleDone && (
