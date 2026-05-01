@@ -12,7 +12,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // 1. ZAI_BASE_URL + ZAI_API_KEY env vars (for z-ai platform or any OpenAI-compatible API)
 // 2. OPENAI_API_KEY env var (for OpenAI API)
 // 3. z-ai-web-dev-sdk config file (for local development)
-// 4. Hardcoded defaults (if available)
+// 4. Template-based generation (fallback when no LLM API is available)
 
 interface AIConfig {
   baseUrl: string;
@@ -23,7 +23,7 @@ interface AIConfig {
   provider: string;
 }
 
-function getAIConfig(): AIConfig {
+function getAIConfig(): AIConfig | null {
   // Option 1: ZAI environment variables (for any OpenAI-compatible API)
   const zaiBaseUrl = process.env.ZAI_BASE_URL;
   const zaiApiKey = process.env.ZAI_API_KEY;
@@ -50,14 +50,7 @@ function getAIConfig(): AIConfig {
     };
   }
 
-  // Option 3: Will try z-ai-web-dev-sdk config file later (handled in createZAI())
-  // Return null-like to indicate SDK mode should be used
-  throw new Error(
-    "AI API not configured for carousel generation. Please set either:\n" +
-    "- ZAI_BASE_URL + ZAI_API_KEY (for z-ai platform or any OpenAI-compatible API)\n" +
-    "- OPENAI_API_KEY (for OpenAI API)\n" +
-    "Add these as environment variables on your Railway deployment."
-  );
+  return null;
 }
 
 // ─── Create ZAI instance from config file (for local development) ──────────
@@ -108,6 +101,7 @@ async function chatCompletionDirect(
     method: "POST",
     headers,
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60000), // 60 second timeout
   });
 
   if (!response.ok) {
@@ -118,33 +112,43 @@ async function chatCompletionDirect(
   return await response.json();
 }
 
-// ─── Chat completion with fallback to z-ai-web-dev-sdk ─────────────────────
+// ─── Chat completion with fallback chain ───────────────────────────────────
 async function chatCompletion(
   messages: Array<{ role: string; content: string }>,
   options?: { temperature?: number; max_tokens?: number }
-) {
-  // Try environment variables first
-  try {
-    const config = getAIConfig();
-    return await chatCompletionDirect(config, messages, options);
-  } catch {
-    // Environment variables not set, try z-ai-web-dev-sdk config file
+): Promise<Record<string, unknown> | null> {
+  // Try 1: Environment variables
+  const config = getAIConfig();
+  if (config) {
+    try {
+      return await chatCompletionDirect(config, messages, options);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn("[Carousel] Env var API failed:", msg);
+      // Continue to next fallback
+    }
   }
 
-  // Fallback to z-ai-web-dev-sdk
+  // Try 2: z-ai-web-dev-sdk config file
   const zai = await createZAIFromConfig();
   if (zai) {
-    const completion = await zai.chat.completions.create({
-      messages,
-      temperature: options?.temperature ?? 0.7,
-      max_tokens: options?.max_tokens ?? 4000,
-    });
-    return completion;
+    try {
+      const completion = await zai.chat.completions.create({
+        messages,
+        temperature: options?.temperature ?? 0.7,
+        max_tokens: options?.max_tokens ?? 4000,
+      });
+      return completion as unknown as Record<string, unknown>;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn("[Carousel] ZAI SDK failed:", msg);
+      // Continue to next fallback
+    }
   }
 
-  throw new Error(
-    "AI API not configured. Please set ZAI_BASE_URL + ZAI_API_KEY or OPENAI_API_KEY environment variables on your deployment."
-  );
+  // Try 3: Return null to trigger template-based fallback
+  console.log("[Carousel] All AI APIs failed, will use template-based content generation");
+  return null;
 }
 
 // ─── Direct OpenAI-compatible image generation ─────────────────────────────
@@ -167,6 +171,7 @@ async function imageGenerationDirect(config: AIConfig, prompt: string, size: str
     method: "POST",
     headers,
     body: JSON.stringify({ prompt, size }),
+    signal: AbortSignal.timeout(120000), // 2 minute timeout for images
   });
 
   if (!response.ok) {
@@ -178,24 +183,83 @@ async function imageGenerationDirect(config: AIConfig, prompt: string, size: str
 }
 
 // ─── Image generation with fallback to z-ai-web-dev-sdk ────────────────────
-async function imageGeneration(prompt: string, size: string = "768x1344") {
-  // Try environment variables first
-  try {
-    const config = getAIConfig();
-    return await imageGenerationDirect(config, prompt, size);
-  } catch {
-    // Environment variables not set, try z-ai-web-dev-sdk config file
+async function imageGeneration(prompt: string, size: string = "768x1344"): Promise<Record<string, unknown> | null> {
+  // Try 1: Environment variables
+  const config = getAIConfig();
+  if (config) {
+    try {
+      return await imageGenerationDirect(config, prompt, size);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn("[Carousel] Env var image API failed:", msg);
+    }
   }
 
-  // Fallback to z-ai-web-dev-sdk
+  // Try 2: z-ai-web-dev-sdk config file
   const zai = await createZAIFromConfig();
   if (zai) {
-    return await zai.images.generations.create({ prompt, size });
+    try {
+      return await zai.images.generations.create({ prompt, size }) as unknown as Record<string, unknown>;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn("[Carousel] ZAI SDK image generation failed:", msg);
+    }
   }
 
-  throw new Error(
-    "AI API not configured for image generation. Please set ZAI_BASE_URL + ZAI_API_KEY environment variables."
-  );
+  return null;
+}
+
+// ─── Template-based carousel content generation (fallback) ─────────────────
+function generateTemplateContent(
+  idea: string,
+  numSlides: number,
+  language: string
+): Array<{ slideNumber: number; title: string; body: string; imagePrompt: string }> {
+  const isAr = language === "ar";
+  const isFr = language === "fr";
+
+  const slides: Array<{ slideNumber: number; title: string; body: string; imagePrompt: string }> = [];
+
+  // Cover slide
+  slides.push({
+    slideNumber: 1,
+    title: isAr ? idea : isFr ? idea : idea,
+    body: isAr ? "اكتشف الأسرار التي ستغير طريقة تفكيرك" : isFr ? "Découvrez les secrets qui changeront votre perspective" : "Discover the secrets that will change your perspective",
+    imagePrompt: `Professional social media carousel cover slide with bold typography about "${idea}", modern gradient background, eye-catching design, vibrant colors, clean layout`,
+  });
+
+  // Content slides
+  const tips = isAr
+    ? ["النقطة الأولى المهمة", "النقطة الثانية الأساسية", "النقطة الثالثة الجوهرية", "النقطة الرابعة", "النقطة الخامسة", "النقطة السادسة", "النقطة السابعة", "النقطة الثامنة"]
+    : isFr
+    ? ["Premier point essentiel", "Deuxième point fondamental", "Troisième point clé", "Quatrième point important", "Cinquième point crucial", "Sixième point", "Septième point", "Huitième point"]
+    : ["The first key insight", "The second fundamental principle", "The third crucial strategy", "The fourth important lesson", "The fifth essential tip", "The sixth powerful method", "The seventh vital point", "The eighth game-changer"];
+
+  const bodies = isAr
+    ? ["هذه النقطة ستساعدك على فهم الموضوع بشكل أعمق وتطبيقه في حياتك اليومية", "عندما تطبق هذا المبدأ، ستلاحظ فرقاً كبيراً في نتائجك", "النجاح يبدأ بفهم هذه الاستراتيجية وتطبيقها بشكل صحيح", "هذا الدرس تعلمته من تجارب كثيرة وهو مهم جداً للتقدم", "التطبيق العملي لهذه النصيحة سيغير نظرتك تماماً", "الكثيرون يتجاهلون هذه النقطة لكنها الأهم", "هذا السر يفرق بين الناجحين والآخرين", "التغيير يبدأ بخطوة واحدة وهذه هي خطوتك"]
+    : isFr
+    ? ["Ce point vous aidera à comprendre le sujet plus profondément et à l'appliquer quotidiennement", "Quand vous appliquez ce principe, vous remarquerez une grande différence dans vos résultats", "Le succès commence par la compréhension de cette stratégie et son application correcte", "Cette leçon vient de nombreuses expériences et est cruciale pour progresser", "L'application pratique de ce conseil changera complètement votre perspective", "Beaucoup ignorent ce point mais il est le plus important", "Ce secret fait la différence entre ceux qui réussissent et les autres", "Le changement commence par un seul pas et c'est le vôtre"]
+    : ["This insight will help you understand the topic more deeply and apply it to your daily life", "When you apply this principle, you'll notice a significant difference in your results", "Success starts with understanding this strategy and applying it correctly", "This lesson comes from extensive experience and is crucial for progress", "The practical application of this tip will completely change your perspective", "Many overlook this point but it's the most important one", "This secret separates those who succeed from everyone else", "Change starts with a single step and this is yours"];
+
+  const contentCount = Math.max(1, numSlides - 2); // minus cover and CTA
+  for (let i = 0; i < contentCount && i < tips.length; i++) {
+    slides.push({
+      slideNumber: i + 2,
+      title: tips[i],
+      body: bodies[i] || tips[i],
+      imagePrompt: `Professional social media carousel content slide about "${idea}" - ${tips[i]}, modern design, clean typography, vibrant colors, infographic style`,
+    });
+  }
+
+  // CTA slide
+  slides.push({
+    slideNumber: numSlides,
+    title: isAr ? "ابدأ الآن! 🚀" : isFr ? "Commencez maintenant! 🚀" : "Start Now! 🚀",
+    body: isAr ? "شارك هذا المحتوى مع أصدقائك وابدأ رحلتك اليوم" : isFr ? "Partagez ce contenu avec vos amis et commencez votre voyage aujourd'hui" : "Share this with your friends and start your journey today",
+    imagePrompt: `Professional social media carousel CTA slide about "${idea}", bold call-to-action design, modern gradient, engaging typography, action-oriented layout`,
+  });
+
+  return slides;
 }
 
 // ─── Poll for kie.ai image result ──────────────────────────────────────────
@@ -341,39 +405,47 @@ Return ONLY the JSON array, no extra text.`,
     max_tokens: 4000,
   });
 
-  const content = completion.choices?.[0]?.message?.content || "";
-  // Try to extract JSON from the response
-  const jsonMatch = content.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) {
-    throw new Error("AI failed to generate valid carousel content. Response: " + content.slice(0, 300));
+  // If AI chat completion worked, parse the response
+  if (completion) {
+    const content = (completion as Record<string, unknown>)?.choices?.[0]?.message?.content || "";
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      try {
+        const slides = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(slides) && slides.length > 0) {
+          return slides.map((slide: Record<string, unknown>, i: number) => ({
+            slideNumber: (slide.slideNumber as number) || i + 1,
+            title: (slide.title as string) || `Slide ${i + 1}`,
+            body: (slide.body as string) || "",
+            imagePrompt: (slide.imagePrompt as string) || `Professional social media carousel slide about ${idea}`,
+          }));
+        }
+      } catch (parseErr) {
+        console.warn("[Carousel] Failed to parse AI response, using template fallback:", parseErr);
+      }
+    }
   }
 
-  const slides = JSON.parse(jsonMatch[0]);
-  if (!Array.isArray(slides) || slides.length === 0) {
-    throw new Error("AI returned empty carousel content");
-  }
-
-  // Ensure slides have the correct fields
-  return slides.map((slide: Record<string, unknown>, i: number) => ({
-    slideNumber: (slide.slideNumber as number) || i + 1,
-    title: (slide.title as string) || `Slide ${i + 1}`,
-    body: (slide.body as string) || "",
-    imagePrompt: (slide.imagePrompt as string) || `Professional social media carousel slide about ${idea}`,
-  }));
+  // Fallback: Template-based content generation
+  console.log("[Carousel] Using template-based content generation for idea:", idea.slice(0, 50));
+  return generateTemplateContent(idea, numSlides, language);
 }
 
 // ─── Generate slide image using built-in AI API ──────────────────────────
 async function generateSlideImageBuiltIn(prompt: string, slideIdx: number, total: number): Promise<string> {
   const response = await imageGeneration(prompt, "768x1344");
-  const base64 = response.data?.[0]?.base64;
-  if (!base64) {
-    // Some APIs return a URL instead of base64
-    const imageUrl = response.data?.[0]?.url;
-    if (imageUrl) return imageUrl;
-    throw new Error("No image data returned from AI API");
+
+  if (response) {
+    const data = (response as Record<string, unknown>)?.data;
+    if (Array.isArray(data) && data.length > 0) {
+      const base64 = data[0]?.base64;
+      if (base64) return `data:image/png;base64,${base64}`;
+      const imageUrl = data[0]?.url;
+      if (imageUrl) return imageUrl as string;
+    }
   }
-  // Convert base64 to data URL
-  return `data:image/png;base64,${base64}`;
+
+  throw new Error("Image generation failed - no AI image API available. Set KIE_API_KEY, ZAI_BASE_URL+ZAI_API_KEY, or OPENAI_API_KEY for image generation.");
 }
 
 // ─── POST /api/generate-carousel ──────────────────────────────────────────
@@ -403,7 +475,7 @@ export async function POST(req: NextRequest) {
 
     const slidesCount = Math.max(3, Math.min(10, parseInt(numSlides) || 5));
 
-    // Step 1: Generate slide content with AI
+    // Step 1: Generate slide content with AI (with template fallback)
     console.log(`[Carousel] Generating ${slidesCount} slides for idea: "${idea.slice(0, 50)}..."`);
 
     const slides = await generateSlideContent(idea.trim(), slidesCount, language || "en");
