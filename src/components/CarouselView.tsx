@@ -234,10 +234,7 @@ export default function CarouselView({ onBack, isAdmin = false }: CarouselViewPr
   // ─── Handle Generate ─────────────────────────────────────────────────
   const handleGenerate = async () => {
     if (!idea.trim()) return;
-    if (isAdmin && (!kieApiKey.trim() || kieApiKey.trim().length < 10)) {
-      setError("Please enter your kie.ai API key");
-      return;
-    }
+    // kie.ai API key is optional — if not provided, built-in AI image generation will be used
 
     setGenerating(true);
     setError("");
@@ -717,7 +714,7 @@ export default function CarouselView({ onBack, isAdmin = false }: CarouselViewPr
               </button>
             </div>
             <p className="text-[11px] mt-1.5" style={{ color: C.textMuted }}>
-              Admin only — override the default server key
+              Optional — leave blank to use built-in AI image generation
             </p>
           </div>}
 
@@ -960,15 +957,15 @@ export default function CarouselView({ onBack, isAdmin = false }: CarouselViewPr
           {/* Generate Button */}
           <button
             onClick={handleGenerate}
-            disabled={!idea.trim() || (isAdmin && !kieApiKey.trim()) || generating}
+            disabled={!idea.trim() || generating}
             className="w-full mt-5 py-4 rounded-2xl text-sm font-black uppercase tracking-wider transition-all duration-300 disabled:opacity-35 disabled:cursor-not-allowed"
             style={{
               background: generating
                 ? `linear-gradient(135deg, ${C.pink}90, ${C.gold}90)`
                 : `linear-gradient(135deg, ${C.pink}, ${C.gold})`,
               color: C.white,
-              boxShadow: idea.trim() && (isAdmin ? kieApiKey.trim() : true) && !generating ? `0 6px 24px ${C.pink}35` : "none",
-              transform: idea.trim() && (isAdmin ? kieApiKey.trim() : true) && !generating ? "scale(1)" : "scale(0.98)",
+              boxShadow: idea.trim() && !generating ? `0 6px 24px ${C.pink}35` : "none",
+              transform: idea.trim() && !generating ? "scale(1)" : "scale(0.98)",
             }}
           >
             {generating ? (

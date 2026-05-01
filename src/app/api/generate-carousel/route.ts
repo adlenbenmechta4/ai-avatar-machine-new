@@ -195,12 +195,9 @@ export async function POST(req: NextRequest) {
     // Use admin-provided key from client (if admin), or fall back to server env variable
     const finalApiKey = (kieApiKey && kieApiKey.length >= 10) ? kieApiKey : process.env.KIE_API_KEY;
 
-    if (!finalApiKey || finalApiKey.length < 10) {
-      return NextResponse.json(
-        { error: "kie.ai API key is not configured. Please contact support." },
-        { status: 400 }
-      );
-    }
+    // Determine image generation method: kie.ai if key available, otherwise z-ai-web-dev-sdk
+    const useKieAi = !!(finalApiKey && finalApiKey.length >= 10);
+    console.log(`[Carousel] Image generation method: ${useKieAi ? 'kie.ai (nano-banana-2)' : 'z-ai-web-dev-sdk (built-in)'}`);
 
     const slidesCount = Math.max(3, Math.min(10, parseInt(numSlides) || 5));
 
@@ -209,19 +206,39 @@ export async function POST(req: NextRequest) {
 
     const slides = await generateSlideContent(idea.trim(), slidesCount, language || "en");
 
-    // Step 2: Generate images for each slide using kie.ai nano-banana-2
+    // Step 2: Generate images for each slide
     const slidesWithImages = [];
+
+    // Fallback image generator using z-ai-web-dev-sdk
+    async function generateSlideImageZai(prompt: string, slideIdx: number, total: number): Promise<string> {
+      const zai = await ZAI.create();
+      const response = await zai.images.generations.create({
+        prompt: prompt,
+        size: "768x1344", // Closest to 9:16 carousel aspect ratio
+      });
+      const base64 = response.data[0]?.base64;
+      if (!base64) throw new Error('No image data returned from AI');
+      // Convert base64 to data URL
+      return `data:image/png;base64,${base64}`;
+    }
 
     for (let i = 0; i < slides.length; i++) {
       const slide = slides[i];
 
       try {
-        const imageUrl = await generateSlideImage(
-          slide.imagePrompt,
-          finalApiKey,
-          i,
-          slides.length
-        );
+        let imageUrl: string;
+        if (useKieAi) {
+          imageUrl = await generateSlideImage(
+            slide.imagePrompt,
+            finalApiKey!,
+            i,
+            slides.length
+          );
+        } else {
+          console.log(`[Carousel] Slide ${i + 1}/${slides.length}: generating with z-ai-web-dev-sdk...`);
+          imageUrl = await generateSlideImageZai(slide.imagePrompt, i, slides.length);
+          console.log(`[Carousel] Slide ${i + 1}/${slides.length}: image ready!`);
+        }
         slidesWithImages.push({
           ...slide,
           imageUrl,
