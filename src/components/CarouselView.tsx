@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
+import { useAuth } from "@/providers/auth-provider";
 
 // ─── Colors ─────────────────────────────────────────────────────────────────
 
@@ -166,6 +167,8 @@ function renderTextOnImage(
 // ─── Carousel View Component ───────────────────────────────────────────────
 
 export default function CarouselView({ onBack, isAdmin = false }: CarouselViewProps) {
+  const { authFetch } = useAuth();
+
   // ─── States ──────────────────────────────────────────────────────────
   const [idea, setIdea] = useState("");
   const [kieApiKey, setKieApiKey] = useState("");
@@ -244,7 +247,7 @@ export default function CarouselView({ onBack, isAdmin = false }: CarouselViewPr
     setGenerationStep("Generating carousel content with AI...");
 
     try {
-      const res = await fetch("/api/generate-carousel", {
+      const res = await authFetch("/api/generate-carousel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
