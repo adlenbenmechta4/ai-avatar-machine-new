@@ -87,11 +87,15 @@ function renderTextOnImage(
       // Draw the original image
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-      // ─── If no text, skip overlay entirely ───
+      // ─── If no text, skip overlay entirely and return clean image ───
       const hasHeader = headerText && headerText.trim() !== "";
       const hasBody = bodyText && bodyText.trim() !== "";
+      const hasText = !!(hasHeader || hasBody);
 
-      if (hasHeader || hasBody) {
+      const maxWidth = canvas.width * 0.85;
+      const padding = canvas.width * 0.075;
+
+      if (hasText) {
         // ─── Dark gradient overlay based on position ───
         const gradHeight = canvas.height * 0.4;
         let gradStart, gradEnd;
@@ -115,8 +119,6 @@ function renderTextOnImage(
         ctx.fillRect(0, gradStart, canvas.width, gradHeight);
 
         // ─── Draw text ───
-        const maxWidth = canvas.width * 0.85;
-        const padding = canvas.width * 0.075;
 
         // Draw header text (bold, larger)
         if (hasHeader) {
@@ -211,42 +213,44 @@ function renderTextOnImage(
         }
       }
 
-      // ─── Slide number badge ───
-      ctx.shadowColor = "rgba(0,0,0,0.5)";
-      ctx.shadowBlur = 8;
-      const badgeText = `${slideIndex + 1}/${totalSlides}`;
-      const badgeFontSize = canvas.width * 0.035;
-      ctx.font = `bold ${badgeFontSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
+      // ─── Slide number badge (only on slides with text overlay) ───
+      if (hasText) {
+        ctx.shadowColor = "rgba(0,0,0,0.5)";
+        ctx.shadowBlur = 8;
+        const badgeText = `${slideIndex + 1}/${totalSlides}`;
+        const badgeFontSize = canvas.width * 0.035;
+        ctx.font = `bold ${badgeFontSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
 
-      const badgePadding = badgeFontSize * 0.6;
-      const badgeTextWidth = ctx.measureText(badgeText).width;
-      const badgeW = badgeTextWidth + badgePadding * 2;
-      const badgeH = badgeFontSize + badgePadding * 1.2;
-      const badgeX = padding;
-      const badgeY = padding;
+        const badgePadding = badgeFontSize * 0.6;
+        const badgeTextWidth = ctx.measureText(badgeText).width;
+        const badgeW = badgeTextWidth + badgePadding * 2;
+        const badgeH = badgeFontSize + badgePadding * 1.2;
+        const badgeX = padding;
+        const badgeY = padding;
 
-      // Badge background
-      ctx.fillStyle = "rgba(0,0,0,0.55)";
-      const badgeRadius = badgeH / 2;
-      ctx.beginPath();
-      ctx.moveTo(badgeX + badgeRadius, badgeY);
-      ctx.lineTo(badgeX + badgeW - badgeRadius, badgeY);
-      ctx.quadraticCurveTo(badgeX + badgeW, badgeY, badgeX + badgeW, badgeY + badgeRadius);
-      ctx.lineTo(badgeX + badgeW, badgeY + badgeH - badgeRadius);
-      ctx.quadraticCurveTo(badgeX + badgeW, badgeY + badgeH, badgeX + badgeW - badgeRadius, badgeY + badgeH);
-      ctx.lineTo(badgeX + badgeRadius, badgeY + badgeH);
-      ctx.quadraticCurveTo(badgeX, badgeY + badgeH, badgeX, badgeY + badgeH - badgeRadius);
-      ctx.lineTo(badgeX, badgeY + badgeRadius);
-      ctx.quadraticCurveTo(badgeX, badgeY, badgeX + badgeRadius, badgeY);
-      ctx.closePath();
-      ctx.fill();
+        // Badge background
+        ctx.fillStyle = "rgba(0,0,0,0.55)";
+        const badgeRadius = badgeH / 2;
+        ctx.beginPath();
+        ctx.moveTo(badgeX + badgeRadius, badgeY);
+        ctx.lineTo(badgeX + badgeW - badgeRadius, badgeY);
+        ctx.quadraticCurveTo(badgeX + badgeW, badgeY, badgeX + badgeW, badgeY + badgeRadius);
+        ctx.lineTo(badgeX + badgeW, badgeY + badgeH - badgeRadius);
+        ctx.quadraticCurveTo(badgeX + badgeW, badgeY + badgeH, badgeX + badgeW - badgeRadius, badgeY + badgeH);
+        ctx.lineTo(badgeX + badgeRadius, badgeY + badgeH);
+        ctx.quadraticCurveTo(badgeX, badgeY + badgeH, badgeX, badgeY + badgeH - badgeRadius);
+        ctx.lineTo(badgeX, badgeY + badgeRadius);
+        ctx.quadraticCurveTo(badgeX, badgeY, badgeX + badgeRadius, badgeY);
+        ctx.closePath();
+        ctx.fill();
 
-      // Badge text
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = "#FFFFFF";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(badgeText, badgeX + badgeW / 2, badgeY + badgeH / 2);
+        // Badge text
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#FFFFFF";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(badgeText, badgeX + badgeW / 2, badgeY + badgeH / 2);
+      }
 
       resolve(canvas.toDataURL("image/png"));
     };

@@ -327,7 +327,7 @@ async function generateSlideImageKie(
       model: "nano-banana-2",
       input: {
         prompt: imagePrompt,
-        image_size: "1024x1792",
+        image_size: "768x1344",
       },
     }),
   });
