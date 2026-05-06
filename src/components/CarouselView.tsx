@@ -21,10 +21,14 @@ const C = {
 
 interface Slide {
   slideNumber: number;
+  slideType: string;
   title: string;
   body: string;
   imagePrompt: string;
   imageUrl: string | null;
+  headerText: string | null;
+  bodyText: string | null;
+  textPosition: "top" | "center" | "bottom";
   status: "done" | "image_failed";
   error?: string;
   textOverlayUrl?: string | null; // canvas-rendered image with text
@@ -35,10 +39,35 @@ interface CarouselViewProps {
   isAdmin?: boolean;
 }
 
-// ─── Canvas: Render text overlay on image ────────────────────────────────────
+// ─── Word wrap helper ────────────────────────────────────────────────────────
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, fontSize?: number): string[] {
+  if (fontSize) {
+    ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
+  }
+  const words = text.split(" ");
+  const lines: string[] = [];
+  let currentLine = "";
+
+  for (const word of words) {
+    const testLine = currentLine ? currentLine + " " + word : word;
+    const metrics = ctx.measureText(testLine);
+    if (metrics.width > maxWidth && currentLine) {
+      lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = testLine;
+    }
+  }
+  if (currentLine) lines.push(currentLine);
+  return lines;
+}
+
+// ─── Canvas: Render text overlay on image (BOFU format) ────────────────────────
 function renderTextOnImage(
   imageUrl: string,
-  overlayText: string,
+  headerText: string | null,
+  bodyText: string | null,
+  textPosition: string,
   slideIndex: number,
   totalSlides: number
 ): Promise<string> {
@@ -58,66 +87,128 @@ function renderTextOnImage(
       // Draw the original image
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-      // ─── Dark gradient overlay at bottom ───
-      const gradHeight = canvas.height * 0.32;
-      const grad = ctx.createLinearGradient(0, canvas.height - gradHeight, 0, canvas.height);
-      grad.addColorStop(0, "rgba(0,0,0,0)");
-      grad.addColorStop(0.4, "rgba(0,0,0,0.5)");
-      grad.addColorStop(1, "rgba(0,0,0,0.85)");
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, canvas.height - gradHeight, canvas.width, gradHeight);
+      // ─── If no text, skip overlay entirely ───
+      const hasHeader = headerText && headerText.trim() !== "";
+      const hasBody = bodyText && bodyText.trim() !== "";
 
-      // ─── Draw text ───
-      const maxWidth = canvas.width * 0.85;
-      const padding = canvas.width * 0.075;
-
-      // Determine font size based on text length
-      const textLen = overlayText.length;
-      let fontSize: number;
-      if (textLen <= 20) fontSize = canvas.width * 0.08;
-      else if (textLen <= 50) fontSize = canvas.width * 0.065;
-      else if (textLen <= 100) fontSize = canvas.width * 0.055;
-      else fontSize = canvas.width * 0.045;
-
-      // Ensure minimum font size
-      fontSize = Math.max(fontSize, 28);
-
-      ctx.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
-      ctx.fillStyle = "#FFFFFF";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "bottom";
-
-      // Word wrap
-      const words = overlayText.split(" ");
-      const lines: string[] = [];
-      let currentLine = "";
-
-      for (const word of words) {
-        const testLine = currentLine ? currentLine + " " + word : word;
-        const metrics = ctx.measureText(testLine);
-        if (metrics.width > maxWidth && currentLine) {
-          lines.push(currentLine);
-          currentLine = word;
+      if (hasHeader || hasBody) {
+        // ─── Dark gradient overlay based on position ───
+        const gradHeight = canvas.height * 0.4;
+        let gradStart, gradEnd;
+        if (textPosition === "top") {
+          gradStart = 0;
+          gradEnd = gradHeight;
+        } else if (textPosition === "center") {
+          gradStart = (canvas.height - gradHeight) / 2;
+          gradEnd = gradStart + gradHeight;
         } else {
-          currentLine = testLine;
+          // bottom (default)
+          gradStart = canvas.height - gradHeight;
+          gradEnd = canvas.height;
         }
-      }
-      if (currentLine) lines.push(currentLine);
 
-      // Draw text lines from bottom up
-      const lineHeight = fontSize * 1.35;
-      const textBlockHeight = lines.length * lineHeight;
-      const baseY = canvas.height - padding;
+        const grad = ctx.createLinearGradient(0, gradStart, 0, gradEnd);
+        grad.addColorStop(0, "rgba(0,0,0,0)");
+        grad.addColorStop(0.3, "rgba(0,0,0,0.5)");
+        grad.addColorStop(1, "rgba(0,0,0,0.85)");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, gradStart, canvas.width, gradHeight);
 
-      // Draw subtle text shadow for readability
-      ctx.shadowColor = "rgba(0,0,0,0.6)";
-      ctx.shadowBlur = fontSize * 0.15;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 2;
+        // ─── Draw text ───
+        const maxWidth = canvas.width * 0.85;
+        const padding = canvas.width * 0.075;
 
-      for (let i = 0; i < lines.length; i++) {
-        const y = baseY - ((lines.length - 1 - i) * lineHeight);
-        ctx.fillText(lines[i], canvas.width / 2, y);
+        // Draw header text (bold, larger)
+        if (hasHeader) {
+          const headerLen = headerText!.length;
+          let headerFontSize: number;
+          if (headerLen <= 20) headerFontSize = canvas.width * 0.08;
+          else if (headerLen <= 40) headerFontSize = canvas.width * 0.065;
+          else headerFontSize = canvas.width * 0.055;
+          headerFontSize = Math.max(headerFontSize, 28);
+
+          ctx.font = `bold ${headerFontSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
+          ctx.fillStyle = "#FFFFFF";
+          ctx.textAlign = "center";
+
+          // Word wrap for header
+          const headerLines = wrapText(ctx, headerText!, maxWidth);
+          const lineHeight = headerFontSize * 1.35;
+
+          // Calculate Y position based on textPosition
+          let baseY: number;
+          if (textPosition === "top") {
+            baseY = padding + headerFontSize + (hasBody ? 0 : lineHeight * (headerLines.length - 1));
+          } else if (textPosition === "center") {
+            const totalHeight = headerLines.length * lineHeight + (hasBody ? headerFontSize * 0.5 + 20 : 0);
+            baseY = canvas.height / 2 - totalHeight / 2 + headerFontSize;
+          } else {
+            // bottom
+            const bodyLines = hasBody ? wrapText(ctx, bodyText!, maxWidth, headerFontSize * 0.7) : [];
+            const bodyFontSize = headerFontSize * 0.7;
+            const bodyLineHeight = bodyFontSize * 1.35;
+            const totalHeight = headerLines.length * lineHeight + (hasBody ? 20 + bodyLines.length * bodyLineHeight : 0);
+            baseY = canvas.height - padding - totalHeight + headerFontSize;
+          }
+
+          // Draw subtle text shadow
+          ctx.shadowColor = "rgba(0,0,0,0.6)";
+          ctx.shadowBlur = headerFontSize * 0.15;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 2;
+
+          for (let i = 0; i < headerLines.length; i++) {
+            ctx.fillText(headerLines[i], canvas.width / 2, baseY + i * lineHeight);
+          }
+
+          // Draw body text (regular, smaller)
+          if (hasBody) {
+            const bodyFontSize = headerFontSize * 0.7;
+            ctx.font = `${bodyFontSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
+            const bodyLines = wrapText(ctx, bodyText!, maxWidth, bodyFontSize);
+            const bodyLineHeight = bodyFontSize * 1.35;
+            const bodyStartY = baseY + headerLines.length * lineHeight + 10;
+
+            ctx.shadowBlur = bodyFontSize * 0.1;
+
+            for (let i = 0; i < bodyLines.length; i++) {
+              ctx.fillText(bodyLines[i], canvas.width / 2, bodyStartY + i * bodyLineHeight);
+            }
+          }
+        } else if (hasBody) {
+          // Only body text, no header
+          const bodyLen = bodyText!.length;
+          let fontSize: number;
+          if (bodyLen <= 20) fontSize = canvas.width * 0.07;
+          else if (bodyLen <= 50) fontSize = canvas.width * 0.06;
+          else fontSize = canvas.width * 0.05;
+          fontSize = Math.max(fontSize, 24);
+
+          ctx.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
+          ctx.fillStyle = "#FFFFFF";
+          ctx.textAlign = "center";
+
+          const bodyLines = wrapText(ctx, bodyText!, maxWidth, fontSize);
+          const lineHeight = fontSize * 1.35;
+
+          let baseY: number;
+          if (textPosition === "top") {
+            baseY = padding + fontSize;
+          } else if (textPosition === "center") {
+            baseY = canvas.height / 2 - (bodyLines.length * lineHeight) / 2 + fontSize;
+          } else {
+            baseY = canvas.height - padding - (bodyLines.length - 1) * lineHeight;
+          }
+
+          ctx.shadowColor = "rgba(0,0,0,0.6)";
+          ctx.shadowBlur = fontSize * 0.15;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 2;
+
+          for (let i = 0; i < bodyLines.length; i++) {
+            ctx.fillText(bodyLines[i], canvas.width / 2, baseY + i * lineHeight);
+          }
+        }
       }
 
       // ─── Slide number badge ───
@@ -209,15 +300,26 @@ export default function CarouselView({ onBack, isAdmin = false }: CarouselViewPr
   }, []);
 
   // ─── Apply text overlay to all slides ────────────────────────────────
-  const applyTextOverlay = useCallback(async (rawSlides: Slide[], texts: string[]) => {
+  const applyTextOverlay = useCallback(async (rawSlides: Slide[]) => {
     setApplyingOverlay(true);
     setGenerationStep("Applying text overlay...");
 
     const updated = [...rawSlides];
     for (let i = 0; i < updated.length; i++) {
-      if (updated[i].imageUrl && texts[i] && texts[i].trim()) {
+      const slide = updated[i];
+      // Only apply overlay if there is text to show
+      const hasHeader = slide.headerText && slide.headerText.trim() !== "";
+      const hasBody = slide.bodyText && slide.bodyText.trim() !== "";
+      if (slide.imageUrl && (hasHeader || hasBody)) {
         try {
-          const overlayUrl = await renderTextOnImage(updated[i].imageUrl!, texts[i].trim(), i, updated.length);
+          const overlayUrl = await renderTextOnImage(
+            slide.imageUrl!,
+            slide.headerText,
+            slide.bodyText,
+            slide.textPosition || "bottom",
+            i,
+            updated.length
+          );
           updated[i] = { ...updated[i], textOverlayUrl: overlayUrl };
         } catch (err) {
           console.error(`[Carousel] Text overlay failed for slide ${i + 1}:`, err);
@@ -270,10 +372,12 @@ export default function CarouselView({ onBack, isAdmin = false }: CarouselViewPr
       setShowResult(true);
       setGenerationStep("");
 
-      // If text overlay is enabled and there are texts, apply them
-      const hasTexts = slideTexts.some((t) => t && t.trim());
-      if (textOverlay && hasTexts) {
-        await applyTextOverlay(rawSlides, slideTexts);
+      // Auto-apply text overlay from AI response (headerText/bodyText)
+      const hasAnyText = rawSlides.some(s => 
+        (s.headerText && s.headerText.trim()) || (s.bodyText && s.bodyText.trim())
+      );
+      if (hasAnyText) {
+        await applyTextOverlay(rawSlides);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -287,7 +391,7 @@ export default function CarouselView({ onBack, isAdmin = false }: CarouselViewPr
   const handleReapplyOverlay = async () => {
     if (slides.length === 0) return;
     setApplyingOverlay(true);
-    await applyTextOverlay(slides, slideTexts);
+    await applyTextOverlay(slides);
     setApplyingOverlay(false);
   };
 
@@ -397,6 +501,27 @@ export default function CarouselView({ onBack, isAdmin = false }: CarouselViewPr
             <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "#E0E0E0" }}>
               {currentSlide + 1} / {slides.length}
             </span>
+            {slide.slideType && (
+              <span
+                className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider"
+                style={{
+                  backgroundColor: slide.slideType === "hook" ? `${C.pink}25` 
+                    : slide.slideType === "cta" ? `${C.gold}25`
+                    : slide.slideType === "objection_crusher" ? "#EF444425"
+                    : slide.slideType === "social_proof" ? "#3B82F625"
+                    : slide.slideType === "urgency" ? "#F59E0B25"
+                    : `${C.pink}15`,
+                  color: slide.slideType === "hook" ? C.pink 
+                    : slide.slideType === "cta" ? C.gold
+                    : slide.slideType === "objection_crusher" ? "#EF4444"
+                    : slide.slideType === "social_proof" ? "#3B82F6"
+                    : slide.slideType === "urgency" ? "#F59E0B"
+                    : "#A0A0A0",
+                }}
+              >
+                {slide.slideType.replace("_", " ")}
+              </span>
+            )}
           </div>
 
           {displayUrl && (
@@ -492,12 +617,21 @@ export default function CarouselView({ onBack, isAdmin = false }: CarouselViewPr
 
             {/* Slide Text Content */}
             <div className="mt-5 px-2">
-              <h2 className="text-lg font-black mb-2" style={{ color: C.white }}>
-                {slide.title}
-              </h2>
-              <p className="text-sm leading-relaxed" style={{ color: "#A0A0A0" }}>
-                {slide.body}
-              </p>
+              {slide.headerText && (
+                <h2 className="text-lg font-black mb-2" style={{ color: C.white }}>
+                  {slide.headerText}
+                </h2>
+              )}
+              {slide.bodyText && (
+                <p className="text-sm leading-relaxed" style={{ color: "#A0A0A0" }}>
+                  {slide.bodyText}
+                </p>
+              )}
+              {!slide.headerText && !slide.bodyText && (
+                <p className="text-xs italic" style={{ color: "#666666" }}>
+                  Clean image — no text overlay
+                </p>
+              )}
             </div>
 
             {/* Navigation Arrows */}

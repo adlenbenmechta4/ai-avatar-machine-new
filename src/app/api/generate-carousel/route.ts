@@ -357,78 +357,145 @@ async function generateSlideImageKie(
   return imageUrl;
 }
 
-// ─── Generate carousel slide content with AI ───────────────────────────────
+// ─── BOFU Carousel Prompt ───────────────────────────────────────────────────
+const BOFU_CAROUSEL_PROMPT = `أنت خبير في تصميم محتوى كاروسيلات تسويقية متخصصة في Bottom of Funnel (BOFU).
+
+عندما يكتب المستخدم وصفاً، قم بتوليد خطة كاروسيل كاملة بالشكل التالي:
+
+## القواعد الأساسية
+- كل صورة يجب أن تكون 9:16 عمودية (vertical) — هذا إلزامي ولا يمكن تغييره
+- عدد الشرائح: من 6 إلى 8 شرائح
+- الكاروسيل تستهدف جمهور دافئ وجاهز للشراء
+- الهدف المباشر: دفع المستخدم لاتخاذ قرار الشراء
+
+## هيكل الكاروسيل
+
+الشريحة 1 — HOOK (جذب انتباه)
+- جملة قوية تتحدث عن رغبته وليس مشكلته
+- يمكن أن تكون الصورة فقط بدون نص إذا كانت قوية جداً
+
+الشريحة 2 و 3 — القيمة (VALUE)
+- ميزة محددة → فائدة محددة → نتيجة محددة
+- أرقام وتفاصيل حقيقية لا كلام عام
+
+الشريحة 4 و 5 — كسر الاعتراضات (OBJECTION CRUSHER)
+- عالج أكبر اعتراضين يمنعان الشراء
+- أعد صياغة المعلومة بطريقة مقنعة
+
+الشريحة 6 — إثبات اجتماعي (SOCIAL PROOF)
+- شهادة أو أرقام أو نتائج حقيقية
+
+الشريحة 7 — استعجال (URGENCY)
+- سبب حقيقي للشراء الآن وليس لاحقاً
+
+الشريحة 8 — دعوة للعمل (CTA)
+- أمر واضح ومباشر واحد فقط
+
+## قواعد النص فوق الصورة
+- النص فوق الصورة اختياري وليس إلزامياً
+- بعض الشرائح يمكن أن تكون صورة فقط بدون أي نص
+- إذا كان هناك نص: عنوان максимум 8 كلمات، نص فرعي最大限度 15 كلمة
+- لا تضع النص داخل وصف الصورة — النص يُعرض كطبقة منفصلة فوق الصورة
+
+## لغة المحتوى
+- إذا كتب المستخدم بالعربية → كل النصوص بالعربية
+- إذا كتب المستخدم بالإنجليزية → كل النصوص بالإنجليزية
+
+## المطلوب كإنتاج
+أرجع JSON فقط بهذا الشكل:
+{
+  "carousel_title": "string",
+  "slides": [
+    {
+      "slide_number": 1,
+      "slide_type": "hook",
+      "image_prompt": "وصف تفصيلي للصورة بـ الإنجليزية دائماً مع ذكر 9:16 vertical في الوصف، بدون أي نص في الصورة",
+      "header_text": "string أو null",
+      "body_text": "string أو null",
+      "text_position": "top أو center أو bottom"
+    }
+  ]
+}
+
+ملاحظات مهمة:
+- image_prompt تكتبها دائماً بالإنجليزية حتى لو المحتوى عربي
+- header_text و body_text ممكن تكون null إذا الشريحة صورة فقط
+- لا تكرر نفس النوع من الشرائح`;
+
+// ─── Generate carousel slide content with AI (BOFU) ──────────────────────────
 async function generateSlideContent(
   idea: string,
   numSlides: number,
   language: string
-): Promise<Array<{ slideNumber: number; title: string; body: string; imagePrompt: string }>> {
-  const langInstruction = language === "ar"
-    ? "Write ALL slide content in Arabic. Titles, body text, and image prompts should be in Arabic."
-    : language === "fr"
-    ? "Write ALL slide content in French."
-    : "Write ALL slide content in English.";
-
+): Promise<{ carouselTitle: string; slides: Array<{ slideNumber: number; slideType: string; title: string; body: string; imagePrompt: string; headerText: string | null; bodyText: string | null; textPosition: string }> }> {
   const completion = await chatCompletion([
     {
       role: "system",
-      content: `You are an expert social media carousel creator. You create viral, engaging carousel posts for Instagram and LinkedIn.
-${langInstruction}
-
-Your output MUST be a valid JSON array. Each element represents one slide with this exact structure:
-[
-  {
-    "slideNumber": 1,
-    "title": "Short catchy title (max 8 words)",
-    "body": "Main text content for this slide (2-3 short sentences, max 120 characters)",
-    "imagePrompt": "Detailed image generation prompt describing a visually stunning image that represents this slide's topic. Be specific about style, colors, mood, and composition."
-  }
-]
-
-Rules:
-- First slide MUST be a bold hook/cover slide
-- Middle slides deliver the main content/tips/value
-- Last slide MUST be a strong CTA (call to action)
-- Image prompts should describe professional social media graphics with modern design
-- Keep titles punchy and memorable
-- Body text should be concise and impactful
-- Each slide should work as a standalone visual on social media
-
-Return ONLY the JSON array, no extra text.`,
+      content: BOFU_CAROUSEL_PROMPT,
     },
     {
       role: "user",
-      content: `Create a ${numSlides}-slide carousel about: "${idea}"`,
+      content: idea.trim(),
     },
   ], {
-    temperature: 0.7,
+    temperature: 0.8,
     max_tokens: 4000,
   });
 
   // If AI chat completion worked, parse the response
   if (completion) {
     const content = (completion as Record<string, unknown>)?.choices?.[0]?.message?.content || "";
-    const jsonMatch = content.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      try {
-        const slides = JSON.parse(jsonMatch[0]);
-        if (Array.isArray(slides) && slides.length > 0) {
-          return slides.map((slide: Record<string, unknown>, i: number) => ({
-            slideNumber: (slide.slideNumber as number) || i + 1,
-            title: (slide.title as string) || `Slide ${i + 1}`,
-            body: (slide.body as string) || "",
-            imagePrompt: (slide.imagePrompt as string) || `Professional social media carousel slide about ${idea}`,
-          }));
+    // Try to extract JSON from the response
+    let parsed: Record<string, unknown> | null = null;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      // Try markdown code block
+      const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (jsonMatch) {
+        try { parsed = JSON.parse(jsonMatch[1]); } catch { /* continue */ }
+      }
+      // Try to find JSON object
+      if (!parsed) {
+        const objectMatch = content.match(/\{[\s\S]*\}/);
+        if (objectMatch) {
+          try { parsed = JSON.parse(objectMatch[0]); } catch { /* continue */ }
         }
-      } catch (parseErr) {
-        console.warn("[Carousel] Failed to parse AI response, using template fallback:", parseErr);
+      }
+    }
+
+    if (parsed) {
+      const carouselTitle = (parsed.carousel_title as string) || idea.slice(0, 50);
+      const rawSlides = parsed.slides;
+      if (Array.isArray(rawSlides) && rawSlides.length > 0) {
+        const slides = rawSlides.map((slide: Record<string, unknown>, i: number) => ({
+          slideNumber: (slide.slide_number as number) || i + 1,
+          slideType: (slide.slide_type as string) || "value",
+          title: (slide.header_text as string) || (slide.title as string) || `Slide ${i + 1}`,
+          body: (slide.body_text as string) || (slide.body as string) || "",
+          imagePrompt: (slide.image_prompt as string) || `Professional social media carousel slide about ${idea}, 9:16 vertical`,
+          headerText: (slide.header_text as string | null) ?? null,
+          bodyText: (slide.body_text as string | null) ?? null,
+          textPosition: (slide.text_position as string) || "bottom",
+        }));
+        return { carouselTitle, slides };
       }
     }
   }
 
   // Fallback: Template-based content generation
   console.log("[Carousel] Using template-based content generation for idea:", idea.slice(0, 50));
-  return generateTemplateContent(idea, numSlides, language);
+  const templateSlides = generateTemplateContent(idea, numSlides, language);
+  return {
+    carouselTitle: idea.slice(0, 50),
+    slides: templateSlides.map((s, i) => ({
+      ...s,
+      slideType: i === 0 ? "hook" : i === templateSlides.length - 1 ? "cta" : "value",
+      headerText: s.title,
+      bodyText: s.body || null,
+      textPosition: "bottom",
+    })),
+  };
 }
 
 // ─── Generate slide image using built-in AI API ──────────────────────────
@@ -478,7 +545,7 @@ export async function POST(req: NextRequest) {
     // Step 1: Generate slide content with AI (with template fallback)
     console.log(`[Carousel] Generating ${slidesCount} slides for idea: "${idea.slice(0, 50)}..."`);
 
-    const slides = await generateSlideContent(idea.trim(), slidesCount, language || "en");
+    const { carouselTitle, slides } = await generateSlideContent(idea.trim(), slidesCount, language || "en");
 
     // Step 2: Generate images for each slide
     const slidesWithImages = [];
@@ -519,7 +586,14 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      slides: slidesWithImages,
+      carouselTitle,
+      slides: slidesWithImages.map(s => ({
+        ...s,
+        slideType: s.slideType || "value",
+        headerText: s.headerText ?? null,
+        bodyText: s.bodyText ?? null,
+        textPosition: s.textPosition || "bottom",
+      })),
       idea: idea.trim(),
     });
   } catch (error: unknown) {
