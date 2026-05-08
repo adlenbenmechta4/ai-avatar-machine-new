@@ -8,6 +8,7 @@ const VIP_EMAILS = new Set([
   "hello@fullynutrition.com",
   "novaamz@gmail.com",
   "mecifmouhaned@gmail.com",
+  "workdr2026@gmail.com",
 ]);
 
 // Exported function to dynamically add VIP users at runtime

@@ -44,6 +44,7 @@ const VIP_EMAILS = new Set([
   "hello@fullynutrition.com",
   "novaamz@gmail.com",
   "mecifmouhaned@gmail.com",
+  "workdr2026@gmail.com",
 ]);
 
 function isVipUser(email: string): boolean {
