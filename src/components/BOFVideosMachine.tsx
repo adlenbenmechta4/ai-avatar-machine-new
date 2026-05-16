@@ -834,7 +834,7 @@ export default function BOFVideosMachine({
                                           <span className="px-1 py-0.5 rounded text-xs font-semibold" style={{ backgroundColor: `${ACCENT_ORANGE}30`, color: ACCENT_ORANGE }}>[Product Name]</span>
                                         )}
                                       </span>
-                                    )}
+                                    ))}
                                   </span>
                                 );
                               }
