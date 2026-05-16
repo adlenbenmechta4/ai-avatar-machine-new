@@ -988,7 +988,15 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
     pollIntervalRef.current = setInterval(async () => {
       try {
         const res = await authFetch(`/api/status?jobId=${encodeURIComponent(jobId)}`);
-        if (!res.ok) return;
+        if (!res.ok) {
+          // If job not found (404), the server may have restarted — stop polling
+          if (res.status === 404) {
+            addLog("Job not found on server — it may have expired or the server restarted.");
+            clearInterval(pollIntervalRef.current!);
+            pollIntervalRef.current = null;
+          }
+          return;
+        }
         const job = await res.json();
 
         // Update pipeline step and progress
@@ -1086,13 +1094,14 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
           }
         }
 
-        // Handle job error
+        // Handle job error — auto-retry just like SSE error handler
         if (job.status === "error" && job.error) {
           addLog(`PIPELINE ERROR: ${job.error}`);
           setIsRunning(false);
-          isRunningRef.current = false; // CRITICAL: also update the ref
+          isRunningRef.current = false;
           setPipelineError(job.error);
 
+          // Stop polling and inactivity timer
           if (pollIntervalRef.current) {
             clearInterval(pollIntervalRef.current);
             pollIntervalRef.current = null;
@@ -1100,6 +1109,18 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
           if (inactivityTimerRef.current) {
             clearInterval(inactivityTimerRef.current as unknown as number);
             inactivityTimerRef.current = null;
+          }
+
+          // Auto-retry (same logic as SSE error handler)
+          autoRetryCountRef.current += 1;
+          if (autoRetryCountRef.current <= MAX_AUTO_RETRIES) {
+            const retryNum = autoRetryCountRef.current;
+            addLog(`🔄 Auto-retrying... (attempt ${retryNum}/${MAX_AUTO_RETRIES}) — waiting 10s...`);
+            await new Promise(r => setTimeout(r, 10000));
+            runGenerationRef.current?.();
+          } else {
+            addLog(`❌ Failed after ${MAX_AUTO_RETRIES} automatic retries.`);
+            setPipelineError("Failed after " + MAX_AUTO_RETRIES + " retries. Please reset and try again.");
           }
         }
       } catch {

@@ -1196,12 +1196,15 @@ async function runPipelineSSE(
 
     if (validVideoUrls.length > 1) {
       sseSend(sw, { type: "progress", step: 3, pct: 0, message: `Merging ${validVideoUrls.length} video clips...` });
+      console.log(`[Pipeline ${jobId}] Starting merge of ${validVideoUrls.length} videos (SSE writer ${sw.closed ? 'CLOSED' : 'alive'})`);
       const mergedUrl = await mergeVideos(jobId, validVideoUrls, falApiKey);
       addJobLog(jobId, "Pipeline complete! Merged video ready!");
+      console.log(`[Pipeline ${jobId}] Merge complete, setting job done (SSE writer ${sw.closed ? 'CLOSED' : 'alive'})`);
       sseSend(sw, { type: "done", videoUrl: mergedUrl, frameUrls: validFrameUrls, videoUrls: validVideoUrls });
       setJobDone(jobId, mergedUrl, validFrameUrls, validVideoUrls);
     } else if (validVideoUrls.length === 1) {
       addJobLog(jobId, "Pipeline complete! Single video ready!");
+      console.log(`[Pipeline ${jobId}] Single video complete, setting job done (SSE writer ${sw.closed ? 'CLOSED' : 'alive'})`);
       sseSend(sw, { type: "done", videoUrl: validVideoUrls[0], frameUrls: validFrameUrls, videoUrls: validVideoUrls });
       setJobDone(jobId, validVideoUrls[0], validFrameUrls, validVideoUrls);
     } else {
@@ -1210,39 +1213,21 @@ async function runPipelineSSE(
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
 
-    // ──── CRITICAL FIX: Differentiate writer errors from real pipeline errors ────
-    // When the SSE client disconnects (Railway proxy timeout, user refresh, etc.),
-    // writer.write() used to throw and crash the pipeline. Now sseSend() is safe
-    // and never throws, so this catch block should only fire for REAL pipeline errors.
-    // But just in case something else throws a writer-related error, we handle it gracefully.
-    const isWriterError = sw.closed && (
-      msg.includes("writable") ||
-      msg.includes("writer") ||
-      msg.includes("closed") ||
-      msg.includes("already closed") ||
-      msg.includes("Cannot write") ||
-      (err instanceof TypeError && msg.includes("write"))
-    );
-
-    if (isWriterError && !clientSignal?.aborted) {
-      // Writer died but pipeline was NOT aborted by user — continue in "headless" mode
-      console.warn(`[Pipeline ${jobId}] SSE writer closed (client disconnected). Pipeline continues in headless mode — status polling will track progress.`);
-      addJobLog(jobId, `SSE connection lost — pipeline continues in background. Status polling will track progress.`);
-      // Do NOT set job as error — let it continue running
-      // The pipeline will continue, updating job-store via updateScene/setJobDone etc.
-      // Status polling on the client will pick up completion.
-    } else if (clientSignal?.aborted) {
-      // Client intentionally aborted — don't treat as error either
-      console.log(`[Pipeline ${jobId}] Client aborted. Pipeline stopping.`);
-      addJobLog(jobId, `Pipeline stopped: client disconnected.`);
-      // Don't mark as error — the job stays "running" but the pipeline stops
-    } else {
-      // Real pipeline error (not a writer issue)
-      console.error(`[Pipeline ${jobId}] Failed:`, msg);
-      addJobLog(jobId, `ERROR: ${msg}`);
-      sseSend(sw, { type: "error", message: msg });
-      setJobError(jobId, msg);
-    }
+    // ──── IMPORTANT: SafeWriter guarantees that sseSend() NEVER throws. ────
+    // Any error reaching this catch block is a REAL pipeline error
+    // (e.g., KIE API failure, merge failure, network timeout).
+    // We must ALWAYS mark the job as error so that status polling
+    // can detect the failure and the client can auto-retry with resume.
+    //
+    // Previously, we tried to detect "writer errors" vs "real errors" here,
+    // but that logic was broken: when Railway proxy kills the SSE connection,
+    // both sw.closed=true AND clientSignal.aborted=true, so real errors
+    // were being misclassified as "client aborted" and the job stayed "running"
+    // forever — polling never saw "done" or "error".
+    console.error(`[Pipeline ${jobId}] Pipeline error:`, msg);
+    addJobLog(jobId, `ERROR: ${msg}`);
+    sseSend(sw, { type: "error", message: msg });
+    setJobError(jobId, msg);
   } finally {
     heartbeatStop.stopped = true;
     try { writer.close(); } catch {}
