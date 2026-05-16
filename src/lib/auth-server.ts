@@ -9,6 +9,8 @@ const VIP_EMAILS = new Set([
   "novaamz@gmail.com",
   "mecifmouhaned@gmail.com",
   "workdr2026@gmail.com",
+  "aasslesh.k@gmail.com",
+  "sivakuria@gmail.com",
 ]);
 
 // Exported function to dynamically add VIP users at runtime
@@ -47,10 +49,11 @@ export async function getAuthUser(request: NextRequest): Promise<AuthUser | null
       idToken = request.headers.get("X-Firebase-Id-Token") || "";
     }
 
-    // Fallback: check body for POST requests
+    // Fallback: check body for POST requests (clone to avoid consuming the body stream)
     if (!idToken) {
       try {
-        const body = await request.json();
+        const cloned = request.clone();
+        const body = await cloned.json();
         if (body?.idToken) {
           idToken = body.idToken;
         }

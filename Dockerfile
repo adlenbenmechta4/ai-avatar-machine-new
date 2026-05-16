@@ -1,5 +1,8 @@
 FROM node:20-alpine AS base
 
+# Install FFmpeg and font dependencies in base image
+RUN apk add --no-cache ffmpeg fontconfig freetype
+
 # Install dependencies only when needed
 FROM base AS deps
 RUN apk add --no-cache libc6-compat
@@ -24,6 +27,13 @@ RUN ./node_modules/.bin/next build
 FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV production
+
+# Install FFmpeg and fonts in production image
+RUN apk add --no-cache ffmpeg fontconfig freetype
+
+# Copy Poppins Bold font and register it
+COPY --from=builder /app/public/fonts/Poppins-Bold.ttf /usr/share/fonts/truetype/custom/Poppins-Bold.ttf
+RUN fc-cache -f
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs

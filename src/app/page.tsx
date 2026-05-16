@@ -11,6 +11,7 @@ import VideoEditor from "@/components/VideoEditor";
 import CaptionPanelModal from "@/components/CaptionPanelModal";
 import { updateVideoUrlInStorage } from "@/lib/video-store";
 import UserProfilePanel from "@/components/UserProfilePanel";
+import BOFVideosMachine from "@/components/BOFVideosMachine";
 
 // ─── Colors (matching the existing design) ────────────────────────────────────
 
@@ -300,7 +301,7 @@ function SubscriptionScreen({ userData, onComplete }: {
 export default function Home() {
   const { user, loading, signOut } = useAuth();
   const [showSubscription, setShowSubscription] = useState(false);
-  const [currentView, setCurrentView] = useState<"menu" | "avatar" | "carousel" | "podcast" | "library">("menu");
+  const [currentView, setCurrentView] = useState<"menu" | "avatar" | "carousel" | "podcast" | "library" | "bof">("menu");
   const [initialView, setInitialView] = useState<string>("create");
   const [libraryEditorUrl, setLibraryEditorUrl] = useState("");
   const [libraryCaptionUrl, setLibraryCaptionUrl] = useState("");
@@ -311,7 +312,7 @@ export default function Home() {
 
   // Redirect to menu if user logs out while on avatar view
   useEffect(() => {
-    if (!loading && !user && (currentView === "avatar" || currentView === "carousel" || currentView === "podcast" || currentView === "library")) {
+    if (!loading && !user && (currentView === "avatar" || currentView === "carousel" || currentView === "podcast" || currentView === "library" || currentView === "bof")) {
       setCurrentView("menu");
     }
   }, [user, loading, currentView]);
@@ -351,6 +352,8 @@ export default function Home() {
             setCurrentView("carousel");
           } else if (dest === "ai-podcast-machine") {
             setCurrentView("podcast");
+          } else if (dest === "bof-videos-machine") {
+            setCurrentView("bof");
           }
         }}
         onOpenLibrary={() => {
@@ -368,6 +371,11 @@ export default function Home() {
   // AI Podcast Machine view
   if (currentView === "podcast") {
     return <PodcastMachineView onBack={() => setCurrentView("menu")} isAdmin={!!isAdmin} />;
+  }
+
+  // BOF Videos Machine view
+  if (currentView === "bof") {
+    return <BOFVideosMachine isAdmin={!!isAdmin} theme={theme} onBack={() => setCurrentView("menu")} />;
   }
 
   // Unified Library view

@@ -1308,6 +1308,29 @@ export default function MainMenu({
       ),
       accentColor: C.cyan,
     },
+    // BOF Videos Machine — only visible to adlenbenmechta3@gmail.com
+    ...(userEmail.toLowerCase().trim() === "adlenbenmechta3@gmail.com"
+      ? [
+          {
+            id: "bof-videos-machine",
+            title: "BOF Videos Machine",
+            subtitle: "Bulk Product Video Generator",
+            description: "Generate AI-powered TikTok Shop & product videos in bulk with overlays, voices, and batch processing.",
+            icon: (
+              <svg width="40" height="40" viewBox="0 0 48 48" fill="none">
+                <rect x="4" y="8" width="40" height="28" rx="4" stroke="#9AFF01" strokeWidth="2.5" fill="none" />
+                <path d="M18 18l8 4-8 4V18z" fill="#9AFF01" opacity="0.8" />
+                <path d="M4 40h40" stroke="#9AFF01" strokeWidth="2" strokeLinecap="round" />
+                <circle cx="10" cy="44" r="3" stroke="#9AFF01" strokeWidth="1.5" fill="none" />
+                <circle cx="24" cy="44" r="3" stroke="#E461AD" strokeWidth="1.5" fill="none" />
+                <circle cx="38" cy="44" r="3" stroke="#16B1DE" strokeWidth="1.5" fill="none" />
+                <path d="M36 4l4 4m0-4l-4 4" stroke="#E461AD" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            ),
+            accentColor: "#9AFF01",
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -1523,7 +1546,8 @@ export default function MainMenu({
                 const isVideoCard = !item.disabled && item.id === "ai-avatar-machine";
                 const isPodcastCard = !item.disabled && item.id === "ai-podcast-machine";
                 const isCarouselCard = !item.disabled && item.id === "ai-viral-carousel";
-                const isFeatured = isVideoCard || isPodcastCard || isCarouselCard;
+                const isBofCard = !item.disabled && item.id === "bof-videos-machine";
+                const isFeatured = isVideoCard || isPodcastCard || isCarouselCard || isBofCard;
                 const isHovered = activeCard === index && !item.disabled;
                 return (
                 <div
