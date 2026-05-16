@@ -58,10 +58,10 @@ const VIDEO_MOTION_PROMPTS: Record<string, string> = {
 
 // ─── Warehouse Showcase Prompt (Store to Home) ───────────────────────
 const WAREHOUSE_SCENE_PROMPT =
-  "Dozens of this exact product stacked in neat rows on a multi-tiered pallet display standing in the center of a wide warehouse aisle. The pallet display has a wooden pallet base with 4 to 5 tiers, each tier holding multiple rows of identical products with their labels and packaging clearly facing forward. Tall industrial metal shelving units filled with boxes line both sides of the aisle, receding into the distance and creating depth. The scene is shot from a slightly low angle, looking up at the pallet display, making the stacked products look prominent and abundant. Bright overhead fluorescent warehouse lighting. Concrete floor. The impression is of a massive wholesale warehouse with this product as the star — abundant inventory at pallet-quantity scale. Clean, organized, professional logistics environment. Photorealistic, high quality product photography style.";
+  "Dozens of this EXACT product — same size, same shape, same packaging — stacked in neat rows on a multi-tiered pallet display standing in the center of a wide warehouse aisle. CRITICAL: The product must look EXACTLY like the reference image — same physical size, same proportions, same packaging design with the same brand name and labels clearly visible. Do NOT enlarge or change the product. Each individual product retains its original retail packaging with all branding, logos, and text perfectly preserved as shown in the reference image. The pallet display has a wooden pallet base with 4 to 5 tiers, each tier holding multiple rows of identical products with their packaging and labels clearly facing forward. Tall industrial metal shelving units filled with boxes line both sides of the aisle, receding into the distance. The scene is shot from a slightly low angle, looking up at the pallet display. Bright overhead fluorescent warehouse lighting. Concrete floor. The impression is of a massive wholesale warehouse with this product as the star. Photorealistic, high quality product photography style.";
 
 const WAREHOUSE_VIDEO_PROMPT =
-  "A smooth camera slowly pushes in toward a multi-tiered pallet display standing in the center of a wide warehouse aisle. Dozens of identical products are stacked in neat rows on the pallet display tiers, labels facing forward. Tall industrial shelving units line both sides of the aisle, receding into the distance. The camera glides forward from a slightly low angle, making the stacked products appear prominent and abundant. Bright overhead fluorescent lighting, concrete floor. Professional, clean atmosphere showing abundant wholesale inventory at pallet-quantity scale. The products stay perfectly still and in focus throughout. NO transitions, NO fade-in, NO fade-out. Start instantly at full brightness.";
+  "A smooth camera slowly pushes in toward a multi-tiered pallet display standing in the center of a wide warehouse aisle. Dozens of identical products are stacked in neat rows on the pallet display tiers — each product is the same size and packaging as the reference image, with all brand names and labels clearly visible and preserved. Tall industrial shelving units line both sides of the aisle, receding into the distance. The camera glides forward from a slightly low angle. Bright overhead fluorescent lighting, concrete floor. Professional, clean atmosphere showing abundant wholesale inventory. The products stay perfectly still and in focus throughout. NO transitions, NO fade-in, NO fade-out. Start instantly at full brightness.";
 
 // ─── Standard BOF Prompt ───────────────────────────────────────────────
 const STANDARD_BOF_VIDEO_PROMPT =
@@ -437,8 +437,9 @@ async function findFontFile(): Promise<string> {
   return "FONTCONFIG:Poppins Bold";
 }
 
-// ─── Apply Text Overlay with FFmpeg (batchbot.io style) ─────────────────
-// Font: Poppins Bold, White text, 3px black outline, top/center position
+// ─── Apply Text Overlay with FFmpeg using ASS subtitles ───────────────
+// Uses ASS subtitle format instead of drawtext filter for better Alpine compatibility
+// ASS subtitles are rendered by libass which is included in Alpine's ffmpeg package
 async function applyTextOverlayFFmpeg(
   inputPath: string,
   overlayText: string,
@@ -448,6 +449,7 @@ async function applyTextOverlayFFmpeg(
 ): Promise<string> {
   const tmpDir = path.dirname(inputPath);
   const outputPath = path.join(tmpDir, "output.mp4");
+  const assPath = path.join(tmpDir, "overlay.ass");
 
   // Get video dimensions for responsive text sizing
   const { width: displayWidth, height: displayHeight } = await getVideoDimensions(inputPath);
@@ -461,65 +463,84 @@ async function applyTextOverlayFFmpeg(
   let lines = overlayText.split(" / ").filter((l) => l.trim());
 
   // Auto word-wrap lines to fit within video width (with 10% padding on each side)
-  const maxTextWidth = displayWidth * 0.85; // 85% of frame width for more room
+  const maxTextWidth = displayWidth * 0.85;
   lines = wordWrapText(lines, fontSize, maxTextWidth);
 
-  // Limit total lines to prevent overflow off the bottom of the video
+  // Limit total lines
   const maxLines = position === "top"
-    ? Math.floor((displayHeight * 0.5) / lineHeight) // max 50% of video height for top position
-    : Math.floor((displayHeight * 0.7) / lineHeight); // max 70% for center position
+    ? Math.floor((displayHeight * 0.5) / lineHeight)
+    : Math.floor((displayHeight * 0.7) / lineHeight);
   if (lines.length > maxLines) {
-    console.warn(`[BOF FFmpeg] Truncating ${lines.length} lines to ${maxLines} to prevent overflow`);
+    console.warn(`[BOF FFmpeg] Truncating ${lines.length} lines to ${maxLines}`);
     lines = lines.slice(0, maxLines);
   }
 
-  // Vertical position: top = 1/6 from top, center = middle
+  // Find font file for ASS
+  const fontPath = await findFontFile();
+  const isFontconfig = fontPath.startsWith("FONTCONFIG:");
+  const fontName = isFontconfig
+    ? fontPath.replace("FONTCONFIG:", "")
+    : "Poppins Bold"; // ASS uses font name, not file path
+
+  // Build ASS subtitle file
+  // ASS format: position text with black outline on semi-transparent background
+  const playResX = displayWidth;
+  const playResY = displayHeight;
+
+  // Calculate vertical position
   const startY = position === "top"
     ? Math.round(displayHeight / 6)
     : Math.round(displayHeight / 2 - (lines.length * lineHeight) / 2);
 
-  // Find font file and determine how to reference it in drawtext
-  const fontPath = await findFontFile();
-  const isFontconfig = fontPath.startsWith("FONTCONFIG:");
-  const fontRef = isFontconfig ? fontPath.replace("FONTCONFIG:", "") : fontPath;
-  const fontParam = isFontconfig ? `font=${fontRef}` : `fontfile=${fontRef}`;
+  // ASS header
+  let assContent = `[Script Info]
+ScriptType: v4.00+
+PlayResX: ${playResX}
+PlayResY: ${playResY}
+WrapStyle: 2
 
-  // Build drawtext filter chain — one drawtext per line
-  const drawtextFilters = lines.map((line, i) => {
-    // Escape special characters for FFmpeg drawtext
-    const escapedLine = line
-      .replace(/\\/g, "\\\\\\\\")
-      .replace(/'/g, "\\\\'")
-      .replace(/:/g, "\\\\:")
-      .replace(/%/g, "\\\\%");
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Overlay,${fontName},${fontSize},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,10,10,10,1
 
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+
+  // Build text events — each line appears at a calculated Y position
+  // Use ASS positioning tags to center each line horizontally and place vertically
+  for (let i = 0; i < lines.length; i++) {
     const y = startY + i * lineHeight;
+    const escapedLine = lines[i]
+      .replace(/\{/g, "\\{")
+      .replace(/\}/g, "\\}")
+      .replace(/\\n/g, " ");
+    
+    // ASS \an8 = top center, \pos(x,y) = absolute position
+    // Using \an2 (bottom center) with \pos for vertical centering
+    assContent += `Dialogue: 0,0:00:00.00,99:59:59.99,Overlay,,0,0,0,,{\\an8\\pos(${Math.round(playResX / 2)},${y})}${escapedLine}\n`;
+  }
 
-    return `drawtext=text='${escapedLine}':${fontParam}:fontsize=${fontSize}:fontcolor=white:borderw=3:bordercolor=black:fix_bounds=1:x=(w-text_w)/2:y=${y}`;
-  });
+  await fs.writeFile(assPath, assContent, "utf-8");
 
-  const filterComplex = drawtextFilters.join(",");
-
-  console.log("[BOF FFmpeg] Applying text overlay:", {
+  console.log("[BOF FFmpeg] Applying text overlay via ASS subtitles:", {
     fontSize,
     displayWidth,
     displayHeight,
-    maxTextWidth: Math.round(maxTextWidth),
     lines: lines.length,
     position,
     scale,
     startY,
-    fontParam,
-    fontPath,
-    filterPreview: filterComplex.substring(0, 200),
+    fontName,
+    assPreview: assContent.substring(0, 300),
   });
 
-  // Run FFmpeg with stderr logging for debugging
+  // Run FFmpeg with ASS subtitle burn-in
   try {
     const { stderr } = await execFileAsync("ffmpeg", [
       "-y",
       "-i", inputPath,
-      "-vf", filterComplex,
+      "-vf", `ass=${assPath}`,
       "-c:v", "libx264",
       "-preset", "ultrafast",
       "-crf", "23",
@@ -527,39 +548,46 @@ async function applyTextOverlayFFmpeg(
       outputPath,
     ], { timeout: 120000 });
 
-    // Log any warnings from FFmpeg
-    if (stderr && !stderr.includes("[info]")) {
-      console.log("[BOF FFmpeg] stderr:", stderr.substring(0, 500));
+    if (stderr && stderr.length > 0) {
+      // Check for actual errors vs normal warnings
+      const hasError = stderr.toLowerCase().includes("error") && !stderr.includes("[info]");
+      if (hasError) {
+        console.log("[BOF FFmpeg] stderr:", stderr.substring(0, 500));
+      }
     }
   } catch (ffmpegErr: unknown) {
     const errMsg = ffmpegErr instanceof Error ? ffmpegErr.message : String(ffmpegErr);
-    console.error("[BOF FFmpeg] FFmpeg command failed!");
+    console.error("[BOF FFmpeg] ASS subtitle approach failed!");
     console.error("[BOF FFmpeg] Error:", errMsg.substring(0, 1000));
-    console.error("[BOF FFmpeg] Filter was:", filterComplex.substring(0, 500));
-    // Try fallback: use font= instead of fontfile= if fontfile failed
-    if (isFontconfig === false && errMsg.includes("fontfile")) {
-      console.log("[BOF FFmpeg] Retrying with font= (fontconfig) instead of fontfile=...");
-      const fallbackFilters = drawtextFilters.map(f =>
-        f.replace(`fontfile=${fontRef}`, `font=Poppins Bold`)
-      );
-      const fallbackComplex = fallbackFilters.join(",");
-      try {
-        await execFileAsync("ffmpeg", [
-          "-y",
-          "-i", inputPath,
-          "-vf", fallbackComplex,
-          "-c:v", "libx264",
-          "-preset", "ultrafast",
-          "-crf", "23",
-          "-c:a", "copy",
-          outputPath,
-        ], { timeout: 120000 });
-        console.log("[BOF FFmpeg] Fallback font= approach succeeded");
-      } catch (fallbackErr) {
-        console.error("[BOF FFmpeg] Fallback also failed:", (fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)).substring(0, 500));
-        throw ffmpegErr; // throw original error
-      }
-    } else {
+
+    // Fallback: try drawtext approach
+    console.log("[BOF FFmpeg] Trying drawtext fallback...");
+    try {
+      const drawtextFilters = lines.map((line, i) => {
+        const escapedLine = line
+          .replace(/\\/g, "\\\\\\\\")
+          .replace(/'/g, "\\\\'")
+          .replace(/:/g, "\\\\:")
+          .replace(/%/g, "\\\\%");
+        const y = startY + i * lineHeight;
+        const fontParam = isFontconfig ? `font=${fontName}` : `fontfile=${fontPath}`;
+        return `drawtext=text='${escapedLine}':${fontParam}:fontsize=${fontSize}:fontcolor=white:borderw=3:bordercolor=black:fix_bounds=1:x=(w-text_w)/2:y=${y}`;
+      });
+      const filterComplex = drawtextFilters.join(",");
+
+      await execFileAsync("ffmpeg", [
+        "-y",
+        "-i", inputPath,
+        "-vf", filterComplex,
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "23",
+        "-c:a", "copy",
+        outputPath,
+      ], { timeout: 120000 });
+      console.log("[BOF FFmpeg] Drawtext fallback succeeded");
+    } catch (fallbackErr) {
+      console.error("[BOF FFmpeg] Drawtext fallback also failed:", (fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)).substring(0, 500));
       throw ffmpegErr;
     }
   }

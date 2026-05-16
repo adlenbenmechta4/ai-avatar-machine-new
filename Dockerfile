@@ -1,8 +1,8 @@
 FROM node:20-alpine AS base
 
-# Install FFmpeg and font dependencies in base image
-# harfbuzz is needed for text shaping in FFmpeg drawtext
-RUN apk add --no-cache ffmpeg fontconfig freetype harfbuzz
+# Install FFmpeg with subtitle support (libass for ASS rendering)
+# and font dependencies for text overlay
+RUN apk add --no-cache ffmpeg fontconfig freetype harfbuzz libass libfdk-aac
 
 # Install dependencies only when needed
 FROM base AS deps
@@ -29,9 +29,8 @@ FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV production
 
-# Install FFmpeg and fonts in production image
-# harfbuzz is needed for text shaping in FFmpeg drawtext
-RUN apk add --no-cache ffmpeg fontconfig freetype harfbuzz
+# Install FFmpeg with subtitle support and fonts
+RUN apk add --no-cache ffmpeg fontconfig freetype harfbuzz libass libfdk-aac
 
 # Copy Poppins Bold font and register it
 COPY --from=builder /app/public/fonts/Poppins-Bold.ttf /usr/share/fonts/truetype/custom/Poppins-Bold.ttf
