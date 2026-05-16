@@ -1,7 +1,8 @@
 FROM node:20-alpine AS base
 
 # Install FFmpeg and font dependencies in base image
-RUN apk add --no-cache ffmpeg fontconfig freetype
+# harfbuzz is needed for text shaping in FFmpeg drawtext
+RUN apk add --no-cache ffmpeg fontconfig freetype harfbuzz
 
 # Install dependencies only when needed
 FROM base AS deps
@@ -29,7 +30,8 @@ WORKDIR /app
 ENV NODE_ENV production
 
 # Install FFmpeg and fonts in production image
-RUN apk add --no-cache ffmpeg fontconfig freetype
+# harfbuzz is needed for text shaping in FFmpeg drawtext
+RUN apk add --no-cache ffmpeg fontconfig freetype harfbuzz
 
 # Copy Poppins Bold font and register it
 COPY --from=builder /app/public/fonts/Poppins-Bold.ttf /usr/share/fonts/truetype/custom/Poppins-Bold.ttf

@@ -1623,12 +1623,12 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
         inactivityTimerRef.current = null;
       }
 
-      // If stream ended but polling is active, let polling handle the rest
+      // If stream ended but polling is active, let polling handle the rest silently
       if (isRunningRef.current && pollIntervalRef.current) {
         // This is NORMAL — Railway proxy timeout or similar causes SSE to end.
         // The pipeline continues running on the server, updating job-store.
         // Status polling will track progress and detect completion.
-        addLog("📡 Live stream ended (normal) — tracking progress via polling...");
+        // No log message needed — polling handles everything seamlessly.
         return;
       }
 

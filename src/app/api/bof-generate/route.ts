@@ -420,7 +420,7 @@ async function findFontFile(): Promise<string> {
   const candidates = [
     // System font (installed by Dockerfile)
     "/usr/share/fonts/truetype/custom/Poppins-Bold.ttf",
-    // Public directory (local dev)
+    // Public directory (local dev & standalone)
     path.join(process.cwd(), "public", "fonts", "Poppins-Bold.ttf"),
     // Common Linux paths
     "/usr/share/fonts/truetype/poppins/Poppins-Bold.ttf",
@@ -432,8 +432,9 @@ async function findFontFile(): Promise<string> {
       return p;
     } catch {}
   }
-  // Fallback: let FFmpeg use fontconfig
-  return "Poppins-Bold";
+  // Fallback: use fontconfig font name (requires fontconfig + font registered)
+  // This uses font= instead of fontfile= in the drawtext filter
+  return "FONTCONFIG:Poppins Bold";
 }
 
 // ─── Apply Text Overlay with FFmpeg (batchbot.io style) ─────────────────
@@ -477,8 +478,11 @@ async function applyTextOverlayFFmpeg(
     ? Math.round(displayHeight / 6)
     : Math.round(displayHeight / 2 - (lines.length * lineHeight) / 2);
 
-  // Find font file
+  // Find font file and determine how to reference it in drawtext
   const fontPath = await findFontFile();
+  const isFontconfig = fontPath.startsWith("FONTCONFIG:");
+  const fontRef = isFontconfig ? fontPath.replace("FONTCONFIG:", "") : fontPath;
+  const fontParam = isFontconfig ? `font=${fontRef}` : `fontfile=${fontRef}`;
 
   // Build drawtext filter chain — one drawtext per line
   const drawtextFilters = lines.map((line, i) => {
@@ -491,7 +495,7 @@ async function applyTextOverlayFFmpeg(
 
     const y = startY + i * lineHeight;
 
-    return `drawtext=text='${escapedLine}':fontfile=${fontPath}:fontsize=${fontSize}:fontcolor=white:borderw=3:bordercolor=black:fix_bounds=1:x=(w-text_w)/2:y=${y}`;
+    return `drawtext=text='${escapedLine}':${fontParam}:fontsize=${fontSize}:fontcolor=white:borderw=3:bordercolor=black:fix_bounds=1:x=(w-text_w)/2:y=${y}`;
   });
 
   const filterComplex = drawtextFilters.join(",");
@@ -505,20 +509,60 @@ async function applyTextOverlayFFmpeg(
     position,
     scale,
     startY,
+    fontParam,
     fontPath,
+    filterPreview: filterComplex.substring(0, 200),
   });
 
-  // Run FFmpeg
-  await execFileAsync("ffmpeg", [
-    "-y",
-    "-i", inputPath,
-    "-vf", filterComplex,
-    "-c:v", "libx264",
-    "-preset", "ultrafast",
-    "-crf", "23",
-    "-c:a", "copy",
-    outputPath,
-  ], { timeout: 120000 });
+  // Run FFmpeg with stderr logging for debugging
+  try {
+    const { stderr } = await execFileAsync("ffmpeg", [
+      "-y",
+      "-i", inputPath,
+      "-vf", filterComplex,
+      "-c:v", "libx264",
+      "-preset", "ultrafast",
+      "-crf", "23",
+      "-c:a", "copy",
+      outputPath,
+    ], { timeout: 120000 });
+
+    // Log any warnings from FFmpeg
+    if (stderr && !stderr.includes("[info]")) {
+      console.log("[BOF FFmpeg] stderr:", stderr.substring(0, 500));
+    }
+  } catch (ffmpegErr: unknown) {
+    const errMsg = ffmpegErr instanceof Error ? ffmpegErr.message : String(ffmpegErr);
+    console.error("[BOF FFmpeg] FFmpeg command failed!");
+    console.error("[BOF FFmpeg] Error:", errMsg.substring(0, 1000));
+    console.error("[BOF FFmpeg] Filter was:", filterComplex.substring(0, 500));
+    // Try fallback: use font= instead of fontfile= if fontfile failed
+    if (isFontconfig === false && errMsg.includes("fontfile")) {
+      console.log("[BOF FFmpeg] Retrying with font= (fontconfig) instead of fontfile=...");
+      const fallbackFilters = drawtextFilters.map(f =>
+        f.replace(`fontfile=${fontRef}`, `font=Poppins Bold`)
+      );
+      const fallbackComplex = fallbackFilters.join(",");
+      try {
+        await execFileAsync("ffmpeg", [
+          "-y",
+          "-i", inputPath,
+          "-vf", fallbackComplex,
+          "-c:v", "libx264",
+          "-preset", "ultrafast",
+          "-crf", "23",
+          "-c:a", "copy",
+          outputPath,
+        ], { timeout: 120000 });
+        console.log("[BOF FFmpeg] Fallback font= approach succeeded");
+      } catch (fallbackErr) {
+        console.error("[BOF FFmpeg] Fallback also failed:", (fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)).substring(0, 500));
+        throw ffmpegErr; // throw original error
+      }
+    } else {
+      throw ffmpegErr;
+    }
+  }
 
   console.log("[BOF FFmpeg] Text overlay applied successfully");
   return outputPath;
