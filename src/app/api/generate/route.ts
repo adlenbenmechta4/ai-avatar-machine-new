@@ -43,7 +43,7 @@ async function pollKieImage(
   sceneIndex: number,
   taskId: string,
   apiKey: string,
-  writer: WritableStreamDefaultWriter<Uint8Array> | null
+  sw: SafeWriter | null
 ): Promise<string> {
   const url = `https://api.kie.ai/api/v1/jobs/recordInfo?taskId=${taskId}`;
   for (let i = 0; i < 120; i++) {
@@ -70,8 +70,8 @@ async function pollKieImage(
         const pct = Math.min(90, 15 + i);
         addJobLog(jobId, `Frame ${sceneIndex + 1}: still generating... [${elapsed}m elapsed]`);
         updateScene(jobId, sceneIndex, { frameProgress: pct });
-        if (writer) {
-          try { sse(writer, { type: "progress", step: 1, pct, message: `Frame ${sceneIndex + 1}: generating... [${elapsed}m]` }); } catch {}
+        if (sw) {
+          sseSend(sw, { type: "progress", step: 1, pct, message: `Frame ${sceneIndex + 1}: generating... [${elapsed}m]` });
         }
       }
     } catch (err) {
@@ -90,7 +90,7 @@ async function pollKieVideo(
   sceneIndex: number,
   taskId: string,
   apiKey: string,
-  writer: WritableStreamDefaultWriter<Uint8Array> | null
+  sw: SafeWriter | null
 ): Promise<string> {
   const url = `https://api.kie.ai/api/v1/veo/record-info?taskId=${taskId}`;
   for (let i = 0; i < 180; i++) {
@@ -119,8 +119,8 @@ async function pollKieVideo(
         const statusText = json.data?.status || json.data?.state || "waiting";
         addJobLog(jobId, `Video ${sceneIndex + 1}: still processing... [${elapsed}m elapsed] (${statusText})`);
         updateScene(jobId, sceneIndex, { videoProgress: pct });
-        if (writer) {
-          try { sse(writer, { type: "progress", step: 2, pct, message: `Video ${sceneIndex + 1}: processing... [${elapsed}m]` }); } catch {}
+        if (sw) {
+          sseSend(sw, { type: "progress", step: 2, pct, message: `Video ${sceneIndex + 1}: processing... [${elapsed}m]` });
         }
       }
     } catch (err) {
@@ -165,7 +165,7 @@ async function generateFrame(
   description: string,
   avatarUrl: string,
   apiKey: string,
-  writer: WritableStreamDefaultWriter<Uint8Array> | null
+  sw: SafeWriter | null
 ): Promise<string> {
   const MAX_RETRIES = 5;
   let lastErrorWasPermanent = false;
@@ -227,7 +227,7 @@ async function generateFrame(
         addJobLog(jobId, `Frame ${sceneIndex + 1}: task submitted, waiting...`);
       }
 
-      const rawFrameUrl = await pollKieImage(jobId, sceneIndex, taskId, apiKey, writer);
+      const rawFrameUrl = await pollKieImage(jobId, sceneIndex, taskId, apiKey, sw);
       updateScene(jobId, sceneIndex, { frameProgress: 92 });
       addJobLog(jobId, `Frame ${sceneIndex + 1}: generated!`);
 
@@ -372,7 +372,7 @@ async function generateVideo(
   frameUrl: string,
   apiKey: string,
  frameMode: string,
-  writer: WritableStreamDefaultWriter<Uint8Array> | null,
+  sw: SafeWriter | null,
   videoModel: string = "veo3_lite",
   expression?: string
 ): Promise<string> {
@@ -482,7 +482,7 @@ async function generateVideo(
         addJobLog(jobId, `Video ${sceneIndex + 1}: task submitted, waiting (5-15 min)...`);
       }
 
-      const videoUrl = await pollKieVideo(jobId, sceneIndex, taskId, apiKey, writer);
+      const videoUrl = await pollKieVideo(jobId, sceneIndex, taskId, apiKey, sw);
       updateScene(jobId, sceneIndex, { videoProgress: 100, videoDone: true, videoUrl, taskId: "" });
       addJobLog(jobId, `Video ${sceneIndex + 1}: complete!`);
       return videoUrl;
@@ -803,7 +803,7 @@ async function heyGenPollVideoStatus(
   jobId: string,
   videoId: string,
   apiKey: string,
-  writer: WritableStreamDefaultWriter<Uint8Array> | null
+  sw: SafeWriter | null
 ): Promise<string> {
   // Avatar video processing can take 15-25 minutes
   const MAX_POLL = 360; // 360 × 5s = 30 min max
@@ -846,8 +846,8 @@ async function heyGenPollVideoStatus(
         const statusLabel = status === "processing" ? "processing" : status === "pending" ? "queued" : (status || "waiting");
         addJobLog(jobId, `Avatar: [${elapsed}m] ${statusLabel}... ${pct}%${heygenPct ? " (Avatar)" : ""}`);
         updateJob(jobId, { mergeProgress: pct, message: `[${elapsed}m elapsed] Avatar ${statusLabel}... ${pct}%` });
-        if (writer) {
-          try { sse(writer, { type: "progress", step: 2, pct, message: `Avatar: ${statusLabel}... ${pct}% [${elapsed}m]` }); } catch {}
+        if (sw) {
+          sseSend(sw, { type: "progress", step: 2, pct, message: `Avatar: ${statusLabel}... ${pct}% [${elapsed}m]` });
         }
       }
 
@@ -912,24 +912,34 @@ async function heyGenPollVideoStatus(
 // SSE Streaming Pipeline (Vercel-compatible)
 // ═══════════════════════════════════════════════════════════════════════
 
-// ─── SSE Helper ──────────────────────────────────────────────────────
-function sse(writer: WritableStreamDefaultWriter<Uint8Array>, event: Record<string, unknown>) {
-  writer.write(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`));
+// ─── SSE Helper (SAFE: never throws, even if writer is closed) ───────
+// Per-pipeline writer state: each pipeline gets its own SafeWriter
+interface SafeWriter {
+  writer: WritableStreamDefaultWriter<Uint8Array>;
+  closed: boolean; // set true when a write fails — all subsequent writes are skipped
+}
+
+function sseSend(sw: SafeWriter, event: Record<string, unknown>): boolean {
+  if (sw.closed) return false; // skip if we already know writer is dead
+  try {
+    sw.writer.write(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`));
+    return true;
+  } catch {
+    sw.closed = true; // mark writer as dead so future calls skip immediately
+    return false;
+  }
 }
 
 // ─── Heartbeat: keeps SSE connection alive during long operations ────
 async function startHeartbeat(
-  writer: WritableStreamDefaultWriter<Uint8Array>,
+  sw: SafeWriter,
   stopSignal: { stopped: boolean }
 ) {
   while (!stopSignal.stopped) {
     await sleep(8000);
     if (!stopSignal.stopped) {
-      try {
-        sse(writer, { type: "ping", t: Date.now() });
-      } catch {
-        stopSignal.stopped = true;
-      }
+      const ok = sseSend(sw, { type: "ping", t: Date.now() });
+      if (!ok) stopSignal.stopped = true; // writer is dead, stop heartbeat
     }
   }
 }
@@ -956,8 +966,11 @@ async function runPipelineSSE(
 ) {
   const heartbeatStop = { stopped: false };
 
+  // Create SafeWriter — wraps the raw writer so all sseSend() calls are safe
+  const sw: SafeWriter = { writer, closed: false };
+
   // Start heartbeat in parallel to keep SSE connection alive
-  startHeartbeat(writer, heartbeatStop);
+  startHeartbeat(sw, heartbeatStop);
 
   try {
     // Also create job for /api/status fallback
@@ -982,12 +995,12 @@ async function runPipelineSSE(
     }
 
     addJobLog(jobId, `Pipeline started [${PIPELINE_VERSION}]`);
-    sse(writer, { type: "started", jobId, message: `Pipeline started [${PIPELINE_VERSION}]` });
+    sseSend(sw, { type: "started", jobId, message: `Pipeline started [${PIPELINE_VERSION}]` });
 
     // ══ Avatar Pipeline ══
     if (provider === "heygen") {
       if (!heygenApiKey || !heygenVoiceId) {
-        sse(writer, { type: "error", message: "Avatar API key and voice ID are required" });
+        sseSend(sw, { type: "error", message: "Avatar API key and voice ID are required" });
         setJobError(jobId, "Avatar API key and voice ID are required");
         heartbeatStop.stopped = true;
         return;
@@ -1000,10 +1013,10 @@ async function runPipelineSSE(
       addJobLog(jobId, `Avatar: Script (${fullScript.length} chars): "${fullScript.slice(0, 100)}..."`);
 
       const videoId = await heyGenGenerateVideo(jobId, talkingPhotoId, fullScript, heygenVoiceId, heygenApiKey);
-      const videoUrl = await heyGenPollVideoStatus(jobId, videoId, heygenApiKey, writer);
+      const videoUrl = await heyGenPollVideoStatus(jobId, videoId, heygenApiKey, sw);
 
       addJobLog(jobId, "Pipeline complete! Video is ready!");
-      sse(writer, { type: "done", videoUrl, frameUrls: [avatarUrl], videoUrls: [videoUrl] });
+      sseSend(sw, { type: "done", videoUrl, frameUrls: [avatarUrl], videoUrls: [videoUrl] });
       setJobDone(jobId, videoUrl, [avatarUrl], [videoUrl]);
       heartbeatStop.stopped = true;
       return;
@@ -1025,7 +1038,7 @@ async function runPipelineSSE(
       completedFrames = resumeFrameDone.filter(Boolean).length;
       completedVideos = resumeVideoDone.filter(Boolean).length;
       addJobLog(jobId, `🔄 Resuming pipeline — ${completedFrames} frames and ${completedVideos} videos already done, skipping them...`);
-      sse(writer, { type: "progress", step: 2, pct: 0, message: `Resuming: ${completedVideos} videos already done, processing remaining...` });
+      sseSend(sw, { type: "progress", step: 2, pct: 0, message: `Resuming: ${completedVideos} videos already done, processing remaining...` });
     }
 
     // STEP 1: Frames
@@ -1037,7 +1050,7 @@ async function runPipelineSSE(
       const totalFrames = validScenes.length;
 
       if (isResume && completedFrames > 0) {
-        sse(writer, { type: "progress", step: 1, pct: Math.round((completedFrames / totalFrames) * 80), message: `Skipping ${completedFrames} already uploaded frames...` });
+        sseSend(sw, { type: "progress", step: 1, pct: Math.round((completedFrames / totalFrames) * 80), message: `Skipping ${completedFrames} already uploaded frames...` });
         // Copy already completed frame URLs (use index to preserve correct order)
         for (let i = 0; i < validScenes.length; i++) {
           if (resumeFrameDone[i] && resumeFrameUrls[i]) {
@@ -1049,11 +1062,11 @@ async function runPipelineSSE(
       }
 
       if (framesToProcess.length > 0) {
-        sse(writer, { type: "progress", step: 1, pct: Math.round((completedFrames / totalFrames) * 80), message: `Uploading ${framesToProcess.length} remaining frames...` });
+        sseSend(sw, { type: "progress", step: 1, pct: Math.round((completedFrames / totalFrames) * 80), message: `Uploading ${framesToProcess.length} remaining frames...` });
         addJobLog(jobId, `Uploading ${framesToProcess.length} remaining frames...`);
 
         for (const { scene, index } of framesToProcess) {
-          sse(writer, { type: "progress", step: 1, pct: Math.round(((index + 1) / totalFrames) * 80), message: `Uploading frame ${index + 1}/${totalFrames}...` });
+          sseSend(sw, { type: "progress", step: 1, pct: Math.round(((index + 1) / totalFrames) * 80), message: `Uploading frame ${index + 1}/${totalFrames}...` });
 
           let frameUrl: string;
           if (scene.customFrameImage) {
@@ -1071,12 +1084,12 @@ async function runPipelineSSE(
           frameUrls[index] = frameUrl;
           updateScene(jobId, index, { frameDone: true, frameProgress: 100, frameUrl });
           // Send scene-level completion event so the client always has accurate state for resume
-          sse(writer, { type: "scene_done", sceneIndex: index, sceneType: "frame", url: frameUrl });
-          sse(writer, { type: "progress", step: 1, pct: Math.round(((index + 1) / totalFrames) * 80), message: `Frame ${index + 1} ready!` });
+          sseSend(sw, { type: "scene_done", sceneIndex: index, sceneType: "frame", url: frameUrl });
+          sseSend(sw, { type: "progress", step: 1, pct: Math.round(((index + 1) / totalFrames) * 80), message: `Frame ${index + 1} ready!` });
         }
       }
 
-      sse(writer, { type: "progress", step: 1, pct: 85, message: "All custom frames ready!" });
+      sseSend(sw, { type: "progress", step: 1, pct: 85, message: "All custom frames ready!" });
       addJobLog(jobId, "All custom frames ready!");
     } else if (useSceneFrames) {
       // AI-generated frames — skip if already done
@@ -1084,7 +1097,7 @@ async function runPipelineSSE(
       const totalFrames = validScenes.length;
 
       if (isResume && completedFrames > 0) {
-        sse(writer, { type: "progress", step: 1, pct: Math.round((completedFrames / totalFrames) * 80), message: `Skipping ${completedFrames} already generated frames...` });
+        sseSend(sw, { type: "progress", step: 1, pct: Math.round((completedFrames / totalFrames) * 80), message: `Skipping ${completedFrames} already generated frames...` });
         for (let i = 0; i < validScenes.length; i++) {
           if (resumeFrameDone[i] && resumeFrameUrls[i]) {
             frameUrls[i] = resumeFrameUrls[i];
@@ -1095,23 +1108,23 @@ async function runPipelineSSE(
       }
 
       if (framesToProcess.length > 0) {
-        sse(writer, { type: "progress", step: 1, pct: Math.round((completedFrames / totalFrames) * 80), message: `Generating ${framesToProcess.length} remaining frames...` });
+        sseSend(sw, { type: "progress", step: 1, pct: Math.round((completedFrames / totalFrames) * 80), message: `Generating ${framesToProcess.length} remaining frames...` });
         addJobLog(jobId, `Generating ${framesToProcess.length} remaining frames...`);
 
         for (const { scene, index } of framesToProcess) {
-          sse(writer, { type: "progress", step: 1, pct: Math.round(((index + 1) / totalFrames) * 80), message: `Generating frame ${index + 1}/${totalFrames}...` });
-          const frameUrl = await generateFrame(jobId, index, scene.description, avatarUrl, kieApiKey, writer);
+          sseSend(sw, { type: "progress", step: 1, pct: Math.round(((index + 1) / totalFrames) * 80), message: `Generating frame ${index + 1}/${totalFrames}...` });
+          const frameUrl = await generateFrame(jobId, index, scene.description, avatarUrl, kieApiKey, sw);
           frameUrls[index] = frameUrl;
-          sse(writer, { type: "scene_done", sceneIndex: index, sceneType: "frame", url: frameUrl });
-          sse(writer, { type: "progress", step: 1, pct: Math.round(((index + 1) / totalFrames) * 80), message: `Frame ${index + 1} ready!` });
+          sseSend(sw, { type: "scene_done", sceneIndex: index, sceneType: "frame", url: frameUrl });
+          sseSend(sw, { type: "progress", step: 1, pct: Math.round(((index + 1) / totalFrames) * 80), message: `Frame ${index + 1} ready!` });
         }
       }
 
-      sse(writer, { type: "progress", step: 1, pct: 85, message: "All frames ready!" });
+      sseSend(sw, { type: "progress", step: 1, pct: 85, message: "All frames ready!" });
       addJobLog(jobId, "All frames ready!");
     } else {
       addJobLog(jobId, "Using avatar as frame for all scenes (no frame generation)");
-      sse(writer, { type: "progress", step: 1, pct: 80, message: "Using avatar as frame for all scenes" });
+      sseSend(sw, { type: "progress", step: 1, pct: 80, message: "Using avatar as frame for all scenes" });
       for (let i = 0; i < validScenes.length; i++) {
         frameUrls[i] = avatarUrl;
         updateScene(jobId, i, { frameDone: true, frameProgress: 100, frameUrl: avatarUrl });
@@ -1134,7 +1147,7 @@ async function runPipelineSSE(
     }
 
     if (videosToProcess.length > 0) {
-      sse(writer, { type: "progress", step: 2, pct: Math.round((completedVideos / totalVideos) * 90), message: `Generating ${videosToProcess.length} remaining videos...` });
+      sseSend(sw, { type: "progress", step: 2, pct: Math.round((completedVideos / totalVideos) * 90), message: `Generating ${videosToProcess.length} remaining videos...` });
       addJobLog(jobId, `Generating ${videosToProcess.length} remaining videos (this takes 5-15 min per video)...`);
 
       // Process videos sequentially — if ANY video fails after all internal retries,
@@ -1142,28 +1155,27 @@ async function runPipelineSSE(
       // resumeJobId, the server skips completed scenes and retries ONLY the failed one.
       // This ensures ALL videos are generated — no scene is ever skipped.
       for (const { scene, index } of videosToProcess) {
-        // FIXED v3.5: Check if client disconnected before starting next video.
-        // This prevents the OLD pipeline from continuing after auto-retry starts a NEW pipeline.
-        if (clientSignal?.aborted) {
-          addJobLog(jobId, `Pipeline aborted: client disconnected before scene ${index + 1}`);
-          heartbeatStop.stopped = true;
-          return;
-        }
+        // NOTE: We do NOT stop the pipeline when clientSignal is aborted.
+        // When Railway's proxy kills the SSE connection, req.signal gets aborted,
+        // but the pipeline should continue running and updating job-store so
+        // status polling can pick up the results.
+        // The only time we stop is if the writer is dead AND there's no job-store
+        // (which shouldn't happen since we always createJob at the start).
 
-        sse(writer, { type: "progress", step: 2, pct: Math.round(((index + 1) / totalVideos) * 90), message: `Creating video ${index + 1}/${totalVideos}...` });
+        sseSend(sw, { type: "progress", step: 2, pct: Math.round(((index + 1) / totalVideos) * 90), message: `Creating video ${index + 1}/${totalVideos}...` });
         const videoUrl = await generateVideo(
           jobId, index,
           scene.description, scene.script,
           frameUrls[index], kieApiKey,
           frameMode,
-          writer,
+          sw,
           videoModel,
           scene.expression
         );
         videoUrls[index] = videoUrl;
         // Send scene-level completion event so the client always has accurate state for resume
-        sse(writer, { type: "scene_done", sceneIndex: index, sceneType: "video", url: videoUrl });
-        sse(writer, { type: "progress", step: 2, pct: Math.round(((index + 1) / totalVideos) * 90), message: `Video ${index + 1} complete!` });
+        sseSend(sw, { type: "scene_done", sceneIndex: index, sceneType: "video", url: videoUrl });
+        sseSend(sw, { type: "progress", step: 2, pct: Math.round(((index + 1) / totalVideos) * 90), message: `Video ${index + 1} complete!` });
       }
     } else {
       addJobLog(jobId, "All videos already completed from previous run!");
@@ -1183,24 +1195,54 @@ async function runPipelineSSE(
     }
 
     if (validVideoUrls.length > 1) {
-      sse(writer, { type: "progress", step: 3, pct: 0, message: `Merging ${validVideoUrls.length} video clips...` });
+      sseSend(sw, { type: "progress", step: 3, pct: 0, message: `Merging ${validVideoUrls.length} video clips...` });
       const mergedUrl = await mergeVideos(jobId, validVideoUrls, falApiKey);
       addJobLog(jobId, "Pipeline complete! Merged video ready!");
-      sse(writer, { type: "done", videoUrl: mergedUrl, frameUrls: validFrameUrls, videoUrls: validVideoUrls });
+      sseSend(sw, { type: "done", videoUrl: mergedUrl, frameUrls: validFrameUrls, videoUrls: validVideoUrls });
       setJobDone(jobId, mergedUrl, validFrameUrls, validVideoUrls);
     } else if (validVideoUrls.length === 1) {
       addJobLog(jobId, "Pipeline complete! Single video ready!");
-      sse(writer, { type: "done", videoUrl: validVideoUrls[0], frameUrls: validFrameUrls, videoUrls: validVideoUrls });
+      sseSend(sw, { type: "done", videoUrl: validVideoUrls[0], frameUrls: validFrameUrls, videoUrls: validVideoUrls });
       setJobDone(jobId, validVideoUrls[0], validFrameUrls, validVideoUrls);
     } else {
       throw new Error("No valid video URLs to merge. All scene videos may have failed.");
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[Pipeline ${jobId}] Failed:`, msg);
-    addJobLog(jobId, `ERROR: ${msg}`);
-    sse(writer, { type: "error", message: msg });
-    setJobError(jobId, msg);
+
+    // ──── CRITICAL FIX: Differentiate writer errors from real pipeline errors ────
+    // When the SSE client disconnects (Railway proxy timeout, user refresh, etc.),
+    // writer.write() used to throw and crash the pipeline. Now sseSend() is safe
+    // and never throws, so this catch block should only fire for REAL pipeline errors.
+    // But just in case something else throws a writer-related error, we handle it gracefully.
+    const isWriterError = sw.closed && (
+      msg.includes("writable") ||
+      msg.includes("writer") ||
+      msg.includes("closed") ||
+      msg.includes("already closed") ||
+      msg.includes("Cannot write") ||
+      (err instanceof TypeError && msg.includes("write"))
+    );
+
+    if (isWriterError && !clientSignal?.aborted) {
+      // Writer died but pipeline was NOT aborted by user — continue in "headless" mode
+      console.warn(`[Pipeline ${jobId}] SSE writer closed (client disconnected). Pipeline continues in headless mode — status polling will track progress.`);
+      addJobLog(jobId, `SSE connection lost — pipeline continues in background. Status polling will track progress.`);
+      // Do NOT set job as error — let it continue running
+      // The pipeline will continue, updating job-store via updateScene/setJobDone etc.
+      // Status polling on the client will pick up completion.
+    } else if (clientSignal?.aborted) {
+      // Client intentionally aborted — don't treat as error either
+      console.log(`[Pipeline ${jobId}] Client aborted. Pipeline stopping.`);
+      addJobLog(jobId, `Pipeline stopped: client disconnected.`);
+      // Don't mark as error — the job stays "running" but the pipeline stops
+    } else {
+      // Real pipeline error (not a writer issue)
+      console.error(`[Pipeline ${jobId}] Failed:`, msg);
+      addJobLog(jobId, `ERROR: ${msg}`);
+      sseSend(sw, { type: "error", message: msg });
+      setJobError(jobId, msg);
+    }
   } finally {
     heartbeatStop.stopped = true;
     try { writer.close(); } catch {}

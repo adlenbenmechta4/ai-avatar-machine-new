@@ -1065,6 +1065,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
           setPipelineStep(4);
           setCombineProgress(100);
           setIsRunning(false);
+          isRunningRef.current = false; // CRITICAL: also update the ref
           setPipelineError("");
           autoRetryCountRef.current = 0;
           setShowConfetti(true);
@@ -1072,6 +1073,8 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
           setTimeout(() => setShowConfetti(false), 4000);
           // Auto-save to library
           doSaveToLibrary(job.finalVideoUrl, job.finalFrameUrls || []);
+          // Clear checkpoint — pipeline finished successfully
+          clearPipelineCheckpoint();
 
           if (pollIntervalRef.current) {
             clearInterval(pollIntervalRef.current);
@@ -1087,6 +1090,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
         if (job.status === "error" && job.error) {
           addLog(`PIPELINE ERROR: ${job.error}`);
           setIsRunning(false);
+          isRunningRef.current = false; // CRITICAL: also update the ref
           setPipelineError(job.error);
 
           if (pollIntervalRef.current) {
@@ -1621,7 +1625,10 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
 
       // If stream ended but polling is active, let polling handle the rest
       if (isRunningRef.current && pollIntervalRef.current) {
-        addLog("SSE stream ended — status polling will continue tracking progress...");
+        // This is NORMAL — Railway proxy timeout or similar causes SSE to end.
+        // The pipeline continues running on the server, updating job-store.
+        // Status polling will track progress and detect completion.
+        addLog("📡 Live stream ended (normal) — tracking progress via polling...");
         return;
       }
 
