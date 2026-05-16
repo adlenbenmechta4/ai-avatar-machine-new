@@ -64,3 +64,24 @@ Stage Summary:
 - Fix: Force-pushed inner my-project code (with firebase, auth, all features) to GitHub main branch
 - Website https://kobisto.com now returns HTTP 200 and serves the AI Avatar Machine application
 - Deployment cc79626e-0bcb-4d93-b4b7-c29e398796bb is live and healthy
+---
+Task ID: 2
+Agent: Main
+Task: Restore missing BOF Videos Machine feature on kobisto.com
+
+Work Log:
+- Discovered BOF code existed in /home/z/my-project/repo/ (older git state on same repo)
+- The BOF component, API route, and related files were never in the inner my-project/ codebase
+- Copied BOFVideosMachine.tsx, bof-generate/route.ts, Poppins-Bold.ttf from repo/
+- Updated Dockerfile to include FFmpeg + font registration for text overlay
+- Updated MainMenu.tsx to add BOF Videos Machine menu entry (visible only to adlenbenmechta3@gmail.com)
+- Updated page.tsx to add BOF view routing
+- Updated auth-server.ts with missing VIP emails and request.clone() fix
+- Fixed JSX syntax error in BOFVideosMachine.tsx (missing closing paren in segments.map)
+- Pushed to GitHub, Railway deployed successfully
+
+Stage Summary:
+- BOF Videos Machine feature fully restored on kobisto.com
+- Deployment 11122506-... is live and healthy
+- BOF API route returns 401 (correct auth required response)
+- All 4 video types available: Intro Video + AI, Store to Home, Standard BOF, Overlay Studio
