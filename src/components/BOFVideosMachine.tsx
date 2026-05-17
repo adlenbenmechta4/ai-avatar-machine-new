@@ -149,12 +149,12 @@ const OVERLAY_SCRIPTS = [
   { id: "custom", name: "Custom Script", text: "" },
 ];
 
-// Hook video options for Intro Video + AI
+// Hook video options for Intro Video + AI pipeline
 const HOOK_VIDEO_OPTIONS = [
-  { id: "none", name: "None", emoji: "🚫", desc: "No hook video" },
+  { id: "none", name: "No Hook", emoji: "🚫", desc: "Skip hook video" },
   { id: "hook-1", name: "Hook 1", emoji: "🎬", desc: "Preset hook video 1", src: "/hooks/hook-1.mp4" },
   { id: "hook-2", name: "Hook 2", emoji: "🎥", desc: "Preset hook video 2", src: "/hooks/hook-2.mp4" },
-  { id: "custom", name: "Custom Upload", emoji: "📤", desc: "Upload your own hook" },
+  { id: "custom", name: "Custom Upload", emoji: "📤", desc: "Upload your own hook video" },
 ];
 
 // Standard BOF image overlays
