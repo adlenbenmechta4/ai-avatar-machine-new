@@ -547,9 +547,9 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
       const ffmpeg = new FFmpeg();
       ffmpegRef.current = ffmpeg;
 
-      // Use single-threaded core — does NOT require SharedArrayBuffer / COEP headers
-      // This works on all browsers and deployments without special server configuration
-      const baseURL = "https://unpkg.com/@ffmpeg/core-st@0.12.6/dist/esm";
+      // Load FFmpeg WASM from local /public/ffmpeg/ directory
+      // Files are served from same origin so COEP/credentialless works fine
+      const baseURL = "/ffmpeg";
 
       await ffmpeg.load({
         coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
