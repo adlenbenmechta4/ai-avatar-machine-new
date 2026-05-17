@@ -4,8 +4,141 @@ import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
+import { pipeline } from "stream/promises";
+import { createWriteStream } from "fs";
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Download a video from a URL using Node.js fetch.
+ * More reliable than curl on Railway/Docker environments.
+ */
+async function downloadVideo(videoUrl: string, outputPath: string): Promise<number> {
+  console.log("[edit-video] Downloading video with fetch:", videoUrl);
+
+  // Strategy 1: Direct fetch from the URL
+  try {
+    const response = await fetch(videoUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "*/*",
+      },
+      redirect: "follow",
+      signal: AbortSignal.timeout(120000), // 2 minute timeout
+    });
+
+    if (!response.ok) {
+      throw new Error(`Direct fetch failed: HTTP ${response.status}`);
+    }
+
+    if (!response.body) {
+      throw new Error("No response body");
+    }
+
+    // Stream the response to file using web streams API
+    const fileStream = createWriteStream(outputPath);
+    const reader = response.body.getReader();
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        fileStream.write(value);
+      }
+    } finally {
+      fileStream.end();
+      reader.releaseLock();
+    }
+
+    // Wait for the stream to finish writing
+    await new Promise<void>((resolve, reject) => {
+      fileStream.on("finish", resolve);
+      fileStream.on("error", reject);
+    });
+
+    const stat = await fs.stat(outputPath);
+    if (stat.size < 1000) {
+      throw new Error(`Downloaded file too small: ${stat.size} bytes`);
+    }
+
+    console.log("[edit-video] Direct download successful:", stat.size, "bytes");
+    return stat.size;
+  } catch (directErr) {
+    console.warn("[edit-video] Direct download failed, trying proxy:", directErr instanceof Error ? directErr.message : directErr);
+  }
+
+  // Strategy 2: Use our own proxy-video endpoint
+  try {
+    // Determine the base URL for our proxy
+    const port = process.env.PORT || "3000";
+    const host = process.env.RAILWAY_PUBLIC_DOMAIN
+      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+      : process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : `http://localhost:${port}`;
+
+    const proxyUrl = `${host}/api/proxy-video?url=${encodeURIComponent(videoUrl)}`;
+    console.log("[edit-video] Trying proxy:", proxyUrl);
+
+    const response = await fetch(proxyUrl, {
+      signal: AbortSignal.timeout(120000),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Proxy fetch failed: HTTP ${response.status}`);
+    }
+
+    if (!response.body) {
+      throw new Error("No proxy response body");
+    }
+
+    const fileStream = createWriteStream(outputPath);
+    const reader = response.body.getReader();
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        fileStream.write(value);
+      }
+    } finally {
+      fileStream.end();
+      reader.releaseLock();
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      fileStream.on("finish", resolve);
+      fileStream.on("error", reject);
+    });
+
+    const stat = await fs.stat(outputPath);
+    if (stat.size < 1000) {
+      throw new Error(`Proxy downloaded file too small: ${stat.size} bytes`);
+    }
+
+    console.log("[edit-video] Proxy download successful:", stat.size, "bytes");
+    return stat.size;
+  } catch (proxyErr) {
+    console.error("[edit-video] Proxy download also failed:", proxyErr instanceof Error ? proxyErr.message : proxyErr);
+  }
+
+  // Strategy 3: Fallback to curl
+  try {
+    console.log("[edit-video] Trying curl fallback...");
+    await execFileAsync("curl", ["-L", "-s", "-o", outputPath, videoUrl], { timeout: 120000 });
+
+    const stat = await fs.stat(outputPath);
+    if (stat.size < 1000) {
+      throw new Error(`curl downloaded file too small: ${stat.size} bytes`);
+    }
+
+    console.log("[edit-video] curl download successful:", stat.size, "bytes");
+    return stat.size;
+  } catch (curlErr) {
+    console.error("[edit-video] All download methods failed. Last error:", curlErr instanceof Error ? curlErr.message : curlErr);
+    throw new Error("Failed to download video - all methods failed");
+  }
+}
 
 export async function POST(req: NextRequest) {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "edit-"));
@@ -26,29 +159,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No enabled segments" }, { status: 400 });
     }
 
-    // Step 1: Download video
-    console.log("[edit-video] Downloading video:", videoUrl);
+    // Step 1: Download video using improved download function
     const inputPath = path.join(tmpDir, "input.mp4");
-
-    // Use curl to download (handles redirects, various URL schemes)
+    let downloadSize: number;
     try {
-      await execFileAsync("curl", ["-L", "-s", "-o", inputPath, videoUrl], { timeout: 60000 });
-    } catch {
-      // Try with proxy if direct download fails
-      try {
-        await execFileAsync("curl", ["-L", "-s", "-o", inputPath, `http://localhost:3000/api/proxy-video?url=${encodeURIComponent(videoUrl)}`], { timeout: 60000 });
-      } catch (dlErr) {
-        console.error("[edit-video] Download failed:", dlErr);
-        return NextResponse.json({ error: "Failed to download video" }, { status: 500 });
-      }
+      downloadSize = await downloadVideo(videoUrl, inputPath);
+    } catch (dlErr) {
+      const msg = dlErr instanceof Error ? dlErr.message : "Failed to download video";
+      console.error("[edit-video] Download failed:", msg);
+      return NextResponse.json({ error: msg }, { status: 500 });
     }
 
-    // Verify file exists and has content
-    const inputStat = await fs.stat(inputPath);
-    if (inputStat.size < 1000) {
-      return NextResponse.json({ error: "Downloaded file is too small or empty" }, { status: 500 });
-    }
-    console.log("[edit-video] Downloaded:", inputStat.size, "bytes");
+    console.log("[edit-video] Downloaded:", downloadSize, "bytes");
 
     // Step 2: Process each segment (trim + zoom if needed)
     for (let i = 0; i < enabledSegs.length; i++) {

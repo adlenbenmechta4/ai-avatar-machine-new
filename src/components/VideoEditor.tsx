@@ -149,8 +149,7 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
   const [processProgress, setProcessProgress] = useState("");
   const [processError, setProcessError] = useState("");
   const [resultUrl, setResultUrl] = useState("");
-  const [ffmpegLoaded, setFfmpegLoaded] = useState(false);
-  const [ffmpegLoading, setFfmpegLoading] = useState(false);
+  // FFmpeg WASM removed — video editing is now server-side via /api/edit-video
   const [isDragging, setIsDragging] = useState(false);
   const [dragSplitId, setDragSplitId] = useState<string | null>(null);
   const [isPlayheadDragging, setIsPlayheadDragging] = useState(false);
@@ -215,7 +214,6 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
     });
   }, [pushHistory]);
 
-  const ffmpegRef = useRef<unknown>(null);
   const progressCallbackRef = useRef<((msg: string) => void) | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const zoomAnimRef = useRef<number>(0);
