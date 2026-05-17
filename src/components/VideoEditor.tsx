@@ -547,30 +547,19 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
       const ffmpeg = new FFmpeg();
       ffmpegRef.current = ffmpeg;
 
-      // Use single-threaded core as fallback when SharedArrayBuffer is unavailable
-      // (requires COOP/COEP headers which may not be set on all deployments)
-      const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm";
+      // Use single-threaded core — does NOT require SharedArrayBuffer / COEP headers
+      // This works on all browsers and deployments without special server configuration
+      const baseURL = "https://unpkg.com/@ffmpeg/core-st@0.12.6/dist/esm";
 
-      try {
-        // First try multi-threaded version (requires SharedArrayBuffer)
-        await ffmpeg.load({
-          coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
-          wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
-        });
-      } catch (loadErr) {
-        console.warn("[VideoEditor] Multi-threaded FFmpeg failed, trying single-threaded fallback:", loadErr);
-        // Fallback to single-threaded version (no SharedArrayBuffer needed)
-        const stBaseURL = "https://unpkg.com/@ffmpeg/core-st@0.12.6/dist/esm";
-        await ffmpeg.load({
-          coreURL: await toBlobURL(`${stBaseURL}/ffmpeg-core.js`, "text/javascript"),
-          wasmURL: await toBlobURL(`${stBaseURL}/ffmpeg-core.wasm`, "application/wasm"),
-        });
-      }
+      await ffmpeg.load({
+        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
+        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
+      });
 
       setFfmpegLoaded(true);
       setFfmpegLoading(false);
     } catch (err: unknown) {
-      console.error("[VideoEditor] FFmpeg load failed completely:", err);
+      console.error("[VideoEditor] FFmpeg load failed:", err);
       const msg = err instanceof Error ? err.message : "Failed to load FFmpeg";
       setProcessError(msg);
       setFfmpegLoading(false);
