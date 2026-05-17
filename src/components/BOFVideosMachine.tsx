@@ -154,6 +154,9 @@ const HOOK_VIDEO_OPTIONS = [
   { id: "none", name: "No Hook", emoji: "🚫", desc: "Skip hook video" },
   { id: "hook-1", name: "Hook 1", emoji: "🎬", desc: "Preset hook video 1", src: "/hooks/hook-1.mp4" },
   { id: "hook-2", name: "Hook 2", emoji: "🎥", desc: "Preset hook video 2", src: "/hooks/hook-2.mp4" },
+  { id: "hook-3", name: "Hook 3", emoji: "🔥", desc: "Preset hook video 3", src: "/hooks/hook-3.mp4" },
+  { id: "hook-4", name: "Hook 4", emoji: "⚡", desc: "Preset hook video 4", src: "/hooks/hook-4.mp4" },
+  { id: "hook-5", name: "Hook 5", emoji: "💥", desc: "Preset hook video 5", src: "/hooks/hook-5.mp4" },
   { id: "custom", name: "Custom Upload", emoji: "📤", desc: "Upload your own hook video" },
 ];
 
@@ -702,11 +705,11 @@ export default function BOFVideosMachine({
                         )}
                       </div>
                     )}
-                    {(selectedHookVideo === "hook-1" || selectedHookVideo === "hook-2") && (
+                    {selectedHookVideo.startsWith("hook-") && (
                       <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg" style={{ backgroundColor: `${ACCENT_GREEN}10` }}>
                         <span className="text-sm">🎬</span>
                         <p className="text-xs font-medium" style={{ color: ACCENT_GREEN }}>
-                          {selectedHookVideo === "hook-1" ? "Hook 1" : "Hook 2"} will play before your AI video
+                          {HOOK_VIDEO_OPTIONS.find((h) => h.id === selectedHookVideo)?.name || "Hook"} will play before your AI video
                         </p>
                       </div>
                     )}
