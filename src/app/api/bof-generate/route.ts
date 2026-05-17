@@ -422,6 +422,82 @@ async function trimVideoEnd(inputPath: string, trimSeconds: number = 0.5): Promi
   }
 }
 
+// ─── Add Push-In + Pull-Back Effect ────────────────────────────────────
+// Takes a video that pushes in, extracts the first half,
+// reverses it to create a pull-back, and concatenates:
+// [first half forward] + [first half reversed] = push in then pull out
+async function addPushPullEffect(inputPath: string): Promise<string> {
+  const tmpDir = path.dirname(inputPath);
+  const halfPath = path.join(tmpDir, "first_half.mp4");
+  const reversedPath = path.join(tmpDir, "reversed_half.mp4");
+  const concatListPath = path.join(tmpDir, "concat.txt");
+  const outputPath = path.join(tmpDir, "pushpull.mp4");
+
+  const duration = await getVideoDuration(inputPath);
+  if (duration < 2) {
+    console.log("[BOF FFmpeg] Video too short for push-pull effect (" + duration + "s), skipping");
+    return inputPath;
+  }
+
+  // Use first 45% of video for forward, then reverse that for pull-back
+  // This gives a nice push-in then pull-out with a slight overlap avoided
+  const forwardDuration = (duration * 0.45).toFixed(2);
+  console.log(`[BOF FFmpeg] Adding push-pull effect: ${duration.toFixed(2)}s video → first ${forwardDuration}s forward + ${forwardDuration}s reversed = ${(duration * 0.9).toFixed(2)}s total`);
+
+  try {
+    // Step 1: Extract first portion of video (the push-in part)
+    await execFileAsync("ffmpeg", [
+      "-y",
+      "-i", inputPath,
+      "-t", forwardDuration,
+      "-c:v", "libx264",
+      "-preset", "ultrafast",
+      "-crf", "23",
+      "-an", // no audio
+      "-pix_fmt", "yuv420p",
+      halfPath,
+    ], { timeout: 120000 });
+
+    // Step 2: Reverse the first portion to create pull-back effect
+    // Using -vf reverse which reads all frames into memory (OK for short clips)
+    await execFileAsync("ffmpeg", [
+      "-y",
+      "-i", halfPath,
+      "-vf", "reverse",
+      "-c:v", "libx264",
+      "-preset", "ultrafast",
+      "-crf", "23",
+      "-an",
+      "-pix_fmt", "yuv420p",
+      reversedPath,
+    ], { timeout: 120000 });
+
+    // Step 3: Concatenate forward portion + reversed portion
+    const concatContent = `file '${halfPath}'\nfile '${reversedPath}'\n`;
+    await fs.writeFile(concatListPath, concatContent, "utf-8");
+
+    await execFileAsync("ffmpeg", [
+      "-y",
+      "-f", "concat",
+      "-safe", "0",
+      "-i", concatListPath,
+      "-c:v", "libx264",
+      "-preset", "ultrafast",
+      "-crf", "23",
+      "-an",
+      "-pix_fmt", "yuv420p",
+      outputPath,
+    ], { timeout: 120000 });
+
+    console.log("[BOF FFmpeg] Push-pull effect applied successfully");
+    return outputPath;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[BOF FFmpeg] Push-pull effect failed, using original:", msg.substring(0, 500));
+    return inputPath;
+  }
+}
+
 // ─── Get Video Dimensions ───────────────────────────────────────────────
 async function getVideoDimensions(videoPath: string): Promise<{ width: number; height: number }> {
   const { stdout } = await execFileAsync("ffprobe", [
@@ -808,21 +884,29 @@ export async function POST(req: NextRequest) {
       );
       console.log("[BOF] Video ready:", videoUrl);
 
-      // Step 2.5: Trim last 0.5s to remove any AI-generated transition/fade effects
-      console.log("[BOF] Intro Video + AI pipeline: Step 2.5 - Trim video end (remove transitions)");
+      // Step 2.5: Apply push-pull effect (forward then backward) + trim transitions
+      console.log("[BOF] Intro Video + AI pipeline: Step 2.5 - Push-pull effect + trim transitions");
       try {
         tempInputPath = await downloadVideoToTemp(videoUrl);
+        // First trim the end to remove transitions
         const trimmedPath = await trimVideoEnd(tempInputPath, 0.5);
-        if (trimmedPath !== tempInputPath) {
+        // Then apply push-pull (forward + reversed) effect
+        const pushPullPath = await addPushPullEffect(trimmedPath);
+        if (pushPullPath !== trimmedPath) {
+          const processedUrl = await uploadVideoToKie(pushPullPath, `bof_pushpull_intro_${Date.now()}.mp4`, apiKey);
+          videoUrl = processedUrl;
+          console.log("[BOF] Intro video push-pull + trim applied:", processedUrl);
+        } else if (trimmedPath !== tempInputPath) {
+          // Push-pull failed but trim worked
           const trimmedUrl = await uploadVideoToKie(trimmedPath, `bof_trimmed_intro_${Date.now()}.mp4`, apiKey);
           videoUrl = trimmedUrl;
-          console.log("[BOF] Intro video trimmed and re-uploaded:", trimmedUrl);
+          console.log("[BOF] Intro video trimmed (push-pull failed):", trimmedUrl);
         }
         await cleanupTemp(tempInputPath);
         tempInputPath = null;
-      } catch (trimErr) {
-        const msg = trimErr instanceof Error ? trimErr.message : String(trimErr);
-        console.error("[BOF] Intro video trim failed (using original):", msg);
+      } catch (procErr) {
+        const msg = procErr instanceof Error ? procErr.message : String(procErr);
+        console.error("[BOF] Intro video processing failed (using original):", msg);
         if (tempInputPath) { await cleanupTemp(tempInputPath); tempInputPath = null; }
       }
 
@@ -881,22 +965,28 @@ export async function POST(req: NextRequest) {
       );
       console.log("[BOF] Warehouse video ready:", videoUrl);
 
-      // Step 2.5: Trim last 0.5s to remove any AI-generated transition/fade effects
-      console.log("[BOF] Store to Home pipeline: Step 2.5 - Trim video end (remove transitions)");
+      // Step 2.5: Apply push-pull effect (forward then backward) + trim transitions
+      console.log("[BOF] Store to Home pipeline: Step 2.5 - Push-pull effect + trim transitions");
       try {
         tempInputPath = await downloadVideoToTemp(videoUrl);
+        // First trim the end to remove transitions
         const trimmedPath = await trimVideoEnd(tempInputPath, 0.5);
-        if (trimmedPath !== tempInputPath) {
-          // Trimmed successfully, re-upload
+        // Then apply push-pull (forward + reversed) effect
+        const pushPullPath = await addPushPullEffect(trimmedPath);
+        if (pushPullPath !== trimmedPath) {
+          const processedUrl = await uploadVideoToKie(pushPullPath, `bof_pushpull_wh_${Date.now()}.mp4`, apiKey);
+          videoUrl = processedUrl;
+          console.log("[BOF] Warehouse video push-pull + trim applied:", processedUrl);
+        } else if (trimmedPath !== tempInputPath) {
           const trimmedUrl = await uploadVideoToKie(trimmedPath, `bof_trimmed_${Date.now()}.mp4`, apiKey);
           videoUrl = trimmedUrl;
-          console.log("[BOF] Video trimmed and re-uploaded:", trimmedUrl);
+          console.log("[BOF] Warehouse video trimmed (push-pull failed):", trimmedUrl);
         }
         await cleanupTemp(tempInputPath);
         tempInputPath = null;
-      } catch (trimErr) {
-        const msg = trimErr instanceof Error ? trimErr.message : String(trimErr);
-        console.error("[BOF] Video trim failed (using original):", msg);
+      } catch (procErr) {
+        const msg = procErr instanceof Error ? procErr.message : String(procErr);
+        console.error("[BOF] Warehouse video processing failed (using original):", msg);
         if (tempInputPath) { await cleanupTemp(tempInputPath); tempInputPath = null; }
       }
 
@@ -965,21 +1055,28 @@ export async function POST(req: NextRequest) {
       );
       console.log("[BOF] Standard BOF video ready:", videoUrl);
 
-      // Step 1.5: Trim last 0.5s to remove any AI-generated transition/fade effects
-      console.log("[BOF] Standard BOF pipeline: Step 1.5 - Trim video end (remove transitions)");
+      // Step 1.5: Apply push-pull effect (forward then backward) + trim transitions
+      console.log("[BOF] Standard BOF pipeline: Step 1.5 - Push-pull effect + trim transitions");
       try {
         tempInputPath = await downloadVideoToTemp(videoUrl);
+        // First trim the end to remove transitions
         const trimmedPath = await trimVideoEnd(tempInputPath, 0.5);
-        if (trimmedPath !== tempInputPath) {
+        // Then apply push-pull (forward + reversed) effect
+        const pushPullPath = await addPushPullEffect(trimmedPath);
+        if (pushPullPath !== trimmedPath) {
+          const processedUrl = await uploadVideoToKie(pushPullPath, `bof_pushpull_std_${Date.now()}.mp4`, apiKey);
+          videoUrl = processedUrl;
+          console.log("[BOF] Standard BOF video push-pull + trim applied:", processedUrl);
+        } else if (trimmedPath !== tempInputPath) {
           const trimmedUrl = await uploadVideoToKie(trimmedPath, `bof_trimmed_std_${Date.now()}.mp4`, apiKey);
           videoUrl = trimmedUrl;
-          console.log("[BOF] Standard BOF video trimmed and re-uploaded:", trimmedUrl);
+          console.log("[BOF] Standard BOF video trimmed (push-pull failed):", trimmedUrl);
         }
         await cleanupTemp(tempInputPath);
         tempInputPath = null;
-      } catch (trimErr) {
-        const msg = trimErr instanceof Error ? trimErr.message : String(trimErr);
-        console.error("[BOF] Standard BOF video trim failed (using original):", msg);
+      } catch (procErr) {
+        const msg = procErr instanceof Error ? procErr.message : String(procErr);
+        console.error("[BOF] Standard BOF video processing failed (using original):", msg);
         if (tempInputPath) { await cleanupTemp(tempInputPath); tempInputPath = null; }
       }
 
