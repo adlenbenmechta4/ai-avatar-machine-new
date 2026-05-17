@@ -536,35 +536,7 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
     document.addEventListener("mouseup", handleMouseUp);
   }, [duration, pushHistory]);
 
-  // ─── Load FFmpeg ───────────────────────────────────────────────
-  const loadFFmpeg = useCallback(async () => {
-    if (ffmpegLoaded || ffmpegLoading) return;
-    setFfmpegLoading(true);
-    try {
-      const { FFmpeg } = await import("@ffmpeg/ffmpeg");
-      const { toBlobURL } = await import("@ffmpeg/util");
-
-      const ffmpeg = new FFmpeg();
-      ffmpegRef.current = ffmpeg;
-
-      // Load FFmpeg WASM from local /public/ffmpeg/ directory
-      // Files are served from same origin so COEP/credentialless works fine
-      const baseURL = "/ffmpeg";
-
-      await ffmpeg.load({
-        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
-        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
-      });
-
-      setFfmpegLoaded(true);
-      setFfmpegLoading(false);
-    } catch (err: unknown) {
-      console.error("[VideoEditor] FFmpeg load failed:", err);
-      const msg = err instanceof Error ? err.message : "Failed to load FFmpeg";
-      setProcessError(msg);
-      setFfmpegLoading(false);
-    }
-  }, [ffmpegLoaded, ffmpegLoading]);
+  // ─── Video editing is now server-side (no client FFmpeg needed) ───
 
   // ─── Get Zoom Color ────────────────────────────────────────────
   function getZoomColor(zoom: ZoomType): string {
@@ -577,7 +549,7 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
 
   // ─── Process & Export Video ─────────────────────────────────────
   const processVideo = useCallback(async () => {
-    if (!duration || !ffmpegLoaded) return;
+    if (!duration) return;
 
     const enabledSegs = segments.filter((s) => s.enabled);
     if (enabledSegs.length === 0) {
@@ -597,131 +569,32 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
     setIsProcessing(true);
     setProcessError("");
     setResultUrl("");
-    setProcessProgress("Downloading video file...");
+    setProcessProgress("Sending edit instructions to server...");
 
     try {
-      const ffmpeg = ffmpegRef.current as {
-        writeFile: (n: string, d: Uint8Array) => Promise<void>;
-        exec: (args: string[]) => Promise<void>;
-        readFile: (n: string) => Promise<Uint8Array>;
-        on: (e: string, cb: (data: { progress?: number }) => void) => void;
-      };
+      // Send segments to server-side FFmpeg for processing
+      const response = await fetch("/api/edit-video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          videoUrl,
+          segments: enabledSegs,
+        }),
+      });
 
-      // Download video via proxy
-      const proxyUrl = `/api/proxy-video?url=${encodeURIComponent(videoUrl)}`;
-      const videoRes = await fetch(proxyUrl);
-      if (!videoRes.ok) throw new Error("Failed to download video");
-      const videoData = new Uint8Array(await videoRes.arrayBuffer());
-
-      setProcessProgress("Loading video into editor...");
-      await ffmpeg.writeFile("input.mp4", videoData);
-
-      setProcessProgress("Processing cuts...");
-
-      // Step 1: Extract and optionally apply zoom to each segment
-      for (let i = 0; i < enabledSegs.length; i++) {
-        const seg = enabledSegs[i];
-        const segDuration = (seg.end - seg.start).toFixed(2);
-        setProcessProgress(`Processing segment ${i + 1} of ${enabledSegs.length}...`);
-
-        ffmpeg.on("progress", ({ progress }) => {
-          if (progress !== undefined) {
-            setProcessProgress(`Processing segment ${i + 1}... ${Math.round(progress * 100)}%`);
-          }
-        });
-
-        if (seg.zoom !== "none") {
-          const zl = seg.zoomLevel;
-
-          // Pass 1: Extract segment (trim only, keep original quality)
-          setProcessProgress(`Extracting segment ${i + 1}...`);
-          await ffmpeg.exec([
-            "-i", "input.mp4",
-            "-ss", seg.start.toFixed(2),
-            "-t", segDuration,
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-crf", "18",
-            "-an",
-            "-movflags", "+faststart",
-            `trimmed${i}.mp4`,
-          ]);
-
-          // Pass 2: Apply instant zoom using scale + crop (matches CSS transform)
-          // This scales the video UP by zoomLevel, then crops back to original size from center
-          // Equivalent to CSS: transform: scale(zl); transform-origin: center center;
-          setProcessProgress(`Applying zoom to segment ${i + 1}...`);
-          await ffmpeg.exec([
-            "-i", `trimmed${i}.mp4`,
-            "-vf", `scale=iw*${zl}:ih*${zl},crop=iw/${zl}:ih/${zl}`,
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-crf", "20",
-            "-an",
-            "-movflags", "+faststart",
-            `part${i}.mp4`,
-          ]);
-
-          // Extract audio for this segment (from original, no re-encoding)
-          await ffmpeg.exec([
-            "-i", "input.mp4",
-            "-ss", seg.start.toFixed(2),
-            "-t", segDuration,
-            "-vn",
-            "-c:a", "aac",
-            "-b:a", "128k",
-            `audio${i}.aac`,
-          ]);
-
-          // Merge zoomed video + audio
-          await ffmpeg.exec([
-            "-i", `part${i}.mp4`,
-            "-i", `audio${i}.aac`,
-            "-c:v", "copy",
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-movflags", "+faststart",
-            `seg${i}.mp4`,
-          ]);
-        } else {
-          // No zoom — simple trim with audio
-          await ffmpeg.exec([
-            "-i", "input.mp4",
-            "-ss", seg.start.toFixed(2),
-            "-t", segDuration,
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-crf", "20",
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-movflags", "+faststart",
-            `seg${i}.mp4`,
-          ]);
-        }
+      if (!response.ok) {
+        let errMsg = `Server error: ${response.status}`;
+        try {
+          const errData = await response.json();
+          if (errData.error) errMsg = errData.error;
+        } catch { /* ignore parse error */ }
+        throw new Error(errMsg);
       }
 
-      // Step 2: Concatenate all segments
-      if (enabledSegs.length === 1) {
-        await ffmpeg.exec(["-i", "seg0.mp4", "-c", "copy", "-movflags", "+faststart", "output.mp4"]);
-      } else {
-        setProcessProgress("Merging segments...");
-        const concatContent = enabledSegs.map((_, i) => `file 'seg${i}.mp4'`).join("\n");
-        const encoder = new TextEncoder();
-        await ffmpeg.writeFile("concat.txt", encoder.encode(concatContent));
+      setProcessProgress("Receiving edited video...");
 
-        await ffmpeg.exec([
-          "-f", "concat",
-          "-safe", "0",
-          "-i", "concat.txt",
-          "-c", "copy",
-          "-movflags", "+faststart",
-          "output.mp4",
-        ]);
-      }
-
-      setProcessProgress("Preparing download...");
-      const outputData = await ffmpeg.readFile("output.mp4");
-      const blob = new Blob([outputData], { type: "video/mp4" });
+      // Get the video data as blob
+      const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       setResultUrl(url);
       setProcessProgress("Done!");
@@ -731,7 +604,7 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
     } finally {
       setIsProcessing(false);
     }
-  }, [duration, segments, ffmpegLoaded, videoUrl]);
+  }, [duration, segments, videoUrl]);
 
   // ─── Keyboard Shortcuts ────────────────────────────────────────
   useEffect(() => {
@@ -1417,9 +1290,9 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
         {/* ─── Export Section ───────────────────────────────────── */}
         <div className="max-w-lg mx-auto">
           {/* Export Button */}
-          {!resultUrl && !ffmpegLoading && (
+          {!resultUrl && (
             <button
-              onClick={ffmpegLoaded ? processVideo : loadFFmpeg}
+              onClick={processVideo}
               disabled={isProcessing || segments.filter((s) => s.enabled).length === 0}
               className="w-full flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-2xl text-sm font-black uppercase tracking-wider transition-all duration-300 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed hover:scale-[1.01] active:scale-[0.99] shadow-lg"
               style={{
@@ -1428,32 +1301,12 @@ export default function VideoEditor({ videoUrl, onClose, onCaptionEditedVideo, a
                 boxShadow: `0 6px 24px ${accentColor}40`,
               }}
             >
-              {ffmpegLoaded ? (
-                <>
-                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                  </svg>
-                  Export {zoomCount > 0 ? "with Zoom " : ""}
-                  Edited Video
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  Load Editor Engine
-                </>
-              )}
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              Export {zoomCount > 0 ? "with Zoom " : ""}
+              Edited Video
             </button>
-          )}
-
-          {/* FFmpeg Loading */}
-          {ffmpegLoading && (
-            <div className="w-full flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-2xl text-sm font-bold"
-              style={{ backgroundColor: `${accentColor}15`, color: accentColor }}>
-              <span className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: `${accentColor}30`, borderTopColor: accentColor }} />
-              Loading editor engine... (one-time ~30MB download)
-            </div>
           )}
 
           {/* Processing Progress */}
