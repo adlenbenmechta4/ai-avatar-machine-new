@@ -39,33 +39,38 @@ const SCENE_PROMPTS: Record<string, string> = {
 // ─── Video Motion Prompts (for intro-video-ai Step 2) ──────────────────
 const VIDEO_MOTION_PROMPTS: Record<string, string> = {
   "kitchen-counter":
-    "The camera slowly pushes in toward the product on the kitchen countertop, maintaining focus on the product label. Subtle natural light shifts as if clouds are passing outside the window. Very gentle camera movement, like handheld footage. The product stays perfectly still and in focus. Warm, inviting kitchen atmosphere. NO transitions, NO fade-in, NO fade-out. Start instantly at full brightness.",
+    "The camera slowly pushes in toward the product on the kitchen countertop, maintaining focus on the product label. Subtle natural light shifts as if clouds are passing outside the window. Very gentle camera movement, like handheld footage. The product stays perfectly still and in focus. Warm, inviting kitchen atmosphere. NO transitions, NO fade-in, NO fade-out, NO dissolve, NO wipe, NO fade-to-black at any point especially at the end. Start instantly at full brightness. The last frame must be a normal clear frame of the scene.",
   "bathroom-counter":
-    "The camera slowly orbits the product on the bathroom counter, maintaining focus on the product label. Soft light gently shifts creating subtle reflections on the marble surface. Smooth, elegant camera movement. The product stays perfectly still and in focus. Clean, fresh atmosphere. NO transitions, NO fade-in, NO fade-out. Start instantly at full brightness.",
+    "The camera slowly orbits the product on the bathroom counter, maintaining focus on the product label. Soft light gently shifts creating subtle reflections on the marble surface. Smooth, elegant camera movement. The product stays perfectly still and in focus. Clean, fresh atmosphere. NO transitions, NO fade-in, NO fade-out, NO dissolve, NO wipe, NO fade-to-black at any point especially at the end. Start instantly at full brightness. The last frame must be a normal clear frame of the scene.",
   "bedroom-nightstand":
-    "The camera slowly pulls back from the product on the nightstand, revealing the cozy bedroom setting. Warm lamp light creates a gentle glow around the product. Smooth, cinematic camera movement. The product stays perfectly still and in focus. Intimate, warm atmosphere. NO transitions, NO fade-in, NO fade-out. Start instantly at full brightness.",
+    "The camera slowly pulls back from the product on the nightstand, revealing the cozy bedroom setting. Warm lamp light creates a gentle glow around the product. Smooth, cinematic camera movement. The product stays perfectly still and in focus. Intimate, warm atmosphere. NO transitions, NO fade-in, NO fade-out, NO dissolve, NO wipe, NO fade-to-black at any point especially at the end. Start instantly at full brightness. The last frame must be a normal clear frame of the scene.",
   "living-room":
-    "The camera slowly pans around the product on the coffee table, maintaining focus on the product label. Natural window light gently illuminates the scene. Smooth, documentary-style camera movement. The product stays perfectly still and in focus. Comfortable, lifestyle atmosphere. NO transitions, NO fade-in, NO fade-out. Start instantly at full brightness.",
+    "The camera slowly pans around the product on the coffee table, maintaining focus on the product label. Natural window light gently illuminates the scene. Smooth, documentary-style camera movement. The product stays perfectly still and in focus. Comfortable, lifestyle atmosphere. NO transitions, NO fade-in, NO fade-out, NO dissolve, NO wipe, NO fade-to-black at any point especially at the end. Start instantly at full brightness. The last frame must be a normal clear frame of the scene.",
   "office-desk":
-    "The camera slowly pushes in toward the product on the office desk, maintaining focus on the product label. Professional lighting remains consistent. Smooth, steady camera movement. The product stays perfectly still and in focus. Professional atmosphere. NO transitions, NO fade-in, NO fade-out. Start instantly at full brightness.",
+    "The camera slowly pushes in toward the product on the office desk, maintaining focus on the product label. Professional lighting remains consistent. Smooth, steady camera movement. The product stays perfectly still and in focus. Professional atmosphere. NO transitions, NO fade-in, NO fade-out, NO dissolve, NO wipe, NO fade-to-black at any point especially at the end. Start instantly at full brightness. The last frame must be a normal clear frame of the scene.",
   "outdoor-patio":
-    "The camera slowly orbits the product on the patio table, maintaining focus on the product label. Natural sunlight creates gentle shadows that shift subtly. Smooth, handheld-style camera movement. The product stays perfectly still and in focus. Fresh, bright outdoor atmosphere. NO transitions, NO fade-in, NO fade-out. Start instantly at full brightness.",
+    "The camera slowly orbits the product on the patio table, maintaining focus on the product label. Natural sunlight creates gentle shadows that shift subtly. Smooth, handheld-style camera movement. The product stays perfectly still and in focus. Fresh, bright outdoor atmosphere. NO transitions, NO fade-in, NO fade-out, NO dissolve, NO wipe, NO fade-to-black at any point especially at the end. Start instantly at full brightness. The last frame must be a normal clear frame of the scene.",
   "vanity-mirror":
-    "The camera slowly pushes in toward the product on the vanity table, maintaining focus on the product label. Ring light creates soft, even illumination with gentle reflections in the mirror. Smooth, elegant camera movement. The product stays perfectly still and in focus. Beauty aesthetic atmosphere. NO transitions, NO fade-in, NO fade-out. Start instantly at full brightness.",
+    "The camera slowly pushes in toward the product on the vanity table, maintaining focus on the product label. Ring light creates soft, even illumination with gentle reflections in the mirror. Smooth, elegant camera movement. The product stays perfectly still and in focus. Beauty aesthetic atmosphere. NO transitions, NO fade-in, NO fade-out, NO dissolve, NO wipe, NO fade-to-black at any point especially at the end. Start instantly at full brightness. The last frame must be a normal clear frame of the scene.",
   "gym-bench":
-    "The camera slowly orbits the product on the gym bench, maintaining focus on the product label. Dynamic lighting creates subtle highlights and shadows. Energetic but smooth camera movement. The product stays perfectly still and in focus. Athletic atmosphere. NO transitions, NO fade-in, NO fade-out. Start instantly at full brightness.",
+    "The camera slowly orbits the product on the gym bench, maintaining focus on the product label. Dynamic lighting creates subtle highlights and shadows. Energetic but smooth camera movement. The product stays perfectly still and in focus. Athletic atmosphere. NO transitions, NO fade-in, NO fade-out, NO dissolve, NO wipe, NO fade-to-black at any point especially at the end. Start instantly at full brightness. The last frame must be a normal clear frame of the scene.",
 };
 
 // ─── Warehouse Showcase Prompt (Store to Home) ───────────────────────
-const WAREHOUSE_SCENE_PROMPT =
-  "Dozens of this EXACT product — same size, same shape, same packaging — stacked in neat rows on a multi-tiered branded cardboard display stand sitting on a wooden pallet in the center of a wide warehouse aisle. CRITICAL: The product must look EXACTLY like the reference image — same physical size, same proportions, same packaging design with the same brand name and labels clearly visible. Do NOT enlarge or change the product. Each individual product retains its original retail packaging with all branding, logos, and text perfectly preserved as shown in the reference image. IMPORTANT: The cardboard display stand itself is fully customized with the brand's colors — the display structure matches the product packaging colors, and the brand name is printed large and prominently in the center front of the display stand. The display has 3 to 4 tiers, each tier holding multiple rows of identical products with their packaging and labels clearly facing forward. The branded display stand sits on a standard wooden pallet base. Tall industrial metal shelving units filled with boxes line both sides of the aisle, receding into the distance. The scene is shot from a slightly low angle, looking up at the display. Bright overhead fluorescent warehouse lighting. Concrete floor. The impression is of a massive wholesale warehouse with this product as the star. Photorealistic, high quality product photography style.";
+// Dynamic: uses productName to print the actual brand name on the display stand
+function getWarehouseScenePrompt(productName: string): string {
+  const brandLabel = productName?.trim() || "the brand";
+  return `Dozens of this EXACT product — same size, same shape, same packaging — stacked in neat rows on a multi-tiered branded cardboard display stand sitting on a wooden pallet in the center of a wide warehouse aisle. CRITICAL: The product must look EXACTLY like the reference image — same physical size, same proportions, same packaging design with the same brand name and labels clearly visible. Do NOT enlarge or change the product. Each individual product retains its original retail packaging with all branding, logos, and text perfectly preserved as shown in the reference image. IMPORTANT: The cardboard display stand itself is fully customized with the brand's colors — the display structure matches the product packaging colors, and the brand name "${brandLabel}" is printed large and prominently in the center front of the display stand in bold text. The display has 3 to 4 tiers, each tier holding multiple rows of identical products with their packaging and labels clearly facing forward. The branded display stand sits on a standard wooden pallet base. Tall industrial metal shelving units filled with boxes line both sides of the aisle, receding into the distance. The scene is shot from a slightly low angle, looking up at the display. Bright overhead fluorescent warehouse lighting. Concrete floor. The impression is of a massive wholesale warehouse with this product as the star. Photorealistic, high quality product photography style.`;
+}
 
-const WAREHOUSE_VIDEO_PROMPT =
-  "A smooth camera slowly pushes in toward a multi-tiered branded cardboard display stand sitting on a wooden pallet in the center of a wide warehouse aisle. The display stand is customized with the brand's colors and has the brand name printed large and prominently on the front. Dozens of identical products are stacked in neat rows on the display tiers — each product is the same size and packaging as the reference image, with all brand names and labels clearly visible and preserved. Tall industrial shelving units line both sides of the aisle, receding into the distance. The camera glides forward from a slightly low angle. Bright overhead fluorescent lighting, concrete floor. Professional, clean atmosphere showing abundant wholesale inventory. The products stay perfectly still and in focus throughout. NO transitions, NO fade-in, NO fade-out. Start instantly at full brightness.";
+function getWarehouseVideoPrompt(productName: string): string {
+  const brandLabel = productName?.trim() || "the brand";
+  return `A smooth camera slowly pushes in toward a multi-tiered branded cardboard display stand sitting on a wooden pallet in the center of a wide warehouse aisle. The display stand is customized with the brand's colors and has the brand name "${brandLabel}" printed large and prominently on the front in bold text. Dozens of identical products are stacked in neat rows on the display tiers — each product is the same size and packaging as the reference image, with all brand names and labels clearly visible and preserved. Tall industrial shelving units line both sides of the aisle, receding into the distance. The camera glides forward from a slightly low angle. Bright overhead fluorescent lighting, concrete floor. Professional, clean atmosphere showing abundant wholesale inventory. The products stay perfectly still and in focus throughout. NO transitions, NO fade-in, NO fade-out. Start instantly at full brightness. The video must NOT contain any transition effects, wipes, dissolves, or fade-to-black at any point especially at the end. The last frame must be a normal clear frame of the scene.`;
+}
 
 // ─── Standard BOF Prompt ───────────────────────────────────────────────
 const STANDARD_BOF_VIDEO_PROMPT =
-  "Professional product showcase video. The camera slowly rotates around the product, showing it from multiple angles with smooth, cinematic camera movement. The product is well-lit with studio lighting on a clean, neutral background. The product label and packaging are clearly visible. Professional e-commerce style. NO transitions, NO fade-in, NO fade-out. Start instantly at full brightness.";
+  "Professional product showcase video. The camera slowly rotates around the product, showing it from multiple angles with smooth, cinematic camera movement. The product is well-lit with studio lighting on a clean, neutral background. The product label and packaging are clearly visible. Professional e-commerce style. NO transitions, NO fade-in, NO fade-out, NO dissolve, NO wipe, NO fade-to-black at any point especially at the end. Start instantly at full brightness. The last frame must be a normal clear frame of the scene.";
 
 // ─── Text Overlay Scripts ────────────────────────────────────────────────
 const SCRIPT_TEXTS: Record<string, string> = {
@@ -358,6 +363,63 @@ async function downloadVideoToTemp(videoUrl: string): Promise<string> {
   await fs.writeFile(tmpPath, buffer);
   console.log("[BOF FFmpeg] Video downloaded, size:", buffer.length);
   return tmpPath;
+}
+
+// ─── Get Video Duration ─────────────────────────────────────────────────
+async function getVideoDuration(videoPath: string): Promise<number> {
+  const { stdout } = await execFileAsync("ffprobe", [
+    "-v", "error",
+    "-select_streams", "v:0",
+    "-show_entries", "stream=duration",
+    "-of", "csv=s=x:p=0",
+    videoPath,
+  ]);
+  const dur = parseFloat(stdout.trim());
+  if (!isNaN(dur) && dur > 0) return dur;
+  // Fallback: use format duration
+  const { stdout: fmtDur } = await execFileAsync("ffprobe", [
+    "-v", "error",
+    "-select_streams", "v:0",
+    "-show_entries", "format=duration",
+    "-of", "csv=s=x:p=0",
+    videoPath,
+  ]);
+  return parseFloat(fmtDur.trim()) || 0;
+}
+
+// ─── Trim End of Video (remove last 0.5s to cut transition/fade) ──────
+async function trimVideoEnd(inputPath: string, trimSeconds: number = 0.5): Promise<string> {
+  const tmpDir = path.dirname(inputPath);
+  const outputPath = path.join(tmpDir, "trimmed.mp4");
+
+  const duration = await getVideoDuration(inputPath);
+  if (duration <= trimSeconds + 1) {
+    // Video too short to trim, return as-is
+    console.log("[BOF FFmpeg] Video too short to trim (" + duration + "s), skipping trim");
+    return inputPath;
+  }
+
+  const trimTo = (duration - trimSeconds).toFixed(2);
+  console.log(`[BOF FFmpeg] Trimming video: original ${duration.toFixed(2)}s → trimming last ${trimSeconds}s → new duration ${trimTo}s`);
+
+  try {
+    await execFileAsync("ffmpeg", [
+      "-y",
+      "-i", inputPath,
+      "-t", trimTo,
+      "-c:v", "libx264",
+      "-preset", "ultrafast",
+      "-crf", "23",
+      "-c:a", "aac",
+      outputPath,
+    ], { timeout: 120000 });
+    console.log("[BOF FFmpeg] Video trimmed successfully");
+    return outputPath;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[BOF FFmpeg] Trim failed, using original:", msg.substring(0, 300));
+    return inputPath;
+  }
 }
 
 // ─── Get Video Dimensions ───────────────────────────────────────────────
@@ -727,7 +789,7 @@ export async function POST(req: NextRequest) {
 
       const motionPrompt =
         scenePreset === "custom" && customPrompt?.trim()
-          ? `Subtle camera movement showing the product. ${customPrompt.trim()} NO transitions, NO fade-in, NO fade-out. Start instantly at full brightness.`
+          ? `Subtle camera movement showing the product. ${customPrompt.trim()} NO transitions, NO fade-in, NO fade-out, NO dissolve, NO wipe, NO fade-to-black at any point especially at the end. Start instantly at full brightness. The last frame must be a normal clear frame of the scene.`
           : VIDEO_MOTION_PROMPTS[scenePreset] || VIDEO_MOTION_PROMPTS["kitchen-counter"];
 
       console.log("[BOF] Intro Video + AI pipeline: Step 1 - Scene image");
@@ -745,6 +807,24 @@ export async function POST(req: NextRequest) {
         2
       );
       console.log("[BOF] Video ready:", videoUrl);
+
+      // Step 2.5: Trim last 0.5s to remove any AI-generated transition/fade effects
+      console.log("[BOF] Intro Video + AI pipeline: Step 2.5 - Trim video end (remove transitions)");
+      try {
+        tempInputPath = await downloadVideoToTemp(videoUrl);
+        const trimmedPath = await trimVideoEnd(tempInputPath, 0.5);
+        if (trimmedPath !== tempInputPath) {
+          const trimmedUrl = await uploadVideoToKie(trimmedPath, `bof_trimmed_intro_${Date.now()}.mp4`, apiKey);
+          videoUrl = trimmedUrl;
+          console.log("[BOF] Intro video trimmed and re-uploaded:", trimmedUrl);
+        }
+        await cleanupTemp(tempInputPath);
+        tempInputPath = null;
+      } catch (trimErr) {
+        const msg = trimErr instanceof Error ? trimErr.message : String(trimErr);
+        console.error("[BOF] Intro video trim failed (using original):", msg);
+        if (tempInputPath) { await cleanupTemp(tempInputPath); tempInputPath = null; }
+      }
 
       // Step 3: Apply text overlay via FFmpeg (if enabled) — non-blocking
       if (textOverlay && overlayScript) {
@@ -779,13 +859,13 @@ export async function POST(req: NextRequest) {
     else if (wf === "warehouse-showcase") {
       console.log("[BOF] Store to Home pipeline: Step 1 - Warehouse scene image");
       sceneImageUrl = await withRetry(
-        () => generateSceneImage(productImageUrl, WAREHOUSE_SCENE_PROMPT, apiKey),
+        () => generateSceneImage(productImageUrl, getWarehouseScenePrompt(productName), apiKey),
         "Scene image (Warehouse)",
         2
       );
       console.log("[BOF] Warehouse scene image ready:", sceneImageUrl);
 
-      let warehousePrompt = WAREHOUSE_VIDEO_PROMPT;
+      let warehousePrompt = getWarehouseVideoPrompt(productName);
       if (reversePlayback) {
         warehousePrompt += " Reverse playback effect.";
       }
@@ -800,6 +880,25 @@ export async function POST(req: NextRequest) {
         2
       );
       console.log("[BOF] Warehouse video ready:", videoUrl);
+
+      // Step 2.5: Trim last 0.5s to remove any AI-generated transition/fade effects
+      console.log("[BOF] Store to Home pipeline: Step 2.5 - Trim video end (remove transitions)");
+      try {
+        tempInputPath = await downloadVideoToTemp(videoUrl);
+        const trimmedPath = await trimVideoEnd(tempInputPath, 0.5);
+        if (trimmedPath !== tempInputPath) {
+          // Trimmed successfully, re-upload
+          const trimmedUrl = await uploadVideoToKie(trimmedPath, `bof_trimmed_${Date.now()}.mp4`, apiKey);
+          videoUrl = trimmedUrl;
+          console.log("[BOF] Video trimmed and re-uploaded:", trimmedUrl);
+        }
+        await cleanupTemp(tempInputPath);
+        tempInputPath = null;
+      } catch (trimErr) {
+        const msg = trimErr instanceof Error ? trimErr.message : String(trimErr);
+        console.error("[BOF] Video trim failed (using original):", msg);
+        if (tempInputPath) { await cleanupTemp(tempInputPath); tempInputPath = null; }
+      }
 
       // Step 3: Apply text overlay via FFmpeg (if enabled)
       // Combine warehouse overlay text (header like "INSANE [product] DEAL!!!") + script text
@@ -865,6 +964,24 @@ export async function POST(req: NextRequest) {
         2
       );
       console.log("[BOF] Standard BOF video ready:", videoUrl);
+
+      // Step 1.5: Trim last 0.5s to remove any AI-generated transition/fade effects
+      console.log("[BOF] Standard BOF pipeline: Step 1.5 - Trim video end (remove transitions)");
+      try {
+        tempInputPath = await downloadVideoToTemp(videoUrl);
+        const trimmedPath = await trimVideoEnd(tempInputPath, 0.5);
+        if (trimmedPath !== tempInputPath) {
+          const trimmedUrl = await uploadVideoToKie(trimmedPath, `bof_trimmed_std_${Date.now()}.mp4`, apiKey);
+          videoUrl = trimmedUrl;
+          console.log("[BOF] Standard BOF video trimmed and re-uploaded:", trimmedUrl);
+        }
+        await cleanupTemp(tempInputPath);
+        tempInputPath = null;
+      } catch (trimErr) {
+        const msg = trimErr instanceof Error ? trimErr.message : String(trimErr);
+        console.error("[BOF] Standard BOF video trim failed (using original):", msg);
+        if (tempInputPath) { await cleanupTemp(tempInputPath); tempInputPath = null; }
+      }
 
       // Step 2: Apply text overlay via FFmpeg (if enabled) — non-blocking
       if (textOverlay && overlayScript) {
