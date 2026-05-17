@@ -498,6 +498,88 @@ async function addPushPullEffect(inputPath: string): Promise<string> {
   }
 }
 
+// ─── Prepend Hook Video ────────────────────────────────────────────────
+// Concatenates a hook video before the main video:
+// [hook video] + [main video] = final video
+async function prependHookVideo(mainVideoPath: string, hookVideoData: string): Promise<string> {
+  const tmpDir = path.dirname(mainVideoPath);
+  const hookPath = path.join(tmpDir, "hook.mp4");
+  const concatListPath = path.join(tmpDir, "hook_concat.txt");
+  const outputPath = path.join(tmpDir, "with_hook.mp4");
+
+  try {
+    // Decode hook video (base64 data URL or raw base64)
+    let rawBase64 = hookVideoData;
+    if (rawBase64.includes(",")) {
+      rawBase64 = rawBase64.split(",")[1];
+    }
+    const hookBuffer = Buffer.from(rawBase64, "base64");
+    await fs.writeFile(hookPath, hookBuffer);
+    console.log("[BOF FFmpeg] Hook video saved, size:", hookBuffer.length);
+
+    // Verify hook video is readable
+    const hookDuration = await getVideoDuration(hookPath);
+    if (hookDuration <= 0) {
+      console.error("[BOF FFmpeg] Hook video has no duration, skipping prepend");
+      return mainVideoPath;
+    }
+    console.log("[BOF FFmpeg] Hook video duration:", hookDuration.toFixed(2) + "s");
+
+    // Normalize hook video to match main video format (9:16, h264, yuv420p)
+    const normalizedHookPath = path.join(tmpDir, "hook_normalized.mp4");
+    await execFileAsync("ffmpeg", [
+      "-y",
+      "-i", hookPath,
+      "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black",
+      "-c:v", "libx264",
+      "-preset", "ultrafast",
+      "-crf", "23",
+      "-an",
+      "-pix_fmt", "yuv420p",
+      normalizedHookPath,
+    ], { timeout: 120000 });
+
+    // Normalize main video to ensure consistent format
+    const normalizedMainPath = path.join(tmpDir, "main_normalized.mp4");
+    await execFileAsync("ffmpeg", [
+      "-y",
+      "-i", mainVideoPath,
+      "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black",
+      "-c:v", "libx264",
+      "-preset", "ultrafast",
+      "-crf", "23",
+      "-an",
+      "-pix_fmt", "yuv420p",
+      normalizedMainPath,
+    ], { timeout: 120000 });
+
+    // Concatenate: hook + main video
+    const concatContent = `file '${normalizedHookPath}'\nfile '${normalizedMainPath}'\n`;
+    await fs.writeFile(concatListPath, concatContent, "utf-8");
+
+    await execFileAsync("ffmpeg", [
+      "-y",
+      "-f", "concat",
+      "-safe", "0",
+      "-i", concatListPath,
+      "-c:v", "libx264",
+      "-preset", "ultrafast",
+      "-crf", "23",
+      "-an",
+      "-pix_fmt", "yuv420p",
+      outputPath,
+    ], { timeout: 120000 });
+
+    const finalDuration = await getVideoDuration(outputPath);
+    console.log(`[BOF FFmpeg] Hook video prepended successfully: hook ${hookDuration.toFixed(2)}s + main → total ${finalDuration.toFixed(2)}s`);
+    return outputPath;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[BOF FFmpeg] Hook prepend failed, using main video only:", msg.substring(0, 500));
+    return mainVideoPath;
+  }
+}
+
 // ─── Get Video Dimensions ───────────────────────────────────────────────
 async function getVideoDimensions(videoPath: string): Promise<{ width: number; height: number }> {
   const { stdout } = await execFileAsync("ffprobe", [
@@ -833,6 +915,7 @@ export async function POST(req: NextRequest) {
       warehouseCustomOverlayText = "",
       selectedVoice = "none",
       selectedQuality = "standard",
+      hookVideo = "",
     } = body;
 
     if (!productImage) return NextResponse.json({ error: "Product image is required" }, { status: 400 });
@@ -908,6 +991,26 @@ export async function POST(req: NextRequest) {
         const msg = procErr instanceof Error ? procErr.message : String(procErr);
         console.error("[BOF] Intro video processing failed (using original):", msg);
         if (tempInputPath) { await cleanupTemp(tempInputPath); tempInputPath = null; }
+      }
+
+      // Step 2.7: Prepend hook video (if selected)
+      if (hookVideo) {
+        console.log("[BOF] Intro Video + AI pipeline: Step 2.7 - Prepend hook video");
+        try {
+          tempInputPath = await downloadVideoToTemp(videoUrl);
+          const withHookPath = await prependHookVideo(tempInputPath, hookVideo);
+          if (withHookPath !== tempInputPath) {
+            const hookUrl = await uploadVideoToKie(withHookPath, `bof_hook_${Date.now()}.mp4`, apiKey);
+            videoUrl = hookUrl;
+            console.log("[BOF] Hook video prepended successfully:", hookUrl);
+          }
+          await cleanupTemp(tempInputPath);
+          tempInputPath = null;
+        } catch (hookErr) {
+          const msg = hookErr instanceof Error ? hookErr.message : String(hookErr);
+          console.error("[BOF] Hook video prepend failed (using video without hook):", msg);
+          if (tempInputPath) { await cleanupTemp(tempInputPath); tempInputPath = null; }
+        }
       }
 
       // Step 3: Apply text overlay via FFmpeg (if enabled) — non-blocking

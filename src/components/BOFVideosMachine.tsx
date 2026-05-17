@@ -149,6 +149,14 @@ const OVERLAY_SCRIPTS = [
   { id: "custom", name: "Custom Script", text: "" },
 ];
 
+// Hook video options for Intro Video + AI
+const HOOK_VIDEO_OPTIONS = [
+  { id: "none", name: "None", emoji: "🚫", desc: "No hook video" },
+  { id: "hook-1", name: "Hook 1", emoji: "🎬", desc: "Preset hook video 1", src: "/hooks/hook-1.mp4" },
+  { id: "hook-2", name: "Hook 2", emoji: "🎥", desc: "Preset hook video 2", src: "/hooks/hook-2.mp4" },
+  { id: "custom", name: "Custom Upload", emoji: "📤", desc: "Upload your own hook" },
+];
+
 // Standard BOF image overlays
 const IMAGE_OVERLAYS = [
   { id: "none", name: "No Overlay", icon: "🚫" },
@@ -202,6 +210,8 @@ export default function BOFVideosMachine({
   const [warehouseCustomOverlayText, setWarehouseCustomOverlayText] = useState(""); // custom overlay text for warehouse
   const [selectedVoice, setSelectedVoice] = useState("none"); // voice narration
   const [selectedQuality, setSelectedQuality] = useState("standard"); // video quality
+  const [selectedHookVideo, setSelectedHookVideo] = useState("none"); // hook video for intro
+  const [customHookVideo, setCustomHookVideo] = useState(""); // base64 of custom hook video
 
   // ── Products ──
   const [products, setProducts] = useState<BOFProduct[]>([]);
@@ -319,6 +329,29 @@ export default function BOFVideosMachine({
       try {
         setVideos((prev) => prev.map((v) => v.id === video.id ? { ...v, status: "uploading", progress: 5 } : v));
 
+        // Prepare hook video data (fetch preset or use custom upload)
+        let hookVideoBase64 = "";
+        if (workflowType === "intro-video-ai" && selectedHookVideo !== "none") {
+          if (selectedHookVideo === "custom" && customHookVideo) {
+            hookVideoBase64 = customHookVideo;
+          } else {
+            const hookOption = HOOK_VIDEO_OPTIONS.find((h) => h.id === selectedHookVideo);
+            if (hookOption?.src) {
+              try {
+                const hookRes = await fetch(hookOption.src);
+                const hookBlob = await hookRes.blob();
+                hookVideoBase64 = await new Promise<string>((resolve) => {
+                  const reader = new FileReader();
+                  reader.onloadend = () => resolve(reader.result as string);
+                  reader.readAsDataURL(hookBlob);
+                });
+              } catch (hookErr) {
+                console.error("Failed to load hook video:", hookErr);
+              }
+            }
+          }
+        }
+
         const res = await authFetch("/api/bof-generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -343,6 +376,7 @@ export default function BOFVideosMachine({
             warehouseCustomOverlayText,
             selectedVoice,
             selectedQuality,
+            hookVideo: hookVideoBase64,
           }),
         });
 
@@ -381,7 +415,7 @@ export default function BOFVideosMachine({
     setIsGenerating(false);
     abortRef.current = null;
     cancelledIdsRef.current.clear();
-  }, [selectedProductIds, products, scenePreset, customPrompt, videoModel, workflowType, duration, reversePlayback, textOverlay, overlayScript, overlayScriptOverlay, overlayPosition, overlaySize, customOverlayText, selectedImageOverlay, selectedAudio, videosPerProduct, warehouseOverlayText, warehouseCustomOverlayText, selectedVoice, selectedQuality, authFetch]);
+  }, [selectedProductIds, products, scenePreset, customPrompt, videoModel, workflowType, duration, reversePlayback, textOverlay, overlayScript, overlayScriptOverlay, overlayPosition, overlaySize, customOverlayText, selectedImageOverlay, selectedAudio, videosPerProduct, warehouseOverlayText, warehouseCustomOverlayText, selectedVoice, selectedQuality, selectedHookVideo, customHookVideo, authFetch]);
 
   const cancelGeneration = useCallback(() => {
     abortRef.current?.abort();
@@ -608,6 +642,74 @@ export default function BOFVideosMachine({
                         ))}
                       </div>
                     </div>
+                  </div>
+
+                  {/* Hook Video for Intro Video + AI */}
+                  <div className="rounded-xl border p-5" style={{ backgroundColor: CARD_BG, borderColor: BORDER }}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="text-sm font-semibold" style={{ color: T1 }}>Hook Video</h3>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: `${ACCENT_GREEN}20`, color: ACCENT_GREEN }}>Optional</span>
+                    </div>
+                    <p className="text-xs mb-3" style={{ color: T3 }}>Add a short hook clip before your AI-generated video</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {HOOK_VIDEO_OPTIONS.map((hook) => (
+                        <button
+                          key={hook.id}
+                          onClick={() => setSelectedHookVideo(hook.id)}
+                          className="rounded-lg border-2 p-2.5 text-left cursor-pointer transition-all"
+                          style={{
+                            borderColor: selectedHookVideo === hook.id ? ACCENT_GREEN : BORDER,
+                            backgroundColor: selectedHookVideo === hook.id ? `${ACCENT_GREEN}10` : CARD_BG,
+                          }}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">{hook.emoji}</span>
+                            <div>
+                              <p className="text-xs font-medium" style={{ color: selectedHookVideo === hook.id ? ACCENT_GREEN : T1 }}>{hook.name}</p>
+                              <p className="text-[10px]" style={{ color: T3 }}>{hook.desc}</p>
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                    {selectedHookVideo === "custom" && (
+                      <div className="mt-3">
+                        <label className="w-full cursor-pointer block">
+                          <div className="rounded-xl border-2 border-dashed p-4 text-center transition-all hover:border-blue-400" style={{ borderColor: BORDER }}>
+                            <span className="text-2xl block mb-1">📤</span>
+                            <p className="text-xs font-medium" style={{ color: T1 }}>Upload Hook Video</p>
+                            <p className="text-[10px]" style={{ color: T3 }}>MP4, 9:16 vertical recommended</p>
+                          </div>
+                          <input
+                            type="file"
+                            accept="video/mp4,video/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onloadend = () => setCustomHookVideo(reader.result as string);
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                          />
+                        </label>
+                        {customHookVideo && (
+                          <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg" style={{ backgroundColor: `${ACCENT_GREEN}10` }}>
+                            <span className="text-sm">✅</span>
+                            <p className="text-xs font-medium" style={{ color: ACCENT_GREEN }}>Custom hook video loaded</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {(selectedHookVideo === "hook-1" || selectedHookVideo === "hook-2") && (
+                      <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg" style={{ backgroundColor: `${ACCENT_GREEN}10` }}>
+                        <span className="text-sm">🎬</span>
+                        <p className="text-xs font-medium" style={{ color: ACCENT_GREEN }}>
+                          {selectedHookVideo === "hook-1" ? "Hook 1" : "Hook 2"} will play before your AI video
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   {/* Text Overlay for Intro Video + AI */}
