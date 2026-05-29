@@ -29,6 +29,15 @@ export function isVipEmail(email: string): boolean {
   return VIP_EMAILS.has(email.toLowerCase().trim());
 }
 
+// Backward-compatible alias
+export function isVIP(email: string | null | undefined): boolean {
+  if (!email) return false;
+  return VIP_EMAILS.has(email.toLowerCase().trim());
+}
+
+// Exported VIP_EMAILS constant for direct access
+export { VIP_EMAILS };
+
 interface AuthUser {
   id: string;
   name: string;
@@ -147,4 +156,23 @@ export async function getAuthUser(request: NextRequest): Promise<AuthUser | null
     console.error("[getAuthUser] Error:", error);
     return null;
   }
+}
+
+export function getUserRole(email: string | null | undefined): {
+  role: 'admin' | 'user';
+  plan: 'enterprise' | 'free';
+  credits: number;
+} {
+  if (isVIP(email)) {
+    return {
+      role: 'admin',
+      plan: 'enterprise',
+      credits: 999999,
+    };
+  }
+  return {
+    role: 'user',
+    plan: 'free',
+    credits: 5,
+  };
 }
