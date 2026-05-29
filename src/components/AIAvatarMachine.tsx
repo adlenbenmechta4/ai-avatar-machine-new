@@ -563,11 +563,9 @@ function CreateAvatarSection({
 
 export default function AIAvatarMachine({ isAdmin = false, theme = "light", initialView = "create" }: { isAdmin?: boolean; theme?: string; initialView?: string }) {
   const { authFetch, user } = useAuth();
-
-  // ── Admin user check (only adlenbenmechta3@gmail.com sees full UI) ──
-  const isAdminUser = user?.email === "adlenbenmechta3@gmail.com";
   const T = useThemeColors(theme as "light" | "dark");
   const isDark = theme === "dark";
+  const isSuperAdmin = (user?.email || "").toLowerCase().trim() === "adlenbenmechta3@gmail.com";
   // ── Core State ──
   const [avatarImage, setAvatarImage] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string>("");
@@ -595,14 +593,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
 
   // ── Mode State ──
   const [mode, setMode] = useState<"ai" | "manual">("ai");
-  const [frameMode, setFrameMode] = useState<"avatar" | "avatar_v2" | "scenes" | "custom">("avatar");
-
-  // Non-admin users default to avatar_v2 since "avatar" is hidden from them
-  useEffect(() => {
-    if (!isAdminUser && frameMode === "avatar") {
-      setFrameMode("avatar_v2");
-    }
-  }, [isAdminUser, frameMode]);
+  const [frameMode, setFrameMode] = useState<"avatar" | "avatar_v2" | "scenes" | "custom">("avatar_v2");
   const [customPromptStyle, setCustomPromptStyle] = useState<"v1" | "v2">("v1");
   const [aiTopic, setAiTopic] = useState("");
   const [aiDuration, setAiDuration] = useState(30);
@@ -2448,10 +2439,10 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                     <label className="block text-xs font-bold uppercase tracking-wider mb-2" style={{ color: T.textMuted }}>
                       Video Provider
                     </label>
-                    <div className={isAdminUser ? "grid grid-cols-2 gap-2" : "grid grid-cols-1 gap-2"}>
+                    <div className={isSuperAdmin ? "grid grid-cols-2 gap-2" : "grid grid-cols-1 gap-2"}>
                       {([
                         { value: "kie" as const, label: "Multi-Scene", emoji: "🎬", desc: "Multiple scenes & backgrounds" },
-                        ...(isAdminUser ? [{ value: "heygen" as const, label: "Talking Photo", emoji: "🗣️", desc: "Single talking-head video" }] : []),
+                        ...(isSuperAdmin ? [{ value: "heygen" as const, label: "Talking Photo", emoji: "🗣️", desc: "Single talking-head video" }] : []),
                       ]).map((prov) => (
                         <button
                           key={prov.value}
@@ -2472,16 +2463,16 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                     </div>
                   </div>
 
-                  {/* Video Model Selector */}
-                  {videoProvider === "kie" && (
+                  {/* Video Model Selector (Admin Only, KIE provider only) */}
+                  {videoProvider === "kie" && isAdmin && (
                     <div className="mb-4">
                       <label className="block text-xs font-bold uppercase tracking-wider mb-2" style={{ color: T.textMuted }}>
                         Video Model
                       </label>
                       <div className="grid grid-cols-2 gap-2">
                         {([
-                          { value: "veo3_lite" as const, label: isAdminUser ? "Veo3.1 Lite" : "Best Model", emoji: "⚡", desc: isAdminUser ? "Standard quality, slower" : "Highest quality output" },
-                          { value: "veo3_fast" as const, label: isAdminUser ? "Veo3.1 Fast" : "Alternative", emoji: "🚀", desc: isAdminUser ? "Fast generation, high quality" : "Faster generation" },
+                          { value: "veo3_lite" as const, label: isSuperAdmin ? "Veo3.1 Lite" : "Best Model", emoji: "⚡", desc: isSuperAdmin ? "Standard quality, slower" : "Best quality output" },
+                          { value: "veo3_fast" as const, label: isSuperAdmin ? "Veo3.1 Fast" : "Alternative", emoji: "🚀", desc: isSuperAdmin ? "Fast generation, high quality" : "Fast generation" },
                         ]).map((model) => (
                           <button
                             key={model.value}
@@ -2501,13 +2492,12 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                         ))}
                       </div>
                       <p className="text-[10px] mt-1.5" style={{ color: T.textMuted }}>
-                        {videoModel === "veo3_lite" ? `Image to Video First Frame — ${isAdminUser ? "Veo3.1 Lite" : "Best Model"}` : `Image to Video First Frame — ${isAdminUser ? "Veo3.1 Fast" : "Alternative"}`}
+                        {videoModel === "veo3_lite" ? (isSuperAdmin ? "Image to Video First Frame — Veo3.1 Lite" : "Best quality video generation") : (isSuperAdmin ? "Image to Video First Frame — Veo3.1 Fast" : "Alternative fast generation")}
                       </p>
                     </div>
                   )}
 
-                  {/* Upload Avatar — only shown when frameMode is avatar_v2 for non-admin, always for admin */}
-                  {(isAdminUser || frameMode === "avatar_v2") && (
+                  {(isSuperAdmin || frameMode === "avatar_v2") && (
                   <>
                   {!avatarImage ? (
                     <label
@@ -2545,7 +2535,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                     </div>
                   )}
                   </>
-                  )
+                  )}
 
                   {/* ── Image API Provider Fields (Admin Only) ── */}
                   {videoProvider === "kie" && isAdmin && (
@@ -2632,11 +2622,11 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                     <label className="block text-xs font-bold uppercase tracking-wider mb-2" style={{ color: T.textMuted }}>
                       Frame Mode
                     </label>
-                    <div className={isAdminUser ? "grid grid-cols-4 gap-2" : "grid grid-cols-2 gap-2"}>
+                    <div className={isSuperAdmin ? "grid grid-cols-4 gap-2" : "grid grid-cols-2 gap-2"}>
                       {([
-                        ...(isAdminUser ? [{ value: "avatar" as const, label: "Avatar Only", emoji: "👤", desc: "Static, no gestures" }] : []),
+                        ...(isSuperAdmin ? [{ value: "avatar" as const, label: "Avatar Only", emoji: "👤", desc: "Static, no gestures" }] : []),
                         { value: "avatar_v2" as const, label: "Avatar Only v2", emoji: "🤚", desc: "Hand gestures & body language" },
-                        ...(isAdminUser ? [{ value: "scenes" as const, label: "Scene Frames", emoji: "🖼️", desc: "Unique backgrounds per scene" }] : []),
+                        ...(isSuperAdmin ? [{ value: "scenes" as const, label: "Scene Frames", emoji: "🖼️", desc: "Unique backgrounds per scene" }] : []),
                         { value: "custom" as const, label: "Custom Frames", emoji: "📸", desc: "Upload image per scene" },
                       ]).map((fm) => (
                         <button

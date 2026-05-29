@@ -310,7 +310,7 @@ export default function Home() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
 
-  // Redirect to menu if user logs out while on avatar view
+  // Redirect to menu if user logs out while on a sub-view
   useEffect(() => {
     if (!loading && !user && (currentView === "avatar" || currentView === "carousel" || currentView === "podcast" || currentView === "library" || currentView === "bof")) {
       setCurrentView("menu");
