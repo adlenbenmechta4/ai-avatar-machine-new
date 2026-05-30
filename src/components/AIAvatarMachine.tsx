@@ -604,6 +604,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   const [aiScriptApiKey, setAiScriptApiKey] = useState("");
   const [showAiScriptKey, setShowAiScriptKey] = useState(false);
   const [useFreeAi, setUseFreeAi] = useState(true);
+  const [aiProvider, setAiProvider] = useState<"deepseek" | "groq" | "gemini" | "openrouter" | "custom">("deepseek");
 
   // ── Character Library ──
   const CHARACTER_LIBRARY = [
@@ -984,8 +985,8 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   const generateAIScript = useCallback(async () => {
     const topic = useFreeAi ? productUrl : aiTopic;
     if (!topic.trim() || isGeneratingScript) return;
-    if (!useFreeAi && (!aiScriptApiKey || aiScriptApiKey.length < 10)) {
-      alert("Please enter your AI API key for script generation.");
+    if (!aiScriptApiKey || aiScriptApiKey.length < 10) {
+      alert(`Please enter your ${useFreeAi ? (aiProvider === "deepseek" ? "DeepSeek" : aiProvider === "groq" ? "Groq" : aiProvider === "gemini" ? "Google AI" : "OpenRouter") : "AI API"} key for script generation.`);
       return;
     }
     setIsGeneratingScript(true);
@@ -1000,7 +1001,8 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
           duration: aiDuration,
           numScenes: aiNumScenes || 4,
           aiApiKey: aiScriptApiKey,
-          useFreeAi,
+          useFreeAi: false, // Always use the selected provider now
+          aiProvider: useFreeAi ? aiProvider : "custom",
           productUrl: useFreeAi ? productUrl.trim() : undefined,
           hasProductImage: !!productImage,
           scriptVariation,
@@ -1057,7 +1059,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
     } finally {
       setIsGeneratingScript(false);
     }
-  }, [aiTopic, aiDuration, aiNumScenes, isGeneratingScript, aiScriptApiKey, useFreeAi, productUrl, productImage, scriptVariation]);
+  }, [aiTopic, aiDuration, aiNumScenes, isGeneratingScript, aiScriptApiKey, useFreeAi, aiProvider, productUrl, productImage, scriptVariation]);
 
   // ─── Helper: add log entry ────────────────────────────────────────────
   const addLog = useCallback((msg: string) => {
@@ -1222,7 +1224,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   // ─── Generate Talking Photo Script (AI) ──────────────────────────
   const generateHeygenScript = useCallback(async () => {
     if (!aiTopic.trim() || isGeneratingHeygenScript) return;
-    if (!useFreeAi && (!aiScriptApiKey || aiScriptApiKey.length < 10)) {
+    if (!aiScriptApiKey || aiScriptApiKey.length < 10) {
       alert("Please enter your AI API key for script generation.");
       return;
     }
@@ -1233,7 +1235,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
       const res = await authFetch("/api/generate-script", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic: aiTopic.trim(), duration: aiDuration, singleScript: true, aiApiKey: aiScriptApiKey, useFreeAi }),
+        body: JSON.stringify({ topic: aiTopic.trim(), duration: aiDuration, singleScript: true, aiApiKey: aiScriptApiKey, useFreeAi: false, aiProvider: "deepseek" }),
       });
 
       if (!res.ok) {
@@ -2949,7 +2951,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                             </div>
                             <button
                               onClick={generateHeygenScript}
-                              disabled={isRunning || isGeneratingHeygenScript || !aiTopic.trim() || (!useFreeAi && !aiScriptApiKey)}
+                              disabled={isRunning || isGeneratingHeygenScript || !aiTopic.trim() || !aiScriptApiKey}
                               className="px-5 py-2.5 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                               style={{ backgroundColor: isGeneratingHeygenScript ? T.textMuted : T.pink, color: T.white }}
                             >
@@ -3030,29 +3032,58 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                           <label className="block text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: T.textMuted }}>🤖 Script AI Provider</label>
                           <div className="grid grid-cols-2 gap-2">
                             <button
-                              onClick={() => setUseFreeAi(true)}
+                              onClick={() => { setUseFreeAi(true); setAiProvider("deepseek"); }}
                               disabled={isRunning}
                               className="py-2 px-2 rounded-xl text-xs font-bold uppercase tracking-wide transition-all duration-300 cursor-pointer disabled:opacity-50 border-2 text-center"
-                              style={{ backgroundColor: useFreeAi ? T.lime : T.cardBg, borderColor: useFreeAi ? T.lime : T.cardBorder, color: useFreeAi ? T.dark : T.textMuted }}
+                              style={{ backgroundColor: useFreeAi && aiProvider === "deepseek" ? T.lime : T.cardBg, borderColor: useFreeAi && aiProvider === "deepseek" ? T.lime : T.cardBorder, color: useFreeAi && aiProvider === "deepseek" ? T.dark : T.textMuted }}
                             >
-                              <div className="text-sm mb-0.5">🔗</div>
-                              <div>Product URL</div>
-                              <div className="text-[9px] font-normal lowercase tracking-normal mt-0.5 opacity-70">Free AI analysis</div>
+                              <div className="text-sm mb-0.5">🐋</div>
+                              <div>DeepSeek</div>
+                              <div className="text-[9px] font-normal lowercase tracking-normal mt-0.5 opacity-70">$0.27/1M tokens</div>
+                            </button>
+                            <button
+                              onClick={() => { setUseFreeAi(true); setAiProvider("groq"); }}
+                              disabled={isRunning}
+                              className="py-2 px-2 rounded-xl text-xs font-bold uppercase tracking-wide transition-all duration-300 cursor-pointer disabled:opacity-50 border-2 text-center"
+                              style={{ backgroundColor: useFreeAi && aiProvider === "groq" ? T.lime : T.cardBg, borderColor: useFreeAi && aiProvider === "groq" ? T.lime : T.cardBorder, color: useFreeAi && aiProvider === "groq" ? T.dark : T.textMuted }}
+                            >
+                              <div className="text-sm mb-0.5">⚡</div>
+                              <div>Groq</div>
+                              <div className="text-[9px] font-normal lowercase tracking-normal mt-0.5 opacity-70">Free + Fast</div>
+                            </button>
+                            <button
+                              onClick={() => { setUseFreeAi(true); setAiProvider("gemini"); }}
+                              disabled={isRunning}
+                              className="py-2 px-2 rounded-xl text-xs font-bold uppercase tracking-wide transition-all duration-300 cursor-pointer disabled:opacity-50 border-2 text-center"
+                              style={{ backgroundColor: useFreeAi && aiProvider === "gemini" ? T.cyan : T.cardBg, borderColor: useFreeAi && aiProvider === "gemini" ? T.cyan : T.cardBorder, color: useFreeAi && aiProvider === "gemini" ? T.dark : T.textMuted }}
+                            >
+                              <div className="text-sm mb-0.5">💎</div>
+                              <div>Gemini Flash</div>
+                              <div className="text-[9px] font-normal lowercase tracking-normal mt-0.5 opacity-70">Free + Quality</div>
+                            </button>
+                            <button
+                              onClick={() => { setUseFreeAi(true); setAiProvider("openrouter"); }}
+                              disabled={isRunning}
+                              className="py-2 px-2 rounded-xl text-xs font-bold uppercase tracking-wide transition-all duration-300 cursor-pointer disabled:opacity-50 border-2 text-center"
+                              style={{ backgroundColor: useFreeAi && aiProvider === "openrouter" ? T.pink : T.cardBg, borderColor: useFreeAi && aiProvider === "openrouter" ? T.pink : T.cardBorder, color: useFreeAi && aiProvider === "openrouter" ? T.white : T.textMuted }}
+                            >
+                              <div className="text-sm mb-0.5">🌐</div>
+                              <div>OpenRouter</div>
+                              <div className="text-[9px] font-normal lowercase tracking-normal mt-0.5 opacity-70">Free models</div>
                             </button>
                             <button
                               onClick={() => setUseFreeAi(false)}
                               disabled={isRunning}
-                              className="py-2 px-2 rounded-xl text-xs font-bold uppercase tracking-wide transition-all duration-300 cursor-pointer disabled:opacity-50 border-2 text-center"
+                              className="py-2 px-2 rounded-xl text-xs font-bold uppercase tracking-wide transition-all duration-300 cursor-pointer disabled:opacity-50 border-2 text-center col-span-2"
                               style={{ backgroundColor: !useFreeAi ? T.pink : T.cardBg, borderColor: !useFreeAi ? T.pink : T.cardBorder, color: !useFreeAi ? T.white : T.textMuted }}
                             >
-                              <div className="text-sm mb-0.5">🤖</div>
-                              <div>Custom AI</div>
-                              <div className="text-[9px] font-normal lowercase tracking-normal mt-0.5 opacity-70">OpenAI-Compatible API</div>
+                              <div className="text-sm mb-0.5">🔧</div>
+                              <div>Custom OpenAI-Compatible API</div>
                             </button>
                           </div>
                         </div>
 
-                        {/* Product URL mode (useFreeAi = true) */}
+                        {/* Provider mode (useFreeAi = true) */}
                         {useFreeAi ? (
                           <>
                             <div>
@@ -3116,9 +3147,29 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                               </div>
                             )}
 
-                            <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-[11px]" style={{ backgroundColor: T.lime + "15", color: T.text }}>
-                              <span>🆓</span>
-                              <span>Powered by <b>Pollinations AI</b> — Completely free, no limits!</span>
+                            {/* API Key for selected provider */}
+                            <div className="animate-fade-in">
+                              <label className="block text-[10px] font-bold uppercase tracking-widest mb-1.5" style={{ color: T.textMuted }}>
+                                🔑 {aiProvider === "deepseek" ? "DeepSeek" : aiProvider === "groq" ? "Groq" : aiProvider === "gemini" ? "Google AI" : "OpenRouter"} API Key
+                              </label>
+                              <div className="relative">
+                                <input type={showAiScriptKey ? "text" : "password"} value={aiScriptApiKey} onChange={(e) => setAiScriptApiKey(e.target.value)} placeholder={aiProvider === "deepseek" ? "sk-..." : aiProvider === "groq" ? "gsk_..." : aiProvider === "gemini" ? "AIza..." : "sk-or-..."} disabled={isRunning} className="w-full px-3 py-2.5 pr-16 rounded-xl text-sm font-mono transition-all disabled:opacity-50 outline-none border-2 focus:border-current" style={{ backgroundColor: T.inputBg, borderColor: aiScriptApiKey ? T.lime : T.cardBorder, color: T.text, caretColor: T.pink }} />
+                                <button onClick={() => setShowAiScriptKey(!showAiScriptKey)} className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-all cursor-pointer" style={{ color: T.textMuted }}>
+                                  {showAiScriptKey ? "Hide" : "Show"}
+                                </button>
+                              </div>
+                              <div className="flex items-center gap-1 mt-1.5">
+                                <span className="text-[10px] font-light" style={{ color: T.textMuted }}>Get free key:</span>
+                                {aiProvider === "deepseek" && <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold underline" style={{ color: T.pink }}>platform.deepseek.com</a>}
+                                {aiProvider === "groq" && <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold underline" style={{ color: T.pink }}>console.groq.com</a>}
+                                {aiProvider === "gemini" && <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold underline" style={{ color: T.pink }}>aistudio.google.com</a>}
+                                {aiProvider === "openrouter" && <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold underline" style={{ color: T.pink }}>openrouter.ai</a>}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-[11px]" style={{ backgroundColor: (aiProvider === "deepseek" ? T.lime : aiProvider === "groq" ? T.lime : aiProvider === "gemini" ? T.cyan : T.pink) + "15", color: T.text }}>
+                              <span>{aiProvider === "deepseek" ? "🐋" : aiProvider === "groq" ? "⚡" : aiProvider === "gemini" ? "💎" : "🌐"}</span>
+                              <span>Powered by <b>{aiProvider === "deepseek" ? "DeepSeek V3" : aiProvider === "groq" ? "Groq (Llama 3.3 70B)" : aiProvider === "gemini" ? "Google Gemini Flash" : "OpenRouter"}</b> — {aiProvider === "deepseek" ? "Cheap & excellent quality!" : aiProvider === "groq" ? "Ultra fast & free tier!" : aiProvider === "gemini" ? "Google quality, free tier!" : "Multiple free models!"}</span>
                             </div>
                           </>
                         ) : (
@@ -3171,8 +3222,8 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                               </span>
                             </div>
                           </div>
-                          <button onClick={generateAIScript} disabled={isRunning || isGeneratingScript || (useFreeAi ? !productUrl.trim() : !aiTopic.trim()) || (!useFreeAi && !aiScriptApiKey)} className="px-5 py-2.5 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap" style={{ backgroundColor: isGeneratingScript ? T.textMuted : (useFreeAi ? T.lime : T.pink), color: useFreeAi ? T.dark : T.white }}>
-                            {isGeneratingScript ? (<span className="inline-flex items-center gap-2"><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />Generating...</span>) : (useFreeAi ? "🆓 Generate Script (Free)" : "🤖 Generate Script with AI")}
+                          <button onClick={generateAIScript} disabled={isRunning || isGeneratingScript || (useFreeAi ? !productUrl.trim() : !aiTopic.trim()) || !aiScriptApiKey} className="px-5 py-2.5 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap" style={{ backgroundColor: isGeneratingScript ? T.textMuted : (useFreeAi ? (aiProvider === "deepseek" ? T.lime : aiProvider === "groq" ? T.lime : aiProvider === "gemini" ? T.cyan : T.pink) : T.pink), color: useFreeAi ? T.dark : T.white }}>
+                            {isGeneratingScript ? (<span className="inline-flex items-center gap-2"><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />Generating...</span>) : (useFreeAi ? `${aiProvider === "deepseek" ? "🐋" : aiProvider === "groq" ? "⚡" : aiProvider === "gemini" ? "💎" : "🌐"} Generate Script` : "🤖 Generate Script with AI")}
                           </button>
                           {/* Regenerate Script button - only appears after a script has been generated */}
                           {scenes.some(s => s.script.trim()) && !isGeneratingScript && (
@@ -3181,7 +3232,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                                 setScriptVariation(prev => prev + 1);
                                 setTimeout(() => generateAIScript(), 0);
                               }}
-                              disabled={isRunning || (useFreeAi ? !productUrl.trim() : !aiTopic.trim()) || (!useFreeAi && !aiScriptApiKey)}
+                              disabled={isRunning || (useFreeAi ? !productUrl.trim() : !aiTopic.trim()) || !aiScriptApiKey}
                               className="px-4 py-2.5 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap border-2"
                               style={{ backgroundColor: T.cardBg, borderColor: T.pink, color: T.pink }}
                             >

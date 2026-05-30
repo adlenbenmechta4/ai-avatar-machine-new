@@ -44,6 +44,176 @@ async function fetchProductInfo(url: string): Promise<string> {
   }
 }
 
+// Helper: repair truncated JSON by closing open structures
+function repairTruncatedJson(str: string): string {
+  let repaired = str.trim();
+  
+  const lastCompleteObj = repaired.lastIndexOf('}');
+  if (lastCompleteObj !== -1) {
+    const afterObj = repaired.slice(lastCompleteObj + 1).trim();
+    if (afterObj.startsWith(',') || afterObj.length > 0) {
+      repaired = repaired.slice(0, lastCompleteObj + 1);
+    }
+  }
+  
+  let openBrackets = 0;
+  let openBraces = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < repaired.length; i++) {
+    const ch = repaired[i];
+    if (escape) { escape = false; continue; }
+    if (ch === '\\') { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '[') openBrackets++;
+    if (ch === ']') openBrackets--;
+    if (ch === '{') openBraces++;
+    if (ch === '}') openBraces--;
+  }
+  
+  if (inString) repaired += '"';
+  for (let i = 0; i < openBrackets; i++) repaired += ']';
+  for (let i = 0; i < openBraces; i++) repaired += '}';
+  
+  return repaired;
+}
+
+// Helper: check if JSON looks truncated (incomplete)
+function isJsonTruncated(str: string): boolean {
+  const trimmed = str.trim();
+  if (!trimmed.startsWith("{")) return false;
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (esc) { esc = false; continue; }
+    if (ch === "\\") { esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (ch === "{" || ch === "[") depth++;
+    if (ch === "}" || ch === "]") depth--;
+  }
+  return depth > 0;
+}
+
+// Helper: call OpenAI-compatible API with retry
+async function callOpenAiCompatible(
+  apiUrl: string,
+  apiKey: string,
+  model: string,
+  sysPrompt: string,
+  usrPrompt: string,
+  maxRetries = 2,
+  maxTokens = 4000,
+): Promise<string> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: sysPrompt },
+            { role: "user", content: usrPrompt },
+          ],
+          temperature: 0.9,
+          max_tokens: maxTokens,
+        }),
+        signal: AbortSignal.timeout(60000),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => "Unknown error");
+        if (attempt < maxRetries) {
+          console.warn(`API attempt ${attempt + 1} failed (${response.status}), retrying...`);
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
+        throw new Error(`API error (${response.status}): ${errText.slice(0, 300)}`);
+      }
+
+      const completion = await response.json();
+      const choices = completion?.choices as Array<{ message?: { content?: string } }> | undefined;
+      if (choices && choices.length > 0) {
+        const rawContent = choices[0]?.message?.content || "";
+        if (rawContent.trim().length > 0) {
+          if (isJsonTruncated(rawContent) && attempt < maxRetries) {
+            console.warn(`API attempt ${attempt + 1} returned truncated JSON, retrying...`);
+            await new Promise(r => setTimeout(r, 2000));
+            continue;
+          }
+          return rawContent;
+        }
+      }
+      
+      if (attempt < maxRetries) {
+        console.warn(`API attempt ${attempt + 1} returned empty, retrying...`);
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name === 'TimeoutError' && attempt < maxRetries) {
+        console.warn(`API attempt ${attempt + 1} timed out, retrying...`);
+        await new Promise(r => setTimeout(r, 2000));
+        continue;
+      }
+      throw err;
+    }
+  }
+  return "";
+}
+
+// ─── AI Provider Configurations ──────────────────────────────────────────────
+
+const AI_PROVIDERS: Record<string, {
+  name: string;
+  apiUrl: string;
+  model: string;
+  needsApiKey: boolean;
+  maxTokens: number;
+}> = {
+  deepseek: {
+    name: "DeepSeek",
+    apiUrl: "https://api.deepseek.com/v1/chat/completions",
+    model: "deepseek-chat",
+    needsApiKey: true,
+    maxTokens: 4000,
+  },
+  groq: {
+    name: "Groq",
+    apiUrl: "https://api.groq.com/openai/v1/chat/completions",
+    model: "llama-3.3-70b-versatile",
+    needsApiKey: true,
+    maxTokens: 4000,
+  },
+  gemini: {
+    name: "Google Gemini",
+    apiUrl: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    model: "gemini-2.0-flash",
+    needsApiKey: true,
+    maxTokens: 4000,
+  },
+  openrouter: {
+    name: "OpenRouter",
+    apiUrl: "https://openrouter.ai/api/v1/chat/completions",
+    model: "deepseek/deepseek-chat-v3-0324:free",
+    needsApiKey: true,
+    maxTokens: 4000,
+  },
+  custom: {
+    name: "Custom",
+    apiUrl: "https://api.openai.com/v1/chat/completions",
+    model: "gpt-4o-mini",
+    needsApiKey: true,
+    maxTokens: 4000,
+  },
+};
+
 export async function POST(req: NextRequest) {
   try {
     let body: Record<string, unknown>;
@@ -57,7 +227,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON in request body" }, { status: 400 });
     }
 
-    const { topic, duration, numScenes, singleScript, aiApiKey, aiApiUrl, aiModel, useFreeAi, productUrl, hasProductImage, scriptVariation, scriptFormat } = body;
+    const { topic, duration, numScenes, singleScript, aiApiKey, aiApiUrl, aiModel, useFreeAi, productUrl, hasProductImage, scriptVariation, scriptFormat, aiProvider } = body;
 
     if (!topic || typeof topic !== "string" || topic.trim().length === 0) {
       return NextResponse.json({ error: "topic or product URL is required" }, { status: 400 });
@@ -67,12 +237,18 @@ export async function POST(req: NextRequest) {
     const userNumScenes = typeof numScenes === "number" ? numScenes : 0;
     const sceneCount = userNumScenes > 0 ? Math.max(1, userNumScenes) : Math.max(1, Math.ceil(dur / 8));
     const isSingleScript = singleScript === true;
-    const isFree = useFreeAi === true;
     const isProductHook = scriptFormat === "product_hook";
     const variation = typeof scriptVariation === "number" ? scriptVariation : 0;
+    const providerKey = typeof aiProvider === "string" ? aiProvider : "deepseek";
 
-    if (!isFree && (!aiApiKey || typeof aiApiKey !== "string" || aiApiKey.trim().length < 10)) {
-      return NextResponse.json({ error: "AI API key is required for script generation" }, { status: 400 });
+    // Resolve provider config
+    const provider = AI_PROVIDERS[providerKey] || AI_PROVIDERS.deepseek;
+    const apiKey = typeof aiApiKey === "string" ? aiApiKey.trim() : "";
+    
+    if (provider.needsApiKey && (!apiKey || apiKey.length < 10)) {
+      return NextResponse.json({ 
+        error: `API key is required for ${provider.name}. Get one at: ${providerKey === 'deepseek' ? 'https://platform.deepseek.com' : providerKey === 'groq' ? 'https://console.groq.com' : providerKey === 'gemini' ? 'https://aistudio.google.com' : providerKey === 'openrouter' ? 'https://openrouter.ai' : 'your provider'}` 
+      }, { status: 400 });
     }
 
     let productInfo = "";
@@ -113,7 +289,7 @@ export async function POST(req: NextRequest) {
         `\n\nFor EACH scene, also create a detailed IMAGE PROMPT that describes what the person should be doing in that scene.` +
         `\nThe image prompts should describe the person's appearance, pose, expression, and what they're doing with the product.` +
         (hasProductImage ? `\nIMPORTANT: The user has provided a product image. The product should appear naturally in the scenes where it makes sense (especially PROOF scene).` : "") +
-        `\n\nRespond ONLY with a valid JSON object (no markdown, no code blocks, no explanation):` +
+        `\n\nCRITICAL: Respond ONLY with a valid JSON object. No markdown. No code blocks. No explanation. No text before or after the JSON.` +
         `\n{"scenes": [{"label": "HOOK", "script": "the spoken line", "framePrompt": "detailed image prompt describing the person, their pose, expression, clothing, and setting for this scene. Fixed tripod shot, NO selfie. Looking directly into camera.", "description": "brief visual setting description"}, {"label": "PAIN + DISCOVERY", "script": "...", "framePrompt": "...", "description": "..."}, {"label": "PROOF", "script": "...", "framePrompt": "...", "description": "..."}, {"label": "CTA", "script": "...", "framePrompt": "...", "description": "..."}]}`;
 
       userPrompt = productInfo 
@@ -132,7 +308,7 @@ export async function POST(req: NextRequest) {
         `\n- It should feel like a single, natural monologue or speech` +
         `\n- Vary your vocabulary — do not repeat similar phrases` +
         (previousTopics.size > 0 ? `\n- IMPORTANT: Avoid these previously used topics/themes: ${Array.from(previousTopics).slice(-5).join(", ")}` : "") +
-        `\n\nRespond ONLY with a valid JSON object (no markdown, no code blocks, no explanation):` +
+        `\n\nCRITICAL: Respond ONLY with a valid JSON object. No markdown. No code blocks. No explanation.` +
         `\n{"script": "your complete script here"}`;
 
       userPrompt = `Topic: "${topic.trim()}"\nDuration: ${dur} seconds (one continuous script)\n\nCreate the script:`;
@@ -150,172 +326,37 @@ export async function POST(req: NextRequest) {
         `\n- Each scene is a single continuous speaking segment` +
         `\n- Vary your vocabulary — do not repeat similar phrases across scenes` +
         (previousTopics.size > 0 ? `\n- IMPORTANT: Avoid these previously used topics/themes: ${Array.from(previousTopics).slice(-5).join(", ")}` : "") +
-        `\n\nRespond ONLY with a valid JSON object (no markdown, no code blocks, no explanation):` +
+        `\n\nCRITICAL: Respond ONLY with a valid JSON object. No markdown. No code blocks. No explanation.` +
         `\n{"scenes": [{"description": "visual setting for this scene", "script": "the spoken dialogue for this scene (18-25 words)"}]}`;
 
       userPrompt = `Topic: "${topic.trim()}"\nDuration: ${dur} seconds (${sceneCount} scenes)\n\nCreate the script:`;
     }
 
+    // ─── Call the AI Provider ──────────────────────────────────────────
     let content = "";
+    
+    const resolvedApiUrl = (typeof aiApiUrl === "string" && aiApiUrl.trim())
+      ? aiApiUrl.trim()
+      : provider.apiUrl;
+    const resolvedModel = (typeof aiModel === "string" && aiModel.trim())
+      ? aiModel.trim()
+      : provider.model;
 
-    // Helper: repair truncated JSON by closing open structures
-    function repairTruncatedJson(str: string): string {
-      // Try to find the last complete object in the scenes array
-      let repaired = str.trim();
-      
-      // Remove trailing comma and partial content after last complete object
-      // Find the last complete "}" before a comma or end
-      const lastCompleteObj = repaired.lastIndexOf('}');
-      if (lastCompleteObj !== -1) {
-        // Check if after this } there's a comma and partial content
-        const afterObj = repaired.slice(lastCompleteObj + 1).trim();
-        if (afterObj.startsWith(',') || afterObj.length > 0) {
-          // Truncate after last complete object, close the array and object
-          repaired = repaired.slice(0, lastCompleteObj + 1);
-        }
-      }
-      
-      // Count unclosed brackets
-      let openBrackets = 0;
-      let openBraces = 0;
-      let inString = false;
-      let escape = false;
-      for (let i = 0; i < repaired.length; i++) {
-        const ch = repaired[i];
-        if (escape) { escape = false; continue; }
-        if (ch === '\\') { escape = true; continue; }
-        if (ch === '"') { inString = !inString; continue; }
-        if (inString) continue;
-        if (ch === '[') openBrackets++;
-        if (ch === ']') openBrackets--;
-        if (ch === '{') openBraces++;
-        if (ch === '}') openBraces--;
-      }
-      
-      // Close unclosed string
-      if (inString) repaired += '"';
-      // Close unclosed brackets and braces
-      for (let i = 0; i < openBrackets; i++) repaired += ']';
-      for (let i = 0; i < openBraces; i++) repaired += '}';
-      
-      return repaired;
-    }
-
-    // Helper: check if JSON looks truncated (incomplete)
-    function isJsonTruncated(str: string): boolean {
-      const trimmed = str.trim();
-      if (!trimmed.startsWith("{")) return false;
-      let depth = 0;
-      let inStr = false;
-      let esc = false;
-      for (let i = 0; i < trimmed.length; i++) {
-        const ch = trimmed[i];
-        if (esc) { esc = false; continue; }
-        if (ch === "\\") { esc = true; continue; }
-        if (ch === '"') { inStr = !inStr; continue; }
-        if (inStr) continue;
-        if (ch === "{" || ch === "[") depth++;
-        if (ch === "}" || ch === "]") depth--;
-      }
-      return depth > 0;
-    }
-
-    // Helper: call free AI with retry on truncation
-    async function callFreeAi(sysPrompt: string, usrPrompt: string, maxRetries = 2): Promise<string> {
-      for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        const freeResponse = await fetch("https://text.pollinations.ai/openai/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "openai",
-            messages: [
-              { role: "system", content: sysPrompt },
-              { role: "user", content: usrPrompt },
-            ],
-            temperature: 0.9,
-            max_tokens: 4000,
-          }),
-        });
-
-        if (!freeResponse.ok) {
-          const errText = await freeResponse.text().catch(() => "Unknown error");
-          if (attempt < maxRetries) {
-            console.warn(`Free AI attempt ${attempt + 1} failed (${freeResponse.status}), retrying...`);
-            await new Promise(r => setTimeout(r, 1500));
-            continue;
-          }
-          throw new Error(`Free AI service error (${freeResponse.status}): ${errText.slice(0, 300)}`);
-        }
-
-        const freeCompletion = await freeResponse.json();
-        const freeChoices = freeCompletion?.choices as Array<{ message?: { content?: string } }> | undefined;
-        if (freeChoices && freeChoices.length > 0) {
-          const rawContent = freeChoices[0]?.message?.content || "";
-          if (rawContent.trim().length > 0) {
-            // Check if the response looks truncated - if so, retry
-            if (isJsonTruncated(rawContent) && attempt < maxRetries) {
-              console.warn(`Free AI attempt ${attempt + 1} returned truncated JSON, retrying...`);
-              await new Promise(r => setTimeout(r, 1500));
-              continue;
-            }
-            return rawContent;
-          }
-        }
-        
-        if (attempt < maxRetries) {
-          console.warn(`Free AI attempt ${attempt + 1} returned empty, retrying...`);
-          await new Promise(r => setTimeout(r, 1500));
-        }
-      }
-      return "";
-    }
-
-    if (isFree) {
-      content = await callFreeAi(systemPrompt, userPrompt);
-
-    } else {
-      const apiUrl = (typeof aiApiUrl === "string" && aiApiUrl.trim())
-        ? aiApiUrl.trim()
-        : "https://api.openai.com/v1/chat/completions";
-      const model = (typeof aiModel === "string" && aiModel.trim())
-        ? aiModel.trim()
-        : "gpt-4o-mini";
-
-      const response = await fetch(apiUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${aiApiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-          temperature: 0.9,
-          max_tokens: 2000,
-        }),
-      });
-
-      if (!response.ok) {
-        const errText = await response.text().catch(() => "Unknown error");
-        const errJson = (() => { try { return JSON.parse(errText); } catch { return null; } })();
-        const errMsg = errJson?.error?.message || errText.slice(0, 300);
-        return NextResponse.json({ error: `AI API error (${response.status}): ${errMsg}` }, { status: 502 });
-      }
-
-      const completion = await response.json();
-      const choices = completion?.choices as Array<{ message?: { content?: string } }> | undefined;
-      if (choices && choices.length > 0) {
-        content = choices[0]?.message?.content || "";
-      }
-    }
+    content = await callOpenAiCompatible(
+      resolvedApiUrl,
+      apiKey,
+      resolvedModel,
+      systemPrompt,
+      userPrompt,
+      2, // maxRetries
+      provider.maxTokens,
+    );
 
     if (!content || content.trim().length === 0) {
-      return NextResponse.json({ error: "AI returned empty response" }, { status: 500 });
+      return NextResponse.json({ error: "AI returned empty response. Please try again." }, { status: 500 });
     }
 
+    // ─── Parse JSON Response ────────────────────────────────────────────
     let jsonStr = content.trim();
     const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
     if (jsonMatch) jsonStr = jsonMatch[1].trim();
