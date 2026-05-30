@@ -158,30 +158,121 @@ export async function POST(req: NextRequest) {
 
     let content = "";
 
+    // Helper: repair truncated JSON by closing open structures
+    function repairTruncatedJson(str: string): string {
+      // Try to find the last complete object in the scenes array
+      let repaired = str.trim();
+      
+      // Remove trailing comma and partial content after last complete object
+      // Find the last complete "}" before a comma or end
+      const lastCompleteObj = repaired.lastIndexOf('}');
+      if (lastCompleteObj !== -1) {
+        // Check if after this } there's a comma and partial content
+        const afterObj = repaired.slice(lastCompleteObj + 1).trim();
+        if (afterObj.startsWith(',') || afterObj.length > 0) {
+          // Truncate after last complete object, close the array and object
+          repaired = repaired.slice(0, lastCompleteObj + 1);
+        }
+      }
+      
+      // Count unclosed brackets
+      let openBrackets = 0;
+      let openBraces = 0;
+      let inString = false;
+      let escape = false;
+      for (let i = 0; i < repaired.length; i++) {
+        const ch = repaired[i];
+        if (escape) { escape = false; continue; }
+        if (ch === '\\') { escape = true; continue; }
+        if (ch === '"') { inString = !inString; continue; }
+        if (inString) continue;
+        if (ch === '[') openBrackets++;
+        if (ch === ']') openBrackets--;
+        if (ch === '{') openBraces++;
+        if (ch === '}') openBraces--;
+      }
+      
+      // Close unclosed string
+      if (inString) repaired += '"';
+      // Close unclosed brackets and braces
+      for (let i = 0; i < openBrackets; i++) repaired += ']';
+      for (let i = 0; i < openBraces; i++) repaired += '}';
+      
+      return repaired;
+    }
+
+    // Helper: check if JSON looks truncated (incomplete)
+    function isJsonTruncated(str: string): boolean {
+      const trimmed = str.trim();
+      if (!trimmed.startsWith("{")) return false;
+      let depth = 0;
+      let inStr = false;
+      let esc = false;
+      for (let i = 0; i < trimmed.length; i++) {
+        const ch = trimmed[i];
+        if (esc) { esc = false; continue; }
+        if (ch === "\\") { esc = true; continue; }
+        if (ch === '"') { inStr = !inStr; continue; }
+        if (inStr) continue;
+        if (ch === "{" || ch === "[") depth++;
+        if (ch === "}" || ch === "]") depth--;
+      }
+      return depth > 0;
+    }
+
+    // Helper: call free AI with retry on truncation
+    async function callFreeAi(sysPrompt: string, usrPrompt: string, maxRetries = 2): Promise<string> {
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        const freeResponse = await fetch("https://text.pollinations.ai/openai/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "openai",
+            messages: [
+              { role: "system", content: sysPrompt },
+              { role: "user", content: usrPrompt },
+            ],
+            temperature: 0.9,
+            max_tokens: 4000,
+          }),
+        });
+
+        if (!freeResponse.ok) {
+          const errText = await freeResponse.text().catch(() => "Unknown error");
+          if (attempt < maxRetries) {
+            console.warn(`Free AI attempt ${attempt + 1} failed (${freeResponse.status}), retrying...`);
+            await new Promise(r => setTimeout(r, 1500));
+            continue;
+          }
+          throw new Error(`Free AI service error (${freeResponse.status}): ${errText.slice(0, 300)}`);
+        }
+
+        const freeCompletion = await freeResponse.json();
+        const freeChoices = freeCompletion?.choices as Array<{ message?: { content?: string } }> | undefined;
+        if (freeChoices && freeChoices.length > 0) {
+          const rawContent = freeChoices[0]?.message?.content || "";
+          if (rawContent.trim().length > 0) {
+            // Check if the response looks truncated - if so, retry
+            if (isJsonTruncated(rawContent) && attempt < maxRetries) {
+              console.warn(`Free AI attempt ${attempt + 1} returned truncated JSON, retrying...`);
+              await new Promise(r => setTimeout(r, 1500));
+              continue;
+            }
+            return rawContent;
+          }
+        }
+        
+        if (attempt < maxRetries) {
+          console.warn(`Free AI attempt ${attempt + 1} returned empty, retrying...`);
+          await new Promise(r => setTimeout(r, 1500));
+        }
+      }
+      return "";
+    }
+
     if (isFree) {
-      const freeResponse = await fetch("https://text.pollinations.ai/openai/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "openai",
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-          temperature: 0.9,
-        }),
-      });
+      content = await callFreeAi(systemPrompt, userPrompt);
 
-      if (!freeResponse.ok) {
-        const errText = await freeResponse.text().catch(() => "Unknown error");
-        return NextResponse.json({ error: `Free AI service error (${freeResponse.status}): ${errText.slice(0, 300)}` }, { status: 502 });
-      }
-
-      const freeCompletion = await freeResponse.json();
-      const freeChoices = freeCompletion?.choices as Array<{ message?: { content?: string } }> | undefined;
-      if (freeChoices && freeChoices.length > 0) {
-        content = freeChoices[0]?.message?.content || "";
-      }
     } else {
       const apiUrl = (typeof aiApiUrl === "string" && aiApiUrl.trim())
         ? aiApiUrl.trim()
@@ -238,11 +329,21 @@ export async function POST(req: NextRequest) {
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(jsonStr);
-    } catch {
-      return NextResponse.json(
-        { error: "Failed to parse AI script response", rawContent: content.slice(0, 500) },
-        { status: 500 }
-      );
+    } catch (parseErr) {
+      // Try to repair truncated JSON
+      console.warn("JSON parse failed, attempting repair. Error:", parseErr instanceof Error ? parseErr.message : String(parseErr));
+      console.warn("Raw JSON length:", jsonStr.length, "First 200 chars:", jsonStr.slice(0, 200));
+      
+      const repairedStr = repairTruncatedJson(jsonStr);
+      try {
+        parsed = JSON.parse(repairedStr);
+        console.log("JSON repair succeeded, parsed keys:", Object.keys(parsed));
+      } catch {
+        return NextResponse.json(
+          { error: "Failed to parse AI script response (truncated or malformed). Please try again.", rawContent: content.slice(0, 500) },
+          { status: 500 }
+        );
+      }
     }
 
     if (isSingleScript) {
