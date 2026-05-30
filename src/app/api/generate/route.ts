@@ -165,7 +165,8 @@ async function generateFrame(
   description: string,
   avatarUrl: string,
   apiKey: string,
-  sw: SafeWriter | null
+  sw: SafeWriter | null,
+  framePrompt?: string
 ): Promise<string> {
   const MAX_RETRIES = 5;
   let lastErrorWasPermanent = false;
@@ -196,12 +197,21 @@ async function generateFrame(
         if (attempt > 1 && existingFrameTaskId) {
           addJobLog(jobId, `Frame ${sceneIndex + 1}: submitting NEW task (previous taskId ${existingFrameTaskId.slice(0, 8)}... failed permanently)`);
         }
-        const imgPrompt =
-          "ONLY change the background and environment. Keep the EXACT SAME person from the reference image — " +
-          "same face, same facial features, same hair, same skin tone, same body, same clothing, same expression. " +
-          "Do NOT alter, modify, or regenerate the person in any way. " +
-          "New background/setting: " + description.trim() +
-          ". The person stays in the exact same pose and position, facing the camera directly. Photorealistic, high quality.";
+        // Check if scene has a custom framePrompt (from product hook script)
+        let imgPrompt: string;
+        if (framePrompt && framePrompt.trim().length > 0) {
+          // Use the AI-generated frame prompt from the script
+          imgPrompt = framePrompt.trim() +
+            ". Keep the EXACT SAME person from the reference image — same face, same facial features, same hair, same skin tone, same body. " +
+            "Photorealistic, high quality, 9:16 vertical format. Fixed tripod shot.";
+        } else {
+          imgPrompt =
+            "ONLY change the background and environment. Keep the EXACT SAME person from the reference image — " +
+            "same face, same facial features, same hair, same skin tone, same body, same clothing, same expression. " +
+            "Do NOT alter, modify, or regenerate the person in any way. " +
+            "New background/setting: " + description.trim() +
+            ". The person stays in the exact same pose and position, facing the camera directly. Photorealistic, high quality.";
+        }
 
         addJobLog(jobId, `Frame ${sceneIndex + 1}: submitting to AI frame generator${attempt > 1 ? ` (attempt ${attempt})` : ""}...`);
         updateScene(jobId, sceneIndex, { frameProgress: 5 });
@@ -947,7 +957,7 @@ async function startHeartbeat(
 // ─── Pipeline Runner with SSE Streaming (Vercel-compatible) ──────────
 async function runPipelineSSE(
   avatarUrl: string,
-  validScenes: Array<{ description: string; script: string; customFrameImage?: string; expression?: string }>,
+  validScenes: Array<{ description: string; script: string; customFrameImage?: string; expression?: string; framePrompt?: string }>,
   kieApiKey: string,
   falApiKey: string,
   useSceneFrames: boolean,
@@ -1096,12 +1106,19 @@ async function runPipelineSSE(
       const framesToProcess = validScenes.map((scene, i) => ({ scene, index: i })).filter((_, i) => isResume && resumeFrameDone[i] ? false : true);
       const totalFrames = validScenes.length;
 
+      // Reference chain: start with avatar URL, update after first frame is generated
+      let referenceAvatarUrl = avatarUrl;
+
       if (isResume && completedFrames > 0) {
         sseSend(sw, { type: "progress", step: 1, pct: Math.round((completedFrames / totalFrames) * 80), message: `Skipping ${completedFrames} already generated frames...` });
         for (let i = 0; i < validScenes.length; i++) {
           if (resumeFrameDone[i] && resumeFrameUrls[i]) {
             frameUrls[i] = resumeFrameUrls[i];
             updateScene(jobId, i, { frameDone: true, frameProgress: 100, frameUrl: resumeFrameUrls[i] });
+            // Use the first completed frame as reference for subsequent frames
+            if (i === 0) {
+              referenceAvatarUrl = resumeFrameUrls[i];
+            }
           }
         }
         addJobLog(jobId, `Skipped ${completedFrames} already generated frames`);
@@ -1113,8 +1130,12 @@ async function runPipelineSSE(
 
         for (const { scene, index } of framesToProcess) {
           sseSend(sw, { type: "progress", step: 1, pct: Math.round(((index + 1) / totalFrames) * 80), message: `Generating frame ${index + 1}/${totalFrames}...` });
-          const frameUrl = await generateFrame(jobId, index, scene.description, avatarUrl, kieApiKey, sw);
+          const frameUrl = await generateFrame(jobId, index, scene.description, referenceAvatarUrl, kieApiKey, sw, scene.framePrompt);
           frameUrls[index] = frameUrl;
+          // After the first frame is generated, use it as the reference for subsequent frames
+          if (index === 0 && frameUrl) {
+            referenceAvatarUrl = frameUrl;
+          }
           sseSend(sw, { type: "scene_done", sceneIndex: index, sceneType: "frame", url: frameUrl });
           sseSend(sw, { type: "progress", step: 1, pct: Math.round(((index + 1) / totalFrames) * 80), message: `Frame ${index + 1} ready!` });
         }
@@ -1261,7 +1282,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const validScenes = (scenes as Array<{ description: string; script: string; customFrameImage?: string }>).filter(s => s.description?.trim() || s.script?.trim() || s.customFrameImage);
+    const validScenes = (scenes as Array<{ description: string; script: string; customFrameImage?: string; expression?: string; framePrompt?: string }>).filter(s => s.description?.trim() || s.script?.trim() || s.customFrameImage);
     if (validScenes.length === 0) {
       return NextResponse.json({ error: "No valid scenes provided" }, { status: 400 });
     }

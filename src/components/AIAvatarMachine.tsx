@@ -26,6 +26,7 @@ interface Scene {
   frameUrl: string;
   videoUrl: string;
   customFrameImage: string | null;
+  label?: string; // NEW: scene label (HOOK, PAIN+DISCOVERY, PROOF, CTA)
 }
 
 // ─── Colors (holystrips.com style) ────────────────────────────────────────────
@@ -584,6 +585,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
       frameUrl: "",
       videoUrl: "",
       customFrameImage: null,
+      label: "",
     },
   ]);
   const [pipelineStep, setPipelineStep] = useState<PipelineStep>(0);
@@ -602,6 +604,18 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   const [aiScriptApiKey, setAiScriptApiKey] = useState("");
   const [showAiScriptKey, setShowAiScriptKey] = useState(false);
   const [useFreeAi, setUseFreeAi] = useState(true);
+
+  // ── Character Library ──
+  const CHARACTER_LIBRARY = [
+    { id: "char1", name: "Sarah", imageUrl: "/characters/character-1.jpg" },
+  ];
+  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
+
+  // ── Product URL & Image ──
+  const [productUrl, setProductUrl] = useState("");
+  const [addProductImage, setAddProductImage] = useState(false);
+  const [productImage, setProductImage] = useState<string | null>(null);
+  const [scriptVariation, setScriptVariation] = useState(0); // for regeneration
 
   // ── API Keys ──
   const [kieApiKey, setKieApiKey] = useState("aaf0ea1db84a074fb1ed0ba386bbf615");
@@ -836,6 +850,67 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   const removeAvatar = useCallback(() => {
     setAvatarImage(null);
     setAvatarUrl("");
+    setSelectedCharacterId(null);
+  }, []);
+
+  // ─── Character Library Selection ───────────────────────────────────────
+  const handleSelectCharacter = useCallback(async (charId: string) => {
+    const char = CHARACTER_LIBRARY.find(c => c.id === charId);
+    if (!char) return;
+    setSelectedCharacterId(charId);
+    try {
+      const res = await fetch(char.imageUrl);
+      const blob = await res.blob();
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const maxDim = 1024;
+          const ratio = Math.min(maxDim / img.width, maxDim / img.height, 1);
+          canvas.width = Math.round(img.width * ratio);
+          canvas.height = Math.round(img.height * ratio);
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const compressedUrl = canvas.toDataURL("image/jpeg", 0.90);
+            setAvatarImage(compressedUrl);
+            setAvatarUrl("");
+          }
+        };
+        img.src = dataUrl;
+      };
+      reader.readAsDataURL(blob);
+    } catch (err) {
+      console.error("Failed to load character:", err);
+    }
+  }, []);
+
+  // ─── Product Image Upload ───────────────────────────────────────────
+  const handleProductImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const maxDim = 1024;
+        const ratio = Math.min(maxDim / img.width, maxDim / img.height, 1);
+        canvas.width = Math.round(img.width * ratio);
+        canvas.height = Math.round(img.height * ratio);
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const compressedUrl = canvas.toDataURL("image/jpeg", 0.90);
+          setProductImage(compressedUrl);
+        }
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
   }, []);
 
   // ─── Custom Scene Frame Upload ───────────────────────────────────────
@@ -889,6 +964,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
       frameUrl: "",
       videoUrl: "",
       customFrameImage: null,
+      label: "",
     };
     setScenes((prev) => [...prev, newScene]);
   }, [scenes.length]);
@@ -906,19 +982,30 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
 
   // ─── AI Script Generation ─────────────────────────────────────────────
   const generateAIScript = useCallback(async () => {
-    if (!aiTopic.trim() || isGeneratingScript) return;
+    const topic = useFreeAi ? productUrl : aiTopic;
+    if (!topic.trim() || isGeneratingScript) return;
     if (!useFreeAi && (!aiScriptApiKey || aiScriptApiKey.length < 10)) {
       alert("Please enter your AI API key for script generation.");
       return;
     }
     setIsGeneratingScript(true);
-    addLog("Sending topic to AI script generator...");
+    addLog("Analyzing product & generating script...");
 
     try {
       const res = await authFetch("/api/generate-script", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic: aiTopic.trim(), duration: aiDuration, numScenes: aiNumScenes, aiApiKey: aiScriptApiKey, useFreeAi }),
+        body: JSON.stringify({
+          topic: topic.trim(),
+          duration: aiDuration,
+          numScenes: aiNumScenes || 4,
+          aiApiKey: aiScriptApiKey,
+          useFreeAi,
+          productUrl: useFreeAi ? productUrl.trim() : undefined,
+          hasProductImage: !!productImage,
+          scriptVariation,
+          scriptFormat: "product_hook",
+        }),
       });
 
       if (!res.ok) {
@@ -931,7 +1018,6 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
         throw new Error("Empty response from script generator");
       }
 
-      // Safe JSON parse
       let data: Record<string, unknown>;
       try {
         data = JSON.parse(text);
@@ -939,7 +1025,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
         throw new Error("Invalid JSON response from script generator");
       }
 
-      const scenesArr = data.scenes as Array<{ script: string; description?: string }> | undefined;
+      const scenesArr = data.scenes as Array<{ script: string; description?: string; framePrompt?: string; label?: string }> | undefined;
       if (!scenesArr || !Array.isArray(scenesArr) || scenesArr.length === 0) {
         throw new Error("No scenes returned from script generator");
       }
@@ -949,7 +1035,8 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
           id: generateId(),
           description: s.description || "",
           script: s.script || "",
-          framePrompt: "",
+          expression: "",
+          framePrompt: s.framePrompt || "",
           videoPrompt: "",
           frameProgress: 0,
           frameDone: false,
@@ -957,6 +1044,8 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
           videoDone: false,
           frameUrl: "",
           videoUrl: "",
+          customFrameImage: null,
+          label: s.label || "",
         }))
       );
 
@@ -968,7 +1057,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
     } finally {
       setIsGeneratingScript(false);
     }
-  }, [aiTopic, aiDuration, aiNumScenes, isGeneratingScript, aiScriptApiKey, useFreeAi]);
+  }, [aiTopic, aiDuration, aiNumScenes, isGeneratingScript, aiScriptApiKey, useFreeAi, productUrl, productImage, scriptVariation]);
 
   // ─── Helper: add log entry ────────────────────────────────────────────
   const addLog = useCallback((msg: string) => {
@@ -1262,7 +1351,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
     }
 
     // Validate based on provider
-    let validScenes: Array<{ description: string; script: string; customFrameImage?: string | null }>;
+    let validScenes: Array<{ description: string; script: string; customFrameImage?: string | null; expression?: string; framePrompt?: string }>;
 
     if (videoProvider === "heygen") {
       if (!heygenScript.trim()) {
@@ -1365,6 +1454,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
           script: s.script,
           expression: s.expression || undefined,
           customFrameImage: s.customFrameImage || undefined,
+          framePrompt: s.framePrompt || undefined,
         })),
         kieApiKey,
         falApiKey,
@@ -1855,6 +1945,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
         id: generateId(),
         description: SAMPLE_DESCRIPTIONS[i % SAMPLE_DESCRIPTIONS.length],
         script: SAMPLE_SCRIPTS[i % SAMPLE_SCRIPTS.length],
+        expression: "",
         framePrompt: "",
         videoPrompt: "",
         frameProgress: 0,
@@ -1863,6 +1954,8 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
         videoDone: false,
         frameUrl: "",
         videoUrl: "",
+        customFrameImage: null,
+        label: "",
       });
     }
     setScenes(newScenes);
@@ -2499,6 +2592,50 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
 
                   {(isSuperAdmin || frameMode === "avatar_v2") && (
                   <>
+                  {/* ── Character Library ── */}
+                  <div className="mb-4">
+                    <label className="block text-xs font-bold uppercase tracking-wider mb-2" style={{ color: T.textMuted }}>
+                      🎭 Character Library
+                    </label>
+                    <div className="flex gap-3 flex-wrap">
+                      {CHARACTER_LIBRARY.map((char) => (
+                        <button
+                          key={char.id}
+                          onClick={() => handleSelectCharacter(char.id)}
+                          disabled={isRunning}
+                          className="flex flex-col items-center gap-1 cursor-pointer transition-all duration-200 group disabled:opacity-50"
+                        >
+                          <div
+                            className="w-[60px] h-[60px] rounded-xl overflow-hidden border-2 transition-all duration-200 group-hover:scale-105"
+                            style={{
+                              borderColor: selectedCharacterId === char.id ? T.pink : T.cardBorder,
+                              boxShadow: selectedCharacterId === char.id ? `0 0 0 2px ${T.pink}40` : "none",
+                            }}
+                          >
+                            <img
+                              src={char.imageUrl}
+                              alt={char.name}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                          <span
+                            className="text-[10px] font-semibold"
+                            style={{ color: selectedCharacterId === char.id ? T.pink : T.textMuted }}
+                          >
+                            {char.name}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Divider */}
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="flex-1 h-px" style={{ backgroundColor: T.cardBorder }} />
+                    <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: T.textMuted }}>or upload your own</span>
+                    <div className="flex-1 h-px" style={{ backgroundColor: T.cardBorder }} />
+                  </div>
+
                   {!avatarImage ? (
                     <label
                       className="group cursor-pointer flex flex-col items-center justify-center aspect-[3/4] max-h-[320px] rounded-2xl border-2 border-dashed transition-all duration-300 mb-4"
@@ -2898,9 +3035,9 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                               className="py-2 px-2 rounded-xl text-xs font-bold uppercase tracking-wide transition-all duration-300 cursor-pointer disabled:opacity-50 border-2 text-center"
                               style={{ backgroundColor: useFreeAi ? T.lime : T.cardBg, borderColor: useFreeAi ? T.lime : T.cardBorder, color: useFreeAi ? T.dark : T.textMuted }}
                             >
-                              <div className="text-sm mb-0.5">🆓</div>
-                              <div>Free AI</div>
-                              <div className="text-[9px] font-normal lowercase tracking-normal mt-0.5 opacity-70">No API key needed</div>
+                              <div className="text-sm mb-0.5">🔗</div>
+                              <div>Product URL</div>
+                              <div className="text-[9px] font-normal lowercase tracking-normal mt-0.5 opacity-70">Free AI analysis</div>
                             </button>
                             <button
                               onClick={() => setUseFreeAi(false)}
@@ -2908,37 +3045,102 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                               className="py-2 px-2 rounded-xl text-xs font-bold uppercase tracking-wide transition-all duration-300 cursor-pointer disabled:opacity-50 border-2 text-center"
                               style={{ backgroundColor: !useFreeAi ? T.pink : T.cardBg, borderColor: !useFreeAi ? T.pink : T.cardBorder, color: !useFreeAi ? T.white : T.textMuted }}
                             >
-                              <div className="text-sm mb-0.5">🔑</div>
-                              <div>Your API Key</div>
+                              <div className="text-sm mb-0.5">🤖</div>
+                              <div>Custom AI</div>
                               <div className="text-[9px] font-normal lowercase tracking-normal mt-0.5 opacity-70">OpenAI-Compatible API</div>
                             </button>
                           </div>
                         </div>
 
-                        <div>
-                          <label className="block text-[10px] font-bold uppercase tracking-widest mb-1.5" style={{ color: T.textMuted }}>💡 Video Topic</label>
-                          <input type="text" value={aiTopic} onChange={(e) => setAiTopic(e.target.value)} placeholder="e.g. 5 tips for productivity, AI future trends, motivational speech..." disabled={isRunning || isGeneratingScript} className="w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 outline-none border-2 focus:border-current" style={{ backgroundColor: T.inputBg, borderColor: T.cardBorder, color: T.text, caretColor: T.pink }} />
-                        </div>
-
-                        {/* API Key (only in paid mode) */}
-                        {!useFreeAi && (
-                          <div className="animate-fade-in">
-                            <label className="block text-[10px] font-bold uppercase tracking-widest mb-1.5" style={{ color: T.textMuted }}>🔑 Your AI API Key</label>
-                            <div className="relative">
-                              <input type={showAiScriptKey ? "text" : "password"} value={aiScriptApiKey} onChange={(e) => setAiScriptApiKey(e.target.value)} placeholder="sk-... or your API key" disabled={isRunning} className="w-full px-3 py-2.5 pr-16 rounded-xl text-sm font-mono transition-all disabled:opacity-50 outline-none border-2 focus:border-current" style={{ backgroundColor: T.inputBg, borderColor: aiScriptApiKey ? T.lime : T.cardBorder, color: T.text, caretColor: T.pink }} />
-                              <button onClick={() => setShowAiScriptKey(!showAiScriptKey)} className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-all cursor-pointer" style={{ color: T.textMuted }}>
-                                {showAiScriptKey ? "Hide" : "Show"}
-                              </button>
+                        {/* Product URL mode (useFreeAi = true) */}
+                        {useFreeAi ? (
+                          <>
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase tracking-widest mb-1.5" style={{ color: T.textMuted }}>🔗 Product URL</label>
+                              <input
+                                type="url"
+                                value={productUrl}
+                                onChange={(e) => setProductUrl(e.target.value)}
+                                placeholder="https://your-product-page.com..."
+                                disabled={isRunning || isGeneratingScript}
+                                className="w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 outline-none border-2 focus:border-current"
+                                style={{ backgroundColor: T.inputBg, borderColor: productUrl ? T.lime : T.cardBorder, color: T.text, caretColor: T.pink }}
+                              />
                             </div>
-                            <p className="text-[10px] font-light mt-1" style={{ color: T.textMuted }}>Uses advanced AI model by default. Works with any OpenAI-compatible API.</p>
-                          </div>
-                        )}
 
-                        {useFreeAi && (
-                          <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-[11px]" style={{ backgroundColor: T.lime + "15", color: T.text }}>
-                            <span>🆓</span>
-                            <span>Powered by <b>Pollinations AI</b> — Completely free, no limits!</span>
-                          </div>
+                            {/* Add product image checkbox */}
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                id="addProductImage"
+                                checked={addProductImage}
+                                onChange={(e) => {
+                                  setAddProductImage(e.target.checked);
+                                  if (!e.target.checked) setProductImage(null);
+                                }}
+                                disabled={isRunning}
+                                className="w-4 h-4 rounded cursor-pointer accent-pink-500"
+                              />
+                              <label htmlFor="addProductImage" className="text-xs font-medium cursor-pointer" style={{ color: T.text }}>
+                                📸 Add a product image
+                              </label>
+                            </div>
+
+                            {/* Product image upload */}
+                            {addProductImage && (
+                              <div className="animate-fade-in">
+                                {productImage ? (
+                                  <div className="relative inline-block">
+                                    <div className="w-24 h-24 rounded-xl overflow-hidden border-2" style={{ borderColor: T.pink }}>
+                                      <img src={productImage} alt="Product" className="w-full h-full object-cover" />
+                                    </div>
+                                    <button
+                                      onClick={() => setProductImage(null)}
+                                      className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 text-white text-xs flex items-center justify-center cursor-pointer hover:bg-red-600 transition-colors"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <label
+                                    className="flex items-center justify-center gap-2 w-full py-3 rounded-xl border-2 border-dashed cursor-pointer transition-all hover:border-current"
+                                    style={{ borderColor: T.cardBorder, backgroundColor: T.cardBg, color: T.textMuted }}
+                                  >
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
+                                    </svg>
+                                    <span className="text-xs font-semibold">Upload product image</span>
+                                    <input type="file" accept="image/*" onChange={handleProductImageUpload} className="hidden" />
+                                  </label>
+                                )}
+                              </div>
+                            )}
+
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-[11px]" style={{ backgroundColor: T.lime + "15", color: T.text }}>
+                              <span>🆓</span>
+                              <span>Powered by <b>Pollinations AI</b> — Completely free, no limits!</span>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            {/* Custom AI mode: Topic input */}
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase tracking-widest mb-1.5" style={{ color: T.textMuted }}>💡 Video Topic</label>
+                              <input type="text" value={aiTopic} onChange={(e) => setAiTopic(e.target.value)} placeholder="e.g. 5 tips for productivity, AI future trends, motivational speech..." disabled={isRunning || isGeneratingScript} className="w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-50 outline-none border-2 focus:border-current" style={{ backgroundColor: T.inputBg, borderColor: T.cardBorder, color: T.text, caretColor: T.pink }} />
+                            </div>
+
+                            {/* API Key (only in paid mode) */}
+                            <div className="animate-fade-in">
+                              <label className="block text-[10px] font-bold uppercase tracking-widest mb-1.5" style={{ color: T.textMuted }}>🔑 Your AI API Key</label>
+                              <div className="relative">
+                                <input type={showAiScriptKey ? "text" : "password"} value={aiScriptApiKey} onChange={(e) => setAiScriptApiKey(e.target.value)} placeholder="sk-... or your API key" disabled={isRunning} className="w-full px-3 py-2.5 pr-16 rounded-xl text-sm font-mono transition-all disabled:opacity-50 outline-none border-2 focus:border-current" style={{ backgroundColor: T.inputBg, borderColor: aiScriptApiKey ? T.lime : T.cardBorder, color: T.text, caretColor: T.pink }} />
+                                <button onClick={() => setShowAiScriptKey(!showAiScriptKey)} className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-all cursor-pointer" style={{ color: T.textMuted }}>
+                                  {showAiScriptKey ? "Hide" : "Show"}
+                                </button>
+                              </div>
+                              <p className="text-[10px] font-light mt-1" style={{ color: T.textMuted }}>Uses advanced AI model by default. Works with any OpenAI-compatible API.</p>
+                            </div>
+                          </>
                         )}
 
                         <div className="flex flex-wrap items-end gap-3">
@@ -2969,11 +3171,30 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                               </span>
                             </div>
                           </div>
-                          <button onClick={generateAIScript} disabled={isRunning || isGeneratingScript || !aiTopic.trim() || (!useFreeAi && !aiScriptApiKey)} className="px-5 py-2.5 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap" style={{ backgroundColor: isGeneratingScript ? T.textMuted : (useFreeAi ? T.lime : T.pink), color: useFreeAi ? T.dark : T.white }}>
+                          <button onClick={generateAIScript} disabled={isRunning || isGeneratingScript || (useFreeAi ? !productUrl.trim() : !aiTopic.trim()) || (!useFreeAi && !aiScriptApiKey)} className="px-5 py-2.5 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap" style={{ backgroundColor: isGeneratingScript ? T.textMuted : (useFreeAi ? T.lime : T.pink), color: useFreeAi ? T.dark : T.white }}>
                             {isGeneratingScript ? (<span className="inline-flex items-center gap-2"><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />Generating...</span>) : (useFreeAi ? "🆓 Generate Script (Free)" : "🤖 Generate Script with AI")}
                           </button>
+                          {/* Regenerate Script button - only appears after a script has been generated */}
+                          {scenes.some(s => s.script.trim()) && !isGeneratingScript && (
+                            <button
+                              onClick={() => {
+                                setScriptVariation(prev => prev + 1);
+                                setTimeout(() => generateAIScript(), 0);
+                              }}
+                              disabled={isRunning || (useFreeAi ? !productUrl.trim() : !aiTopic.trim()) || (!useFreeAi && !aiScriptApiKey)}
+                              className="px-4 py-2.5 rounded-xl text-sm font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap border-2"
+                              style={{ backgroundColor: T.cardBg, borderColor: T.pink, color: T.pink }}
+                            >
+                              🔄 Regenerate
+                            </button>
+                          )}
                         </div>
-                        <p className="text-[10px] font-light" style={{ color: T.textMuted }}>AI will create {aiNumScenes > 0 ? `${aiNumScenes} scene${aiNumScenes > 1 ? "s" : ""}` : `~${Math.ceil(aiDuration / 8)} scenes (auto)`} based on your topic. Each scene is ~8 seconds. Set scenes to 0 for auto.</p>
+                        <p className="text-[10px] font-light" style={{ color: T.textMuted }}>
+                          {useFreeAi
+                            ? "AI will analyze your product URL and create a HOOK → PAIN → PROOF → CTA marketing script."
+                            : `AI will create ${aiNumScenes > 0 ? `${aiNumScenes} scene${aiNumScenes > 1 ? "s" : ""}` : `~${Math.ceil(aiDuration / 8)} scenes (auto)`} based on your topic. Each scene is ~8 seconds. Set scenes to 0 for auto.`
+                          }
+                        </p>
                       </div>
                     </div>
                   )}
@@ -3004,6 +3225,11 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                             <span className="text-sm font-bold uppercase tracking-wide" style={{ color: T.text }}>
                               Scene {i + 1}
                             </span>
+                            {scene.label && (
+                              <span className="px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider" style={{ backgroundColor: T.pink + "20", color: T.pink }}>
+                                {scene.label}
+                              </span>
+                            )}
                             {scene.frameDone && !scene.videoDone && (
                               <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase" style={{ backgroundColor: T.lightBlue, color: T.cyan }}>
                                 Frame Ready
@@ -3117,6 +3343,21 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                               style={{ backgroundColor: T.inputBg, borderColor: T.cardBorder, color: T.text, caretColor: T.pink }}
                             />
                           </div>
+
+                          {/* Frame Prompt (collapsible, only shown if present) */}
+                          {scene.framePrompt && (
+                            <details className="group">
+                              <summary className="text-[10px] font-bold uppercase tracking-widest cursor-pointer select-none flex items-center gap-1 mb-1" style={{ color: T.textMuted }}>
+                                🎨 Image Prompt
+                                <svg className="w-3 h-3 transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                                </svg>
+                              </summary>
+                              <p className="text-[11px] leading-relaxed mt-1 px-2 py-1.5 rounded-lg" style={{ backgroundColor: T.lightPink + "50", color: T.text }}>
+                                {scene.framePrompt}
+                              </p>
+                            </details>
+                          )}
 
                           {/* Expression / Gesture — only in Custom Frames + Expressive (v2) */}
                           {frameMode === "custom" && customPromptStyle === "v2" && (
