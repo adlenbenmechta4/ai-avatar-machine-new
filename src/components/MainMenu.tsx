@@ -1326,6 +1326,22 @@ export default function MainMenu({
       ),
       accentColor: "#9AFF01",
     },
+    {
+      id: "claymotion-videos-machine",
+      title: "Claymotion Videos Machine",
+      subtitle: "Linked Scene Video Creator",
+      description: "Create smooth claymation-style videos with linked scenes. Each scene flows into the next with AI-powered transitions.",
+      icon: (
+        <svg width="40" height="40" viewBox="0 0 48 48" fill="none">
+          <rect x="4" y="8" width="16" height="24" rx="3" stroke="#FFFFFF" strokeWidth="2" fill="none" />
+          <rect x="28" y="8" width="16" height="24" rx="3" stroke="#FFFFFF" strokeWidth="2" fill="none" />
+          <path d="M20 20h8" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" />
+          <path d="M24 16l4 4-4 4" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M4 40h40" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round" opacity="0.4" />
+        </svg>
+      ),
+      accentColor: "#FFFFFF",
+    },
   ];
 
   return (
@@ -1542,7 +1558,8 @@ export default function MainMenu({
                 const isPodcastCard = !item.disabled && item.id === "ai-podcast-machine";
                 const isCarouselCard = !item.disabled && item.id === "ai-viral-carousel";
                 const isBofCard = !item.disabled && item.id === "bof-videos-machine";
-                const isFeatured = isVideoCard || isPodcastCard || isCarouselCard || isBofCard;
+                const isClaymotionCard = !item.disabled && item.id === "claymotion-videos-machine";
+                const isFeatured = isVideoCard || isPodcastCard || isCarouselCard || isBofCard || isClaymotionCard;
                 const isHovered = activeCard === index && !item.disabled;
                 return (
                 <div
