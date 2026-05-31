@@ -77,7 +77,7 @@ export default function ClaymotionVideosMachine({ onBack }: ClaymotionVideosMach
   const falApiKey = "c8b8a13a-d358-4a8c-b4a0-a6aee1da0bc5:c5c823fe4dad5a72691a9ab8eac5ef2c";
 
   // ── Video Model Selection ──
-  const [videoModel, setVideoModel] = useState<"veo3_lite" | "grok-imagine">("veo3_lite");
+  const [videoModel, setVideoModel] = useState<"veo3_lite" | "veo3_fast" | "grok-imagine">("veo3_lite");
 
   // ── Scenes ──
   const [scenes, setScenes] = useState<Scene[]>([
@@ -277,7 +277,7 @@ export default function ClaymotionVideosMachine({ onBack }: ClaymotionVideosMach
 
       // ── STEP 2: Generate Videos (SSE Stream) ──
       addLog("Starting video generation pipeline...");
-      addLog(`Generating ${scenes.length - 1} videos using ${videoModel === "veo3_lite" ? "Veo 3.1 Lite (KIE AI)" : "Grok Imagine (fal.ai)"}...`);
+      addLog(`Generating ${scenes.length - 1} videos using ${videoModel === "veo3_lite" ? "Veo 3.1 Lite (KIE AI)" : videoModel === "veo3_fast" ? "Veo 3.1 Fast (KIE AI)" : "Grok Imagine (fal.ai)"}...`);
 
       const response = await fetch("/api/claymotion-generate", {
         method: "POST",
@@ -840,7 +840,7 @@ export default function ClaymotionVideosMachine({ onBack }: ClaymotionVideosMach
           <h2 className="text-sm font-bold uppercase tracking-wider mb-3" style={{ color: C.black }}>
             Video Model
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {/* Veo 3.1 Lite Option */}
             <button
               onClick={() => setVideoModel("veo3_lite")}
@@ -876,7 +876,7 @@ export default function ClaymotionVideosMachine({ onBack }: ClaymotionVideosMach
                   <p className="text-[11px] mt-1 leading-relaxed" style={{
                     color: videoModel === "veo3_lite" ? C.gray300 : C.gray500,
                   }}>
-                    Google Veo via KIE AI. Supports start + end frame control for precise scene transitions.
+                    Google Veo via KIE AI. Start + end frames, fast generation.
                   </p>
                   <div className="flex items-center gap-2 mt-2">
                     <span
@@ -886,7 +886,7 @@ export default function ClaymotionVideosMachine({ onBack }: ClaymotionVideosMach
                         color: videoModel === "veo3_lite" ? C.white : C.gray600,
                       }}
                     >
-                      Start + End Frames
+                      Start + End
                     </span>
                     <span
                       className="text-[9px] px-1.5 py-0.5 rounded font-semibold"
@@ -895,7 +895,68 @@ export default function ClaymotionVideosMachine({ onBack }: ClaymotionVideosMach
                         color: videoModel === "veo3_lite" ? C.white : C.gray600,
                       }}
                     >
-                      9:16
+                      Fast
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </button>
+
+            {/* Veo 3.1 Fast Option */}
+            <button
+              onClick={() => setVideoModel("veo3_fast")}
+              disabled={isRunning}
+              className="relative rounded-xl p-4 text-left transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                backgroundColor: videoModel === "veo3_fast" ? C.black : C.white,
+                border: `2px solid ${videoModel === "veo3_fast" ? C.black : C.gray200}`,
+                color: videoModel === "veo3_fast" ? C.white : C.black,
+              }}
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-lg"
+                  style={{
+                    backgroundColor: videoModel === "veo3_fast" ? C.white + "20" : C.gray100,
+                  }}
+                >
+                  ⚡
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold">Veo 3.1 Fast</span>
+                    {videoModel === "veo3_fast" && (
+                      <span
+                        className="text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase"
+                        style={{ backgroundColor: C.white, color: C.black }}
+                      >
+                        Active
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] mt-1 leading-relaxed" style={{
+                    color: videoModel === "veo3_fast" ? C.gray300 : C.gray500,
+                  }}>
+                    Google Veo via KIE AI. Start + end frames, higher quality output.
+                  </p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <span
+                      className="text-[9px] px-1.5 py-0.5 rounded font-semibold"
+                      style={{
+                        backgroundColor: videoModel === "veo3_fast" ? C.white + "15" : C.gray100,
+                        color: videoModel === "veo3_fast" ? C.white : C.gray600,
+                      }}
+                    >
+                      Start + End
+                    </span>
+                    <span
+                      className="text-[9px] px-1.5 py-0.5 rounded font-semibold"
+                      style={{
+                        backgroundColor: videoModel === "veo3_fast" ? C.white + "15" : C.gray100,
+                        color: videoModel === "veo3_fast" ? C.white : C.gray600,
+                      }}
+                    >
+                      HQ
                     </span>
                   </div>
                 </div>
