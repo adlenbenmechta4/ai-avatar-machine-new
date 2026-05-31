@@ -60,14 +60,14 @@ async function uploadImageToKie(
 }
 
 // ─── Generate Video (KIE AI Veo with start+end frames) ──────────────────
-async function generateVideo(
+async function generateVideoVeo(
   startFrameUrl: string,
   endFrameUrl: string,
   prompt: string,
   apiKey: string,
   model: string = "veo3_lite"
 ): Promise<string> {
-  console.log("[Claymotion] Generating video with start+end frames");
+  console.log("[Claymotion] Generating video with Veo (start+end frames), model:", model);
 
   const res = await fetch("https://api.kie.ai/api/v1/veo/generate", {
     method: "POST",
@@ -82,13 +82,13 @@ async function generateVideo(
   });
 
   const json = await res.json();
-  console.log("[Claymotion] Video submit response:", JSON.stringify(json).slice(0, 300));
+  console.log("[Claymotion] Veo submit response:", JSON.stringify(json).slice(0, 300));
 
   if (json.code !== 200) throw new Error("Video submit failed: " + (json.msg || JSON.stringify(json)));
   const taskId = json.data?.taskId;
   if (!taskId) throw new Error("No taskId for video generation");
 
-  console.log("[Claymotion] Video task submitted:", taskId);
+  console.log("[Claymotion] Veo task submitted:", taskId);
 
   // Poll for video completion
   for (let i = 0; i < 180; i++) {
@@ -99,7 +99,7 @@ async function generateVideo(
       const pollJson = await pollRes.json();
 
       if (i % 10 === 0 || pollJson.code !== 200 || pollJson.data?.successFlag === 1 || pollJson.data?.successFlag === 2 || pollJson.data?.successFlag === 3) {
-        console.log(`[Claymotion] Video poll #${i}:`, JSON.stringify(pollJson).slice(0, 500));
+        console.log(`[Claymotion] Veo poll #${i}:`, JSON.stringify(pollJson).slice(0, 500));
       }
 
       if (pollJson.code === 200) {
@@ -142,7 +142,7 @@ async function generateVideo(
           }
 
           if (videoUrl) {
-            console.log("[Claymotion] Video ready:", videoUrl);
+            console.log("[Claymotion] Veo video ready:", videoUrl);
             return videoUrl;
           }
 
@@ -159,6 +159,128 @@ async function generateVideo(
     await sleep(5000);
   }
   throw new Error("Video generation timed out after 15 minutes");
+}
+
+// ─── Generate Video (Grok Imagine via fal.ai) ──────────────────────────
+async function generateVideoGrok(
+  startFrameUrl: string,
+  prompt: string,
+  falApiKey: string
+): Promise<string> {
+  console.log("[Claymotion] Generating video with Grok Imagine (start frame only)");
+
+  // Submit to fal.ai queue
+  const submitRes = await fetch("https://queue.fal.run/xai/grok-imagine-video/image-to-video", {
+    method: "POST",
+    headers: {
+      Authorization: `Key ${falApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      prompt,
+      image_url: startFrameUrl,
+      duration: 6,
+      resolution: "720p",
+      aspect_ratio: "9:16",
+    }),
+  });
+
+  const submitJson = await submitRes.json();
+  console.log("[Claymotion] Grok submit response:", JSON.stringify(submitJson).slice(0, 500));
+
+  // Check for direct result (synchronous)
+  if (submitJson.video && typeof submitJson.video === "object" && submitJson.video.url) {
+    console.log("[Claymotion] Grok video ready (sync):", submitJson.video.url);
+    return submitJson.video.url;
+  }
+
+  // Async result — need to poll
+  const requestId = submitJson.request_id;
+  if (!requestId) {
+    // Maybe it returned directly
+    if (submitJson.url && typeof submitJson.url === "string") {
+      return submitJson.url;
+    }
+    throw new Error("Grok submit failed: no request_id and no direct URL. Response: " + JSON.stringify(submitJson).slice(0, 300));
+  }
+
+  console.log("[Claymotion] Grok task submitted, request_id:", requestId);
+
+  const statusUrl = `https://queue.fal.run/xai/grok-imagine-video/image-to-video/requests/${requestId}/status`;
+  const responseUrl = `https://queue.fal.run/xai/grok-imagine-video/image-to-video/requests/${requestId}`;
+
+  // Poll for completion
+  for (let i = 0; i < 120; i++) {
+    await sleep(3000);
+
+    try {
+      const statusRes = await fetch(statusUrl, {
+        method: "GET",
+        headers: { Authorization: `Key ${falApiKey}` },
+      });
+      const statusJson = await statusRes.json();
+
+      if (i % 10 === 0) {
+        console.log(`[Claymotion] Grok poll #${i}:`, JSON.stringify(statusJson).slice(0, 300));
+      }
+
+      if (statusJson.status === "COMPLETED") {
+        const resultRes = await fetch(responseUrl, {
+          method: "GET",
+          headers: { Authorization: `Key ${falApiKey}` },
+        });
+        const resultJson = await resultRes.json();
+
+        const videoObj = resultJson.video;
+        if (videoObj?.url) {
+          console.log("[Claymotion] Grok video ready:", videoObj.url);
+          return videoObj.url;
+        }
+        if (typeof resultJson.url === "string") {
+          console.log("[Claymotion] Grok video ready (url):", resultJson.url);
+          return resultJson.url;
+        }
+
+        throw new Error("Grok video done but no URL: " + JSON.stringify(resultJson).slice(0, 300));
+      }
+
+      if (statusJson.status === "FAILED") {
+        throw new Error("Grok video generation failed: " + (statusJson.error || "unknown"));
+      }
+
+      // IN_QUEUE or IN_PROGRESS — keep waiting
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("generation failed") || msg.includes("no URL") || msg.includes("done but")) throw err;
+      console.warn(`[Claymotion] Grok poll ${i} error:`, msg);
+    }
+  }
+
+  throw new Error("Grok video generation timed out after 6 minutes");
+}
+
+// ─── Generate Video (dispatch by model) ─────────────────────────────────
+async function generateVideo(
+  startFrameUrl: string,
+  endFrameUrl: string | undefined,
+  prompt: string,
+  kieApiKey: string,
+  falApiKey: string,
+  videoModel: string
+): Promise<string> {
+  if (videoModel === "grok-imagine") {
+    if (!falApiKey) throw new Error("fal.ai API key is required for Grok Imagine model");
+    // Grok only uses start frame, but we enhance the prompt with end frame description
+    const enhancedPrompt = endFrameUrl
+      ? `${prompt} The video should transition smoothly to match the next scene.`
+      : prompt;
+    return generateVideoGrok(startFrameUrl, enhancedPrompt, falApiKey);
+  } else {
+    // Default: Veo 3.1 Lite via KIE AI
+    if (!kieApiKey) throw new Error("KIE AI API key is required for Veo model");
+    if (!endFrameUrl) throw new Error("End frame URL is required for Veo model");
+    return generateVideoVeo(startFrameUrl, endFrameUrl, prompt, kieApiKey, videoModel);
+  }
 }
 
 // ─── Merge Videos (fal.ai) ──────────────────────────────────────────────
@@ -235,7 +357,7 @@ async function mergeVideosFal(
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { action, sceneImageUrls, videoPrompts, kieApiKey, falApiKey, videoUrls, startFrameUrl, endFrameUrl, prompt } = body as {
+  const { action, sceneImageUrls, videoPrompts, kieApiKey, falApiKey, videoUrls, startFrameUrl, endFrameUrl, prompt, videoModel } = body as {
     action?: string;
     sceneImageUrls?: string[];
     videoPrompts?: string[];
@@ -245,18 +367,26 @@ export async function POST(req: NextRequest) {
     startFrameUrl?: string;
     endFrameUrl?: string;
     prompt?: string;
+    videoModel?: string;
   };
+
+  const model = videoModel || "veo3_lite";
 
   // ── Single video retry action ──
   if (action === "single_video") {
-    if (!startFrameUrl || !endFrameUrl || !kieApiKey) {
-      return NextResponse.json({ error: "startFrameUrl, endFrameUrl and KIE API key are required" }, { status: 400 });
+    if (!startFrameUrl) {
+      return NextResponse.json({ error: "startFrameUrl is required" }, { status: 400 });
+    }
+    if (model === "veo3_lite" && !kieApiKey) {
+      return NextResponse.json({ error: "KIE API key is required for Veo model" }, { status: 400 });
+    }
+    if (model === "grok-imagine" && !falApiKey) {
+      return NextResponse.json({ error: "fal.ai API key is required for Grok model" }, { status: 400 });
     }
 
     const singlePrompt = prompt || "Smooth transition between scenes. Natural camera movement, cinematic quality.";
 
     // Set up SSE stream
-    const encoder = new TextEncoder();
     const stream = new TransformStream();
     const writer = stream.writable.getWriter();
     const sw: SafeWriter = { writer, closed: false };
@@ -267,9 +397,9 @@ export async function POST(req: NextRequest) {
     (async () => {
       try {
         sseSend(sw, { type: "started", totalVideos: 1 });
-        sseSend(sw, { type: "video_progress", videoIndex: 0, pct: 5, message: "Submitting video..." });
+        sseSend(sw, { type: "video_progress", videoIndex: 0, pct: 5, message: `Submitting video to ${model === "grok-imagine" ? "Grok Imagine" : "Veo 3.1 Lite"}...` });
 
-        const videoUrl = await generateVideo(startFrameUrl, endFrameUrl, singlePrompt, kieApiKey);
+        const videoUrl = await generateVideo(startFrameUrl, endFrameUrl, singlePrompt, kieApiKey || "", falApiKey || "", model);
         sseSend(sw, { type: "video_done", videoIndex: 0, videoUrl });
         sseSend(sw, { type: "done", videoUrl, videoUrls: [videoUrl], message: "Video retry complete!" });
       } catch (err) {
@@ -306,15 +436,20 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Full generation pipeline ──
-  if (!sceneImageUrls || sceneImageUrls.length < 2 || !kieApiKey) {
-    return NextResponse.json({ error: "At least 2 scene images and KIE API key are required" }, { status: 400 });
+  if (!sceneImageUrls || sceneImageUrls.length < 2) {
+    return NextResponse.json({ error: "At least 2 scene images are required" }, { status: 400 });
+  }
+  if (model === "veo3_lite" && !kieApiKey) {
+    return NextResponse.json({ error: "KIE API key is required for Veo model" }, { status: 400 });
+  }
+  if (model === "grok-imagine" && !falApiKey) {
+    return NextResponse.json({ error: "fal.ai API key is required for Grok model" }, { status: 400 });
   }
 
   const prompts = videoPrompts || [];
   const totalVideos = sceneImageUrls.length - 1;
 
   // Set up SSE stream
-  const encoder = new TextEncoder();
   const stream = new TransformStream();
   const writer = stream.writable.getWriter();
   const sw: SafeWriter = { writer, closed: false };
@@ -325,19 +460,20 @@ export async function POST(req: NextRequest) {
   // Run pipeline in background
   (async () => {
     try {
-      sseSend(sw, { type: "started", totalVideos, message: `Starting generation of ${totalVideos} videos...` });
+      const modelLabel = model === "grok-imagine" ? "Grok Imagine (fal.ai)" : "Veo 3.1 Lite (KIE AI)";
+      sseSend(sw, { type: "started", totalVideos, message: `Starting generation of ${totalVideos} videos using ${modelLabel}...` });
 
       const videoUrls: string[] = [];
 
       for (let i = 0; i < totalVideos; i++) {
         const startFrame = sceneImageUrls[i];
         const endFrame = sceneImageUrls[i + 1];
-        const prompt = prompts[i] || `Smooth transition from scene ${i + 1} to scene ${i + 2}. Natural camera movement, cinematic quality.`;
+        const videoPrompt = prompts[i] || `Smooth transition from scene ${i + 1} to scene ${i + 2}. Natural camera movement, cinematic quality.`;
 
-        sseSend(sw, { type: "video_progress", videoIndex: i, pct: 5, message: `Video ${i + 1}/${totalVideos}: Submitting...` });
+        sseSend(sw, { type: "video_progress", videoIndex: i, pct: 5, message: `Video ${i + 1}/${totalVideos}: Submitting to ${modelLabel}...` });
 
         try {
-          const videoUrl = await generateVideo(startFrame, endFrame, prompt, kieApiKey);
+          const videoUrl = await generateVideo(startFrame, endFrame, videoPrompt, kieApiKey || "", falApiKey || "", model);
           videoUrls.push(videoUrl);
           sseSend(sw, { type: "video_done", videoIndex: i, videoUrl, message: `Video ${i + 1}/${totalVideos} complete!` });
         } catch (err) {
@@ -346,7 +482,7 @@ export async function POST(req: NextRequest) {
           // Continue with remaining videos even if one fails
         }
 
-        // Progress for this video
+        // Progress for next video
         if (i < totalVideos - 1) {
           sseSend(sw, { type: "video_progress", videoIndex: i + 1, pct: 0, message: `Preparing video ${i + 2}/${totalVideos}...` });
         }
@@ -363,7 +499,6 @@ export async function POST(req: NextRequest) {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           sseSend(sw, { type: "merge_error", error: msg, message: `Merge failed: ${msg}. Individual videos are still available.` });
-          // Return individual videos even if merge fails
           if (successfulVideos.length === 1) {
             sseSend(sw, { type: "done", videoUrl: successfulVideos[0], videoUrls: successfulVideos, message: "Single video ready." });
           }

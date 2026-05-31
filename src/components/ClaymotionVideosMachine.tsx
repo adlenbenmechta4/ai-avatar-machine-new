@@ -76,6 +76,9 @@ export default function ClaymotionVideosMachine({ onBack }: ClaymotionVideosMach
   const kieApiKey = "aaf0ea1db84a074fb1ed0ba386bbf615";
   const falApiKey = "c8b8a13a-d358-4a8c-b4a0-a6aee1da0bc5:c5c823fe4dad5a72691a9ab8eac5ef2c";
 
+  // ── Video Model Selection ──
+  const [videoModel, setVideoModel] = useState<"veo3_lite" | "grok-imagine">("veo3_lite");
+
   // ── Scenes ──
   const [scenes, setScenes] = useState<Scene[]>([
     createDefaultScene(),
@@ -274,7 +277,7 @@ export default function ClaymotionVideosMachine({ onBack }: ClaymotionVideosMach
 
       // ── STEP 2: Generate Videos (SSE Stream) ──
       addLog("Starting video generation pipeline...");
-      addLog(`Generating ${scenes.length - 1} videos with linked scenes...`);
+      addLog(`Generating ${scenes.length - 1} videos using ${videoModel === "veo3_lite" ? "Veo 3.1 Lite (KIE AI)" : "Grok Imagine (fal.ai)"}...`);
 
       const response = await fetch("/api/claymotion-generate", {
         method: "POST",
@@ -285,6 +288,7 @@ export default function ClaymotionVideosMachine({ onBack }: ClaymotionVideosMach
           videoPrompts: scenes.slice(0, -1).map((s) => s.videoPrompt),
           kieApiKey,
           falApiKey,
+          videoModel,
         }),
       });
 
@@ -459,7 +463,7 @@ export default function ClaymotionVideosMachine({ onBack }: ClaymotionVideosMach
       isRunningRef.current = false;
       abortRef.current = null;
     }
-  }, [canGenerate, scenes, kieApiKey, falApiKey, uploadImage, addLog]);
+  }, [canGenerate, scenes, kieApiKey, falApiKey, videoModel, uploadImage, addLog]);
 
   // Keep ref updated
   runGenerationRef.current = startGeneration;
@@ -515,6 +519,8 @@ export default function ClaymotionVideosMachine({ onBack }: ClaymotionVideosMach
           endFrameUrl: endScene.uploadedUrl,
           prompt,
           kieApiKey,
+          falApiKey,
+          videoModel,
         }),
       });
 
@@ -603,7 +609,7 @@ export default function ClaymotionVideosMachine({ onBack }: ClaymotionVideosMach
       );
       addLog(`Video ${videoIndex + 1} retry ERROR: ${msg}`);
     }
-  }, [videoStatuses, scenes, kieApiKey, addLog]);
+  }, [videoStatuses, scenes, kieApiKey, falApiKey, videoModel, addLog]);
 
   // ── Merge Videos ──
   const mergeVideos = useCallback(async () => {
@@ -823,6 +829,141 @@ export default function ClaymotionVideosMachine({ onBack }: ClaymotionVideosMach
             </div>
           )}
         </section>
+
+        {/* ══════════════════════════════════════════════════════════════════ */}
+        {/* ── Video Model Selection ── */}
+        {/* ══════════════════════════════════════════════════════════════════ */}
+        <div
+          className="rounded-2xl p-5"
+          style={{ backgroundColor: C.gray50, border: `1px solid ${C.gray200}` }}
+        >
+          <h2 className="text-sm font-bold uppercase tracking-wider mb-3" style={{ color: C.black }}>
+            Video Model
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Veo 3.1 Lite Option */}
+            <button
+              onClick={() => setVideoModel("veo3_lite")}
+              disabled={isRunning}
+              className="relative rounded-xl p-4 text-left transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                backgroundColor: videoModel === "veo3_lite" ? C.black : C.white,
+                border: `2px solid ${videoModel === "veo3_lite" ? C.black : C.gray200}`,
+                color: videoModel === "veo3_lite" ? C.white : C.black,
+              }}
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-lg"
+                  style={{
+                    backgroundColor: videoModel === "veo3_lite" ? C.white + "20" : C.gray100,
+                  }}
+                >
+                  🎬
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold">Veo 3.1 Lite</span>
+                    {videoModel === "veo3_lite" && (
+                      <span
+                        className="text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase"
+                        style={{ backgroundColor: C.white, color: C.black }}
+                      >
+                        Active
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] mt-1 leading-relaxed" style={{
+                    color: videoModel === "veo3_lite" ? C.gray300 : C.gray500,
+                  }}>
+                    Google Veo via KIE AI. Supports start + end frame control for precise scene transitions.
+                  </p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <span
+                      className="text-[9px] px-1.5 py-0.5 rounded font-semibold"
+                      style={{
+                        backgroundColor: videoModel === "veo3_lite" ? C.white + "15" : C.gray100,
+                        color: videoModel === "veo3_lite" ? C.white : C.gray600,
+                      }}
+                    >
+                      Start + End Frames
+                    </span>
+                    <span
+                      className="text-[9px] px-1.5 py-0.5 rounded font-semibold"
+                      style={{
+                        backgroundColor: videoModel === "veo3_lite" ? C.white + "15" : C.gray100,
+                        color: videoModel === "veo3_lite" ? C.white : C.gray600,
+                      }}
+                    >
+                      9:16
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </button>
+
+            {/* Grok Imagine Option */}
+            <button
+              onClick={() => setVideoModel("grok-imagine")}
+              disabled={isRunning}
+              className="relative rounded-xl p-4 text-left transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                backgroundColor: videoModel === "grok-imagine" ? C.black : C.white,
+                border: `2px solid ${videoModel === "grok-imagine" ? C.black : C.gray200}`,
+                color: videoModel === "grok-imagine" ? C.white : C.black,
+              }}
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-lg"
+                  style={{
+                    backgroundColor: videoModel === "grok-imagine" ? C.white + "20" : C.gray100,
+                  }}
+                >
+                  🤖
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold">Grok Imagine</span>
+                    {videoModel === "grok-imagine" && (
+                      <span
+                        className="text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase"
+                        style={{ backgroundColor: C.white, color: C.black }}
+                      >
+                        Active
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] mt-1 leading-relaxed" style={{
+                    color: videoModel === "grok-imagine" ? C.gray300 : C.gray500,
+                  }}>
+                    xAI Grok via fal.ai. Start frame only, end frame described in prompt.
+                  </p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <span
+                      className="text-[9px] px-1.5 py-0.5 rounded font-semibold"
+                      style={{
+                        backgroundColor: videoModel === "grok-imagine" ? C.white + "15" : C.gray100,
+                        color: videoModel === "grok-imagine" ? C.white : C.gray600,
+                      }}
+                    >
+                      Start Frame Only
+                    </span>
+                    <span
+                      className="text-[9px] px-1.5 py-0.5 rounded font-semibold"
+                      style={{
+                        backgroundColor: videoModel === "grok-imagine" ? C.white + "15" : C.gray100,
+                        color: videoModel === "grok-imagine" ? C.white : C.gray600,
+                      }}
+                    >
+                      720p
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </button>
+          </div>
+        </div>
 
         {/* ── How It Works (hidden when running) ── */}
         {!isRunning && pipelineStep === 0 && (
