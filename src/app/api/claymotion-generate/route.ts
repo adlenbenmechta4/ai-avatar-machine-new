@@ -168,6 +168,8 @@ async function generateVideoGrok(
   falApiKey: string
 ): Promise<string> {
   console.log("[Claymotion] Generating video with Grok Imagine (start frame only)");
+  console.log("[Claymotion] Grok start frame URL:", startFrameUrl.slice(0, 100));
+  console.log("[Claymotion] Grok prompt:", prompt.slice(0, 200));
 
   // Submit to fal.ai queue
   const submitRes = await fetch("https://queue.fal.run/xai/grok-imagine-video/image-to-video", {
@@ -185,8 +187,23 @@ async function generateVideoGrok(
     }),
   });
 
-  const submitJson = await submitRes.json();
-  console.log("[Claymotion] Grok submit response:", JSON.stringify(submitJson).slice(0, 500));
+  console.log("[Claymotion] Grok submit HTTP status:", submitRes.status, submitRes.statusText);
+
+  const submitText = await submitRes.text();
+  console.log("[Claymotion] Grok submit raw response:", submitText.slice(0, 800));
+
+  let submitJson: any;
+  try {
+    submitJson = JSON.parse(submitText);
+  } catch {
+    throw new Error("Grok submit returned non-JSON response (HTTP " + submitRes.status + "): " + submitText.slice(0, 300));
+  }
+
+  // Check for HTTP errors from fal.ai
+  if (!submitRes.ok) {
+    const errMsg = submitJson.detail || submitJson.error || submitJson.message || JSON.stringify(submitJson).slice(0, 300);
+    throw new Error("Grok submit failed (HTTP " + submitRes.status + "): " + errMsg);
+  }
 
   // Check for direct result (synchronous)
   if (submitJson.video && typeof submitJson.video === "object" && submitJson.video.url) {
@@ -197,21 +214,28 @@ async function generateVideoGrok(
   // Async result — need to poll
   const requestId = submitJson.request_id;
   if (!requestId) {
-    // Maybe it returned directly
-    if (submitJson.url && typeof submitJson.url === "string") {
+    // Maybe it returned directly with a different structure
+    if (typeof submitJson.url === "string") {
       return submitJson.url;
     }
-    throw new Error("Grok submit failed: no request_id and no direct URL. Response: " + JSON.stringify(submitJson).slice(0, 300));
+    // Check if there's an error in the response
+    if (submitJson.detail || submitJson.error) {
+      throw new Error("Grok submit error: " + (submitJson.detail || submitJson.error));
+    }
+    throw new Error("Grok submit failed: no request_id and no direct URL. Response: " + JSON.stringify(submitJson).slice(0, 500));
   }
 
   console.log("[Claymotion] Grok task submitted, request_id:", requestId);
 
-  const statusUrl = `https://queue.fal.run/xai/grok-imagine-video/image-to-video/requests/${requestId}/status`;
-  const responseUrl = `https://queue.fal.run/xai/grok-imagine-video/image-to-video/requests/${requestId}`;
+  // Use the URLs returned by fal.ai in the submit response (they may differ from the endpoint path)
+  const statusUrl = submitJson.status_url || `https://queue.fal.run/xai/grok-imagine-video/requests/${requestId}/status`;
+  const responseUrl = submitJson.response_url || `https://queue.fal.run/xai/grok-imagine-video/requests/${requestId}`;
+  console.log("[Claymotion] Grok status URL:", statusUrl);
+  console.log("[Claymotion] Grok response URL:", responseUrl);
 
-  // Poll for completion
-  for (let i = 0; i < 120; i++) {
-    await sleep(3000);
+  // Poll for completion (increased timeout to 15 minutes like Veo)
+  for (let i = 0; i < 180; i++) {
+    await sleep(5000);
 
     try {
       const statusRes = await fetch(statusUrl, {
@@ -220,8 +244,8 @@ async function generateVideoGrok(
       });
       const statusJson = await statusRes.json();
 
-      if (i % 10 === 0) {
-        console.log(`[Claymotion] Grok poll #${i}:`, JSON.stringify(statusJson).slice(0, 300));
+      if (i % 10 === 0 || statusJson.status === "COMPLETED" || statusJson.status === "FAILED") {
+        console.log(`[Claymotion] Grok poll #${i}:`, JSON.stringify(statusJson).slice(0, 500));
       }
 
       if (statusJson.status === "COMPLETED") {
@@ -230,6 +254,7 @@ async function generateVideoGrok(
           headers: { Authorization: `Key ${falApiKey}` },
         });
         const resultJson = await resultRes.json();
+        console.log("[Claymotion] Grok result response:", JSON.stringify(resultJson).slice(0, 500));
 
         const videoObj = resultJson.video;
         if (videoObj?.url) {
@@ -241,11 +266,25 @@ async function generateVideoGrok(
           return resultJson.url;
         }
 
-        throw new Error("Grok video done but no URL: " + JSON.stringify(resultJson).slice(0, 300));
+        // Deep search for video URL in result
+        const resultStr = JSON.stringify(resultJson);
+        const mp4Match = resultStr.match(/https?:\/\/[^\s"']+\.mp4/i);
+        if (mp4Match) {
+          console.log("[Claymotion] Grok video found via deep search:", mp4Match[0]);
+          return mp4Match[0];
+        }
+
+        const anyVideoUrl = resultStr.match(/https?:\/\/[^\s"']+(?:video|cdn|media|output|fal\.media)[^\s"']*/i);
+        if (anyVideoUrl) {
+          console.log("[Claymotion] Grok video found via URL search:", anyVideoUrl[0]);
+          return anyVideoUrl[0];
+        }
+
+        throw new Error("Grok video done but no URL: " + JSON.stringify(resultJson).slice(0, 500));
       }
 
       if (statusJson.status === "FAILED") {
-        throw new Error("Grok video generation failed: " + (statusJson.error || "unknown"));
+        throw new Error("Grok video generation failed: " + (statusJson.error || statusJson.detail || "unknown"));
       }
 
       // IN_QUEUE or IN_PROGRESS — keep waiting
@@ -256,7 +295,7 @@ async function generateVideoGrok(
     }
   }
 
-  throw new Error("Grok video generation timed out after 6 minutes");
+  throw new Error("Grok video generation timed out after 15 minutes");
 }
 
 // ─── Generate Video (dispatch by model) ─────────────────────────────────
