@@ -235,14 +235,61 @@ async function mergeVideosFal(
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { action, sceneImageUrls, videoPrompts, kieApiKey, falApiKey, videoUrls } = body as {
+  const { action, sceneImageUrls, videoPrompts, kieApiKey, falApiKey, videoUrls, startFrameUrl, endFrameUrl, prompt } = body as {
     action?: string;
     sceneImageUrls?: string[];
     videoPrompts?: string[];
     kieApiKey?: string;
     falApiKey?: string;
     videoUrls?: string[];
+    startFrameUrl?: string;
+    endFrameUrl?: string;
+    prompt?: string;
   };
+
+  // ── Single video retry action ──
+  if (action === "single_video") {
+    if (!startFrameUrl || !endFrameUrl || !kieApiKey) {
+      return NextResponse.json({ error: "startFrameUrl, endFrameUrl and KIE API key are required" }, { status: 400 });
+    }
+
+    const singlePrompt = prompt || "Smooth transition between scenes. Natural camera movement, cinematic quality.";
+
+    // Set up SSE stream
+    const encoder = new TextEncoder();
+    const stream = new TransformStream();
+    const writer = stream.writable.getWriter();
+    const sw: SafeWriter = { writer, closed: false };
+
+    const heartbeatStop = { stopped: false };
+    startHeartbeat(sw, heartbeatStop);
+
+    (async () => {
+      try {
+        sseSend(sw, { type: "started", totalVideos: 1 });
+        sseSend(sw, { type: "video_progress", videoIndex: 0, pct: 5, message: "Submitting video..." });
+
+        const videoUrl = await generateVideo(startFrameUrl, endFrameUrl, singlePrompt, kieApiKey);
+        sseSend(sw, { type: "video_done", videoIndex: 0, videoUrl });
+        sseSend(sw, { type: "done", videoUrl, videoUrls: [videoUrl], message: "Video retry complete!" });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        sseSend(sw, { type: "video_error", videoIndex: 0, error: msg });
+        sseSend(sw, { type: "error", message: msg });
+      } finally {
+        heartbeatStop.stopped = true;
+        try { await writer.close(); } catch {}
+      }
+    })();
+
+    return new Response(stream.readable, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
+  }
 
   // ── Merge-only action ──
   if (action === "merge") {
