@@ -601,7 +601,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   const [aiDuration, setAiDuration] = useState(30);
   const [aiNumScenes, setAiNumScenes] = useState(0); // 0 = auto
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
-  const [aiScriptApiKey, setAiScriptApiKey] = useState("");
+  const [aiScriptApiKey, setAiScriptApiKey] = useState("sk-b1cf6ffa8ebd457abc96da5904912931");
   const [showAiScriptKey, setShowAiScriptKey] = useState(false);
   const [useFreeAi, setUseFreeAi] = useState(true);
   const [aiProvider, setAiProvider] = useState<"deepseek" | "groq" | "gemini" | "openrouter" | "custom">("deepseek");
