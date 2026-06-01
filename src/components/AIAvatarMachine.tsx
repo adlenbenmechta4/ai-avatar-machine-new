@@ -1080,6 +1080,50 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
     setLogs((prev) => [...prev, `[${ts}] ${msg}`]);
   }, []);
 
+  // ─── Upload Avatar to Server ──────────────────────────────────────────
+  const uploadAvatarToServer = useCallback(async (imageDataUrl: string, apiKey: string, signal?: AbortSignal): Promise<string> => {
+    addLog("Compressing & uploading avatar...");
+
+    // Convert data URL to Blob
+    const res = await fetch(imageDataUrl);
+    const blob = await res.blob();
+
+    const formData = new FormData();
+    formData.append("avatar", blob, "avatar.jpg");
+    formData.append("kieApiKey", apiKey);
+
+    const uploadRes = await authFetch("/api/upload-avatar", {
+      method: "POST",
+      body: formData,
+      signal,
+    });
+
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text();
+      throw new Error(`Avatar upload failed (${uploadRes.status}): ${errText.slice(0, 200)}`);
+    }
+
+    const uploadText = await uploadRes.text();
+    if (!uploadText || uploadText.trim().length === 0) {
+      throw new Error("Empty response from avatar upload");
+    }
+
+    let uploadData: Record<string, unknown>;
+    try {
+      uploadData = JSON.parse(uploadText);
+    } catch {
+      throw new Error("Invalid JSON from avatar upload");
+    }
+
+    const url = uploadData.avatarUrl as string | undefined;
+    if (!url) {
+      throw new Error("No avatarUrl in upload response");
+    }
+
+    addLog(`Avatar uploaded successfully (${uploadData.sizeKB || "?"}KB)`);
+    return url;
+  }, [addLog]);
+
   // ─── Auto Chain Pipeline ──────────────────────────────────────────
   const startAutoChain = useCallback(async () => {
     if (!avatarImage) { alert("Please upload a character image first."); return; }
@@ -1517,50 +1561,6 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
       setIsGeneratingHeygenScript(false);
     }
   }, [aiTopic, aiDuration, isGeneratingHeygenScript, addLog]);
-
-  // ─── Upload Avatar to Server ──────────────────────────────────────────
-  const uploadAvatarToServer = useCallback(async (imageDataUrl: string, apiKey: string, signal?: AbortSignal): Promise<string> => {
-    addLog("Compressing & uploading avatar...");
-
-    // Convert data URL to Blob
-    const res = await fetch(imageDataUrl);
-    const blob = await res.blob();
-
-    const formData = new FormData();
-    formData.append("avatar", blob, "avatar.jpg");
-    formData.append("kieApiKey", apiKey);
-
-    const uploadRes = await authFetch("/api/upload-avatar", {
-      method: "POST",
-      body: formData,
-      signal,
-    });
-
-    if (!uploadRes.ok) {
-      const errText = await uploadRes.text();
-      throw new Error(`Avatar upload failed (${uploadRes.status}): ${errText.slice(0, 200)}`);
-    }
-
-    const uploadText = await uploadRes.text();
-    if (!uploadText || uploadText.trim().length === 0) {
-      throw new Error("Empty response from avatar upload");
-    }
-
-    let uploadData: Record<string, unknown>;
-    try {
-      uploadData = JSON.parse(uploadText);
-    } catch {
-      throw new Error("Invalid JSON from avatar upload");
-    }
-
-    const url = uploadData.avatarUrl as string | undefined;
-    if (!url) {
-      throw new Error("No avatarUrl in upload response");
-    }
-
-    addLog(`Avatar uploaded successfully (${uploadData.sizeKB || "?"}KB)`);
-    return url;
-  }, [addLog]);
 
   // ─── Run Generation Pipeline (SSE Streaming) ─────────────────────────
   // If we restored a checkpoint and user clicks Start, treat it as a retry (send resumeJobId)
@@ -2606,16 +2606,16 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                       throw new Error(data.error || `Generation failed (${res.status})`);
                     }
 
-                    setGeneratedAvatarUrl(data.imageUrl);
+                    setGeneratedAvatarUrl(data.imageUrl || "");
                     setAvatarProgress("");
                     addLog("Avatar image generated successfully!");
 
                     // Auto-save to library (database first, localStorage backup)
                     const avatarData = {
                       title: "My AI Avatar",
-                      videoUrl: data.imageUrl,
-                      thumbnailUrl: data.imageUrl,
-                      duration: null,
+                      videoUrl: (data.imageUrl || "") as string,
+                      thumbnailUrl: data.imageUrl as string | null,
+                      duration: null as string | null,
                       scenesCount: 1,
                       provider: "avatar" as string,
                     };
