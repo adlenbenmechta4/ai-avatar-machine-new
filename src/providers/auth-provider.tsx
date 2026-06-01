@@ -344,8 +344,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.warn("GIS fallback failed:", error);
     }
 
+    // ── Strategy 3: Direct OAuth2 Popup (bypasses all domain checks) ──
+    try {
+      const { signInWithGooglePopup } = await import("@/lib/firebase");
+      const result = await signInWithGooglePopup();
+
+      if ("idToken" in result && result.idToken) {
+        // Got a Google ID token via OAuth2 popup — exchange it with Firebase REST
+        const data = await signInWithGoogleRest(result.idToken);
+        const sessionData = saveAuthSession(data);
+        setSession(sessionData);
+
+        let appUser = await syncUserWithBackend(data.idToken);
+        if (!appUser) {
+          console.warn("Backend sync failed, using local user data from OAuth2 popup");
+          const email = data.email || "";
+          appUser = {
+            id: data.localId,
+            name: data.displayName || data.email?.split("@")[0] || "User",
+            email,
+            role: isVipUser(email) ? "admin" : "user",
+            plan: isVipUser(email) ? "enterprise" : "free",
+            creditsUsed: 0,
+            creditsLimit: isVipUser(email) ? 999999 : 3,
+          };
+        }
+        setUser(appUser);
+        return {};
+      }
+
+      if ("error" in result && result.error) {
+        if (result.error === "popup_closed") {
+          return { error: "" }; // User closed popup, no error message needed
+        }
+        console.warn("OAuth2 popup error:", result.error);
+      }
+    } catch (error) {
+      console.warn("OAuth2 popup fallback failed:", error);
+    }
+
     // ── All strategies failed ──
-    return { error: "Google sign-in failed. Please try again or sign in with email." };
+    return { error: "Google sign-in failed. Please try email sign-in." };
   }, []);
 
   // Sign out
