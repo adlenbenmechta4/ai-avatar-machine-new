@@ -416,7 +416,7 @@ export async function POST(req: NextRequest) {
     if (!startFrameUrl) {
       return NextResponse.json({ error: "startFrameUrl is required" }, { status: 400 });
     }
-    if (model === "veo3_lite" && !kieApiKey) {
+    if ((model === "veo3_lite" || model === "veo3_fast") && !kieApiKey) {
       return NextResponse.json({ error: "KIE API key is required for Veo model" }, { status: 400 });
     }
     if (model === "grok-imagine" && !falApiKey) {
@@ -424,6 +424,8 @@ export async function POST(req: NextRequest) {
     }
 
     const singlePrompt = prompt || "Smooth transition between scenes. Natural camera movement, cinematic quality.";
+
+    const modelLabel = model === "grok-imagine" ? "Grok Imagine (fal.ai)" : model === "veo3_fast" ? "Veo 3.1 Fast (KIE AI)" : "Veo 3.1 Lite (KIE AI)";
 
     // Set up SSE stream
     const stream = new TransformStream();
@@ -436,7 +438,7 @@ export async function POST(req: NextRequest) {
     (async () => {
       try {
         sseSend(sw, { type: "started", totalVideos: 1 });
-        sseSend(sw, { type: "video_progress", videoIndex: 0, pct: 5, message: `Submitting video to ${model === "grok-imagine" ? "Grok Imagine" : "Veo 3.1 Lite"}...` });
+        sseSend(sw, { type: "video_progress", videoIndex: 0, pct: 5, message: `Submitting video to ${modelLabel}...` });
 
         const videoUrl = await generateVideo(startFrameUrl, endFrameUrl, singlePrompt, kieApiKey || "", falApiKey || "", model);
         sseSend(sw, { type: "video_done", videoIndex: 0, videoUrl });
@@ -478,7 +480,7 @@ export async function POST(req: NextRequest) {
   if (!sceneImageUrls || sceneImageUrls.length < 2) {
     return NextResponse.json({ error: "At least 2 scene images are required" }, { status: 400 });
   }
-  if (model === "veo3_lite" && !kieApiKey) {
+  if ((model === "veo3_lite" || model === "veo3_fast") && !kieApiKey) {
     return NextResponse.json({ error: "KIE API key is required for Veo model" }, { status: 400 });
   }
   if (model === "grok-imagine" && !falApiKey) {
@@ -499,7 +501,7 @@ export async function POST(req: NextRequest) {
   // Run pipeline in background
   (async () => {
     try {
-      const modelLabel = model === "grok-imagine" ? "Grok Imagine (fal.ai)" : "Veo 3.1 Lite (KIE AI)";
+      const modelLabel = model === "grok-imagine" ? "Grok Imagine (fal.ai)" : model === "veo3_fast" ? "Veo 3.1 Fast (KIE AI)" : "Veo 3.1 Lite (KIE AI)";
       sseSend(sw, { type: "started", totalVideos, message: `Starting generation of ${totalVideos} videos using ${modelLabel}...` });
 
       const videoUrls: string[] = [];

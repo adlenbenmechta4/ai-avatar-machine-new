@@ -876,7 +876,7 @@ export default function ClaymotionVideosMachine({ onBack }: ClaymotionVideosMach
                   <p className="text-[11px] mt-1 leading-relaxed" style={{
                     color: videoModel === "veo3_lite" ? C.gray300 : C.gray500,
                   }}>
-                    Google Veo via KIE AI. Start + end frames, fast generation.
+                    Google Veo via KIE AI v3. Lite mode, budget-friendly, synchronized audio.
                   </p>
                   <div className="flex items-center gap-2 mt-2">
                     <span
@@ -895,7 +895,7 @@ export default function ClaymotionVideosMachine({ onBack }: ClaymotionVideosMach
                         color: videoModel === "veo3_lite" ? C.white : C.gray600,
                       }}
                     >
-                      Fast
+                      $0.15/vid
                     </span>
                   </div>
                 </div>
@@ -937,7 +937,7 @@ export default function ClaymotionVideosMachine({ onBack }: ClaymotionVideosMach
                   <p className="text-[11px] mt-1 leading-relaxed" style={{
                     color: videoModel === "veo3_fast" ? C.gray300 : C.gray500,
                   }}>
-                    Google Veo via KIE AI. Start + end frames, higher quality output.
+                    Google Veo via KIE AI v3. Rapid generation, cost-efficient, synchronized audio.
                   </p>
                   <div className="flex items-center gap-2 mt-2">
                     <span
@@ -956,7 +956,7 @@ export default function ClaymotionVideosMachine({ onBack }: ClaymotionVideosMach
                         color: videoModel === "veo3_fast" ? C.white : C.gray600,
                       }}
                     >
-                      HQ
+                      $0.30/vid
                     </span>
                   </div>
                 </div>
