@@ -594,8 +594,8 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   const [combineProgress, setCombineProgress] = useState(0);
 
   // ── Mode State ──
-  const [mode, setMode] = useState<"ai" | "manual">("ai");
-  const [frameMode, setFrameMode] = useState<"avatar" | "avatar_v2" | "scenes" | "custom" | "auto_chain">("avatar_v2");
+  const [mode, setMode] = useState<"ai" | "manual" | "auto_chain">("ai");
+  const [frameMode, setFrameMode] = useState<"avatar" | "avatar_v2" | "scenes" | "custom">("avatar_v2");
   const [customPromptStyle, setCustomPromptStyle] = useState<"v1" | "v2">("v1");
   const [aiTopic, setAiTopic] = useState("");
   const [aiDuration, setAiDuration] = useState(30);
@@ -766,7 +766,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
       }
       if (checkpoint.kieApiKey) setKieApiKey(checkpoint.kieApiKey);
       if (checkpoint.falApiKey) setFalApiKey(checkpoint.falApiKey);
-      if (checkpoint.frameMode) setFrameMode(checkpoint.frameMode as "avatar" | "avatar_v2" | "scenes" | "custom" | "auto_chain");
+      if (checkpoint.frameMode) setFrameMode(checkpoint.frameMode as "avatar" | "avatar_v2" | "scenes" | "custom");
       if (checkpoint.videoProvider) setVideoProvider(checkpoint.videoProvider as "kie" | "heygen");
       if (checkpoint.videoModel) setVideoModel(checkpoint.videoModel as "veo3_lite" | "veo3_fast");
       if (checkpoint.heygenApiKey) setHeygenApiKey(checkpoint.heygenApiKey);
@@ -2832,7 +2832,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                     </div>
                   )}
 
-                  {(isSuperAdmin || frameMode === "avatar_v2" || frameMode === "auto_chain") && (
+                  {(isSuperAdmin || frameMode === "avatar_v2" || mode === "auto_chain") && (
                   <>
                   {/* ── Character Library ── */}
                   <div className="mb-4">
@@ -3001,13 +3001,12 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                     <label className="block text-xs font-bold uppercase tracking-wider mb-2" style={{ color: T.textMuted }}>
                       Frame Mode
                     </label>
-                    <div className={isSuperAdmin ? "grid grid-cols-5 gap-2" : "grid grid-cols-3 gap-2"}>
+                    <div className={isSuperAdmin ? "grid grid-cols-4 gap-2" : "grid grid-cols-2 gap-2"}>
                       {([
                         ...(isSuperAdmin ? [{ value: "avatar" as const, label: "Avatar Only", emoji: "👤", desc: "Static, no gestures" }] : []),
                         { value: "avatar_v2" as const, label: "Avatar Only v2", emoji: "🤚", desc: "Hand gestures & body language" },
                         ...(isSuperAdmin ? [{ value: "scenes" as const, label: "Scene Frames", emoji: "🖼️", desc: "Unique backgrounds per scene" }] : []),
                         { value: "custom" as const, label: "Custom Frames", emoji: "📸", desc: "Upload image per scene" },
-                        { value: "auto_chain" as const, label: "Auto Chain", emoji: "🔗", desc: "AI script + chained frames" },
                       ]).map((fm) => (
                         <button
                           key={fm.value}
@@ -3056,194 +3055,6 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                           </button>
                         ))}
                       </div>
-                    </div>
-                  )}
-
-                  {/* ── Auto Chain Mode UI ── */}
-                  {frameMode === "auto_chain" && (
-                    <div className="rounded-2xl p-5 space-y-4" style={{ backgroundColor: `${T.lime}08`, border: `2px solid ${T.lime}30` }}>
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-lg">🔗</span>
-                        <h3 className="text-sm font-black uppercase tracking-wide" style={{ color: T.lime }}>Auto Chain Mode</h3>
-                      </div>
-                      <p className="text-xs leading-relaxed" style={{ color: T.textMuted }}>
-                        Upload a character image, enter a topic, and the AI will automatically: generate the script → create chained frames (each using the previous frame as reference) → generate videos → merge everything.
-                      </p>
-
-                      {/* Topic Input */}
-                      <div>
-                        <label className="block text-xs font-bold uppercase tracking-wider mb-1.5" style={{ color: T.text }}>
-                          Video Topic
-                        </label>
-                        <textarea
-                          value={autoChainTopic}
-                          onChange={(e) => setAutoChainTopic(e.target.value)}
-                          placeholder="Example: The secret to building a successful online business from scratch..."
-                          rows={3}
-                          className="w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-all resize-none"
-                          style={{ backgroundColor: T.inputBg, border: `2px solid ${T.inputBorder}`, color: T.text, minHeight: "70px" }}
-                          onFocus={(e) => { e.currentTarget.style.borderColor = T.lime; }}
-                          onBlur={(e) => { e.currentTarget.style.borderColor = T.inputBorder; }}
-                          disabled={isAutoChainRunning}
-                        />
-                      </div>
-
-                      {/* Duration */}
-                      <div>
-                        <label className="block text-xs font-bold uppercase tracking-wider mb-1.5" style={{ color: T.text }}>
-                          Target Duration (seconds)
-                        </label>
-                        <div className="flex gap-2">
-                          {[15, 30, 60, 90].map((d) => (
-                            <button
-                              key={d}
-                              onClick={() => setAutoChainDuration(d)}
-                              disabled={isAutoChainRunning}
-                              className="flex-1 py-2 rounded-xl text-xs font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50 border-2"
-                              style={{
-                                backgroundColor: autoChainDuration === d ? T.lime : T.inputBg,
-                                borderColor: autoChainDuration === d ? T.lime : T.inputBorder,
-                                color: autoChainDuration === d ? T.dark : T.textMuted,
-                              }}
-                            >
-                              {d}s
-                            </button>
-                          ))}
-                        </div>
-                        <p className="text-[10px] mt-1" style={{ color: T.textMuted }}>
-                          ~{Math.max(2, Math.ceil(autoChainDuration / 8))} scenes will be generated
-                        </p>
-                      </div>
-
-                      {/* Chain Flow Visualization */}
-                      <div className="rounded-xl p-3" style={{ backgroundColor: T.inputBg }}>
-                        <p className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: T.textMuted }}>Pipeline Flow:</p>
-                        <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
-                          <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.pink}20`, color: T.pink }}>👤 Character</span>
-                          <span style={{ color: T.textMuted }}>→</span>
-                          <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.cyan}15`, color: T.cyan }}>✍️ AI Script</span>
-                          <span style={{ color: T.textMuted }}>→</span>
-                          <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.lime}15`, color: T.lime }}>🖼️ Frame 1</span>
-                          <span style={{ color: T.textMuted }}>→</span>
-                          <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.lime}15`, color: T.lime }}>🖼️ Frame 2</span>
-                          <span style={{ color: T.textMuted }}>→</span>
-                          <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.lime}15`, color: T.lime }}>🖼️ Frame N</span>
-                          <span style={{ color: T.textMuted }}>→</span>
-                          <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.pink}15`, color: T.pink }}>🎬 Videos</span>
-                          <span style={{ color: T.textMuted }}>→</span>
-                          <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.cyan}15`, color: T.cyan }}>🔗 Merge</span>
-                        </div>
-                        <p className="text-[9px] mt-2" style={{ color: T.textMuted }}>
-                          Each frame uses the previous frame as reference — creating visual consistency across scenes
-                        </p>
-                      </div>
-
-                      {/* Progress / Status */}
-                      {isAutoChainRunning && (
-                        <div className="rounded-xl p-4" style={{ backgroundColor: T.inputBg }}>
-                          <div className="flex items-center gap-3 mb-3">
-                            <div className="w-6 h-6 rounded-full border-2 animate-spin" style={{ borderColor: `${T.lime}30`, borderTopColor: T.lime }} />
-                            <div>
-                              <p className="text-sm font-bold" style={{ color: T.text }}>
-                                {autoChainStep === "script" && "Generating script..."}
-                                {autoChainStep === "frames" && `Generating frame ${autoChainCurrentScene}/${autoChainScenes.length}...`}
-                                {autoChainStep === "videos" && `Generating video ${autoChainCurrentScene}/${autoChainScenes.length}...`}
-                                {autoChainStep === "merge" && "Merging videos..."}
-                              </p>
-                              <p className="text-[10px]" style={{ color: T.textMuted }}>
-                                Step: {autoChainStep} • Progress: {autoChainProgress}%
-                              </p>
-                            </div>
-                          </div>
-                          {/* Progress Bar */}
-                          <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: T.cardBorder }}>
-                            <div
-                              className="h-full rounded-full transition-all duration-500"
-                              style={{ width: `${autoChainProgress}%`, backgroundColor: T.lime }}
-                            />
-                          </div>
-                          {/* Scene thumbnails */}
-                          {autoChainFrameUrls.length > 0 && (
-                            <div className="flex gap-2 mt-3 overflow-x-auto">
-                              {autoChainFrameUrls.map((url, i) => (
-                                <div key={i} className="flex-shrink-0 w-12 h-16 rounded-lg overflow-hidden border-2" style={{ borderColor: url ? T.lime : T.cardBorder }}>
-                                  {url ? <img src={url} alt={`Frame ${i + 1}`} className="w-full h-full object-cover" /> : (
-                                    <div className="w-full h-full flex items-center justify-center">
-                                      <div className="w-3 h-3 rounded-full border animate-spin" style={{ borderColor: `${T.lime}30`, borderTopColor: T.lime }} />
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Error */}
-                      {autoChainError && (
-                        <div className="rounded-xl p-3 text-sm" style={{ backgroundColor: "#2D1A1A", border: "2px solid #FECACA", color: "#DC2626" }}>
-                          <p className="font-bold text-xs">Auto Chain Error</p>
-                          <p className="text-[11px] mt-1">{autoChainError}</p>
-                        </div>
-                      )}
-
-                      {/* Generated Script Preview */}
-                      {autoChainScenes.length > 0 && !isAutoChainRunning && (
-                        <div className="rounded-xl p-3" style={{ backgroundColor: T.inputBg }}>
-                          <p className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: T.textMuted }}>
-                            Generated Script ({autoChainScenes.length} scenes)
-                          </p>
-                          <div className="space-y-2 max-h-40 overflow-y-auto">
-                            {autoChainScenes.map((s, i) => (
-                              <div key={i} className="flex items-start gap-2">
-                                <span className="text-[9px] px-1.5 py-0.5 rounded font-bold flex-shrink-0" style={{ backgroundColor: `${T.lime}15`, color: T.lime }}>
-                                  {i + 1}
-                                </span>
-                                <div>
-                                  <p className="text-[11px] font-semibold" style={{ color: T.text }}>{s.script}</p>
-                                  <p className="text-[9px]" style={{ color: T.textMuted }}>{s.description}</p>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Result */}
-                      {autoChainStep === "done" && autoChainMergedUrl && !isAutoChainRunning && (
-                        <div className="rounded-xl overflow-hidden border-2" style={{ borderColor: T.lime }}>
-                          <video src={autoChainMergedUrl} controls className="w-full" style={{ maxHeight: "400px" }} />
-                          <div className="p-3 flex gap-2">
-                            <a href={autoChainMergedUrl} download target="_blank" rel="noopener noreferrer"
-                              className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wide"
-                              style={{ backgroundColor: T.dark, color: T.white }}>
-                              Download Video
-                            </a>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Start Button */}
-                      <button
-                        onClick={startAutoChain}
-                        disabled={isAutoChainRunning || !avatarImage || !autoChainTopic.trim()}
-                        className="w-full py-4 rounded-2xl text-sm font-black uppercase tracking-widest transition-all duration-300 disabled:opacity-40 cursor-pointer"
-                        style={{ backgroundColor: T.lime, color: T.dark, boxShadow: !isAutoChainRunning && avatarImage ? `0 8px 30px ${T.lime}30` : "none" }}
-                      >
-                        {isAutoChainRunning ? (
-                          <span className="inline-flex items-center gap-3">
-                            <div className="w-5 h-5 rounded-full border-2 border-black border-t-transparent animate-spin" />
-                            Processing...
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-2">
-                            🔗 Start Auto Chain
-                          </span>
-                        )}
-                      </button>
-                      {!avatarImage && (
-                        <p className="text-[10px] text-center" style={{ color: T.pink }}>Upload a character image above to start</p>
-                      )}
                     </div>
                   )}
 
@@ -3436,19 +3247,29 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                       <div className="flex rounded-xl border-2 overflow-hidden" style={{ borderColor: T.cardBorder }}>
                         <button
                           onClick={() => setMode("ai")}
-                          disabled={isRunning}
+                          disabled={isRunning || isAutoChainRunning}
                           className="px-3 py-1.5 text-xs font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50"
                           style={{ backgroundColor: mode === "ai" ? T.pink : T.cardBg, color: mode === "ai" ? T.white : T.textMuted }}
                         >🤖 AI Auto</button>
                         <button
                           onClick={() => setMode("manual")}
-                          disabled={isRunning}
+                          disabled={isRunning || isAutoChainRunning}
                           className="px-3 py-1.5 text-xs font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50"
                           style={{ backgroundColor: mode === "manual" ? T.dark : T.cardBg, color: mode === "manual" ? T.white : T.textMuted }}
                         >✋ Manual</button>
+                        <button
+                          onClick={() => setMode("auto_chain")}
+                          disabled={isRunning || isAutoChainRunning}
+                          className="px-3 py-1.5 text-xs font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50"
+                          style={{ backgroundColor: mode === "auto_chain" ? T.lime : T.cardBg, color: mode === "auto_chain" ? T.dark : T.textMuted }}
+                        >🔗 Auto Chain</button>
                       </div>
-                      <button onClick={fillSampleData} disabled={isRunning} className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed border-2" style={{ backgroundColor: T.cardBg, borderColor: T.cardBorder, color: T.textMuted }}>🎲 Sample</button>
-                      <button onClick={addScene} disabled={isRunning} className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed border-2" style={{ backgroundColor: T.lightPink, borderColor: T.pink, color: T.pink }}>+ Scene</button>
+                      {mode !== "auto_chain" && (
+                        <>
+                          <button onClick={fillSampleData} disabled={isRunning} className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed border-2" style={{ backgroundColor: T.cardBg, borderColor: T.cardBorder, color: T.textMuted }}>🎲 Sample</button>
+                          <button onClick={addScene} disabled={isRunning} className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed border-2" style={{ backgroundColor: T.lightPink, borderColor: T.pink, color: T.pink }}>+ Scene</button>
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -3679,7 +3500,194 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                     </div>
                   )}
 
+                  {/* ═══ Auto Chain Mode ═══ */}
+                  {mode === "auto_chain" && (
+                    <div className="rounded-2xl p-5 space-y-4 animate-fade-in" style={{ backgroundColor: `${T.lime}08`, border: `2px solid ${T.lime}30` }}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-lg">🔗</span>
+                        <h3 className="text-sm font-black uppercase tracking-wide" style={{ color: T.lime }}>Auto Chain Mode</h3>
+                      </div>
+                      <p className="text-xs leading-relaxed" style={{ color: T.textMuted }}>
+                        Select a character from 🎭 Character Library above, enter a topic, and the AI will automatically: generate the script → create chained frames (Scene 1 uses your character as reference, remaining scenes use Scene 1's frame) → generate videos → merge everything.
+                      </p>
+
+                      {/* Chain Flow Visualization */}
+                      <div className="rounded-xl p-3" style={{ backgroundColor: T.inputBg }}>
+                        <p className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: T.textMuted }}>Pipeline Flow:</p>
+                        <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                          <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.pink}20`, color: T.pink }}>🎭 Character</span>
+                          <span style={{ color: T.textMuted }}>→</span>
+                          <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.cyan}15`, color: T.cyan }}>✍️ AI Script</span>
+                          <span style={{ color: T.textMuted }}>→</span>
+                          <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.lime}15`, color: T.lime }}>🖼️ Frame 1 (char ref)</span>
+                          <span style={{ color: T.textMuted }}>→</span>
+                          <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.lime}15`, color: T.lime }}>🖼️ Frame 2-N (chain ref)</span>
+                          <span style={{ color: T.textMuted }}>→</span>
+                          <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.pink}15`, color: T.pink }}>🎬 Videos</span>
+                          <span style={{ color: T.textMuted }}>→</span>
+                          <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.cyan}15`, color: T.cyan }}>🔗 Merge</span>
+                        </div>
+                        <p className="text-[9px] mt-2" style={{ color: T.textMuted }}>
+                          Scene 1 uses your character image as reference. Scenes 2+ use Scene 1's generated frame — creating visual consistency.
+                        </p>
+                      </div>
+
+                      {/* Topic Input */}
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-wider mb-1.5" style={{ color: T.text }}>
+                          💡 Video Topic
+                        </label>
+                        <textarea
+                          value={autoChainTopic}
+                          onChange={(e) => setAutoChainTopic(e.target.value)}
+                          placeholder="Example: The secret to building a successful online business from scratch..."
+                          rows={3}
+                          className="w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-all resize-none"
+                          style={{ backgroundColor: T.inputBg, border: `2px solid ${T.inputBorder}`, color: T.text, minHeight: "70px" }}
+                          onFocus={(e) => { e.currentTarget.style.borderColor = T.lime; }}
+                          onBlur={(e) => { e.currentTarget.style.borderColor = T.inputBorder; }}
+                          disabled={isAutoChainRunning}
+                        />
+                      </div>
+
+                      {/* Duration */}
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-wider mb-1.5" style={{ color: T.text }}>
+                          ⏱️ Target Duration
+                        </label>
+                        <div className="flex gap-2">
+                          {[15, 30, 60, 90].map((d) => (
+                            <button
+                              key={d}
+                              onClick={() => setAutoChainDuration(d)}
+                              disabled={isAutoChainRunning}
+                              className="flex-1 py-2 rounded-xl text-xs font-bold uppercase tracking-wide transition-all cursor-pointer disabled:opacity-50 border-2"
+                              style={{
+                                backgroundColor: autoChainDuration === d ? T.lime : T.inputBg,
+                                borderColor: autoChainDuration === d ? T.lime : T.inputBorder,
+                                color: autoChainDuration === d ? T.dark : T.textMuted,
+                              }}
+                            >
+                              {d}s
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-[10px] mt-1" style={{ color: T.textMuted }}>
+                          ~{Math.max(2, Math.ceil(autoChainDuration / 8))} scenes will be generated
+                        </p>
+                      </div>
+
+                      {/* Progress / Status */}
+                      {isAutoChainRunning && (
+                        <div className="rounded-xl p-4" style={{ backgroundColor: T.inputBg }}>
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className="w-6 h-6 rounded-full border-2 animate-spin" style={{ borderColor: `${T.lime}30`, borderTopColor: T.lime }} />
+                            <div>
+                              <p className="text-sm font-bold" style={{ color: T.text }}>
+                                {autoChainStep === "script" && "Generating script..."}
+                                {autoChainStep === "frames" && `Generating frame ${autoChainCurrentScene}/${autoChainScenes.length}...`}
+                                {autoChainStep === "videos" && `Generating video ${autoChainCurrentScene}/${autoChainScenes.length}...`}
+                                {autoChainStep === "merge" && "Merging videos..."}
+                              </p>
+                              <p className="text-[10px]" style={{ color: T.textMuted }}>
+                                Step: {autoChainStep} • Progress: {autoChainProgress}%
+                              </p>
+                            </div>
+                          </div>
+                          {/* Progress Bar */}
+                          <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: T.cardBorder }}>
+                            <div
+                              className="h-full rounded-full transition-all duration-500"
+                              style={{ width: `${autoChainProgress}%`, backgroundColor: T.lime }}
+                            />
+                          </div>
+                          {/* Scene thumbnails */}
+                          {autoChainFrameUrls.length > 0 && (
+                            <div className="flex gap-2 mt-3 overflow-x-auto">
+                              {autoChainFrameUrls.map((url, i) => (
+                                <div key={i} className="flex-shrink-0 w-12 h-16 rounded-lg overflow-hidden border-2" style={{ borderColor: url ? T.lime : T.cardBorder }}>
+                                  {url ? <img src={url} alt={`Frame ${i + 1}`} className="w-full h-full object-cover" /> : (
+                                    <div className="w-full h-full flex items-center justify-center">
+                                      <div className="w-3 h-3 rounded-full border animate-spin" style={{ borderColor: `${T.lime}30`, borderTopColor: T.lime }} />
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Error */}
+                      {autoChainError && (
+                        <div className="rounded-xl p-3 text-sm" style={{ backgroundColor: isDark ? "#2D1A1A" : "#FEF2F2", border: "2px solid #FECACA", color: "#DC2626" }}>
+                          <p className="font-bold text-xs">Auto Chain Error</p>
+                          <p className="text-[11px] mt-1">{autoChainError}</p>
+                        </div>
+                      )}
+
+                      {/* Generated Script Preview */}
+                      {autoChainScenes.length > 0 && !isAutoChainRunning && (
+                        <div className="rounded-xl p-3" style={{ backgroundColor: T.inputBg }}>
+                          <p className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: T.textMuted }}>
+                            Generated Script ({autoChainScenes.length} scenes)
+                          </p>
+                          <div className="space-y-2 max-h-40 overflow-y-auto">
+                            {autoChainScenes.map((s, i) => (
+                              <div key={i} className="flex items-start gap-2">
+                                <span className="text-[9px] px-1.5 py-0.5 rounded font-bold flex-shrink-0" style={{ backgroundColor: `${T.lime}15`, color: T.lime }}>
+                                  {i + 1}
+                                </span>
+                                <div>
+                                  <p className="text-[11px] font-semibold" style={{ color: T.text }}>{s.script}</p>
+                                  <p className="text-[9px]" style={{ color: T.textMuted }}>{s.description}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Result */}
+                      {autoChainStep === "done" && autoChainMergedUrl && !isAutoChainRunning && (
+                        <div className="rounded-xl overflow-hidden border-2" style={{ borderColor: T.lime }}>
+                          <video src={autoChainMergedUrl} controls className="w-full" style={{ maxHeight: "400px" }} />
+                          <div className="p-3 flex gap-2">
+                            <a href={autoChainMergedUrl} download target="_blank" rel="noopener noreferrer"
+                              className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wide"
+                              style={{ backgroundColor: T.dark, color: T.white }}>
+                              Download Video
+                            </a>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Start Button */}
+                      <button
+                        onClick={startAutoChain}
+                        disabled={isAutoChainRunning || !avatarImage || !autoChainTopic.trim()}
+                        className="w-full py-4 rounded-2xl text-sm font-black uppercase tracking-widest transition-all duration-300 disabled:opacity-40 cursor-pointer"
+                        style={{ backgroundColor: T.lime, color: T.dark, boxShadow: !isAutoChainRunning && avatarImage ? `0 8px 30px ${T.lime}30` : "none" }}
+                      >
+                        {isAutoChainRunning ? (
+                          <span className="inline-flex items-center gap-3">
+                            <div className="w-5 h-5 rounded-full border-2 border-black border-t-transparent animate-spin" />
+                            Processing...
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-2">
+                            🔗 Start Auto Chain
+                          </span>
+                        )}
+                      </button>
+                      {!avatarImage && (
+                        <p className="text-[10px] text-center" style={{ color: T.pink }}>Select a character from 🎭 Character Library above to start</p>
+                      )}
+                    </div>
+                  )}
+
                   {/* Scene List */}
+                  {mode !== "auto_chain" && (
                   <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1 custom-scrollbar">
                     {scenes.map((scene, i) => (
                       <div
@@ -3934,6 +3942,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                       </div>
                     ))}
                   </div>
+                  )}
                   </>
                   )}
                 </div>
@@ -3965,7 +3974,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
 
           {/* ─── Generate / Delete / Reset Buttons ──────────────────────── */}
           <div className="flex flex-wrap items-center justify-center gap-4 mb-10 sm:mb-14">
-            {!isRunning && pipelineStep === 0 && frameMode !== "auto_chain" && (
+            {!isRunning && pipelineStep === 0 && mode !== "auto_chain" && (
               <>
                 <button
                   onClick={runGeneration}
