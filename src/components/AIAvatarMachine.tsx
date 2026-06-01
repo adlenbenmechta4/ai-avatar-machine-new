@@ -597,7 +597,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   const [mode, setMode] = useState<"ai" | "manual">("ai");
   const [frameMode, setFrameMode] = useState<"avatar" | "avatar_v2" | "scenes" | "custom">("avatar_v2");
   const [customPromptStyle, setCustomPromptStyle] = useState<"v1" | "v2">("v1");
-  const [autoChainFrames, setAutoChainFrames] = useState(false); // In Custom Frames: auto-generate frames using chain logic
+  // Auto chain is now automatic: when character selected + script generated in Custom Frames
   const [aiTopic, setAiTopic] = useState("");
   const [aiDuration, setAiDuration] = useState(30);
   const [aiNumScenes, setAiNumScenes] = useState(0); // 0 = auto
@@ -713,6 +713,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
   const [autoChainCurrentScene, setAutoChainCurrentScene] = useState(0);
   const [autoChainError, setAutoChainError] = useState("");
   const [isAutoChainRunning, setIsAutoChainRunning] = useState(false);
+  const [pendingAutoChain, setPendingAutoChain] = useState(false); // Trigger: auto-start chain after script gen
 
   // ── Pipeline Checkpoint (survives page refresh) ──
   const PIPELINE_CHECKPOINT_KEY = "ai_avatar_pipeline_checkpoint";
@@ -1066,6 +1067,12 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
       );
 
       addLog(`AI generated ${scenesArr.length} scenes successfully!`);
+
+      // ── Auto Chain: If in Custom Frames mode + character selected, auto-trigger chain pipeline ──
+      if (frameMode === "custom" && avatarImage) {
+        addLog("🎭 Character selected + Custom Frames → Auto Chain will start automatically...");
+        setPendingAutoChain(true);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       addLog(`ERROR: ${msg}`);
@@ -1073,7 +1080,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
     } finally {
       setIsGeneratingScript(false);
     }
-  }, [aiTopic, aiDuration, aiNumScenes, isGeneratingScript, aiScriptApiKey, useFreeAi, aiProvider, productUrl, productImage, scriptVariation]);
+  }, [aiTopic, aiDuration, aiNumScenes, isGeneratingScript, aiScriptApiKey, useFreeAi, aiProvider, productUrl, productImage, scriptVariation, frameMode, avatarImage]);
 
   // ─── Helper: add log entry ────────────────────────────────────────────
   const addLog = useCallback((msg: string) => {
@@ -1179,7 +1186,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
       addLog("Starting chained frame + video generation pipeline...");
       setPipelineStep(2);
 
-      const pipelineRes = await fetch("/api/auto-chain", {
+      const pipelineRes = await authFetch("/api/auto-chain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
@@ -1334,6 +1341,14 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
       abortRef.current = null;
     }
   }, [avatarImage, scenes, kieApiKey, falApiKey, videoModel, addLog, authFetch, uploadAvatarToServer]);
+
+  // ─── Auto Chain: Auto-trigger after script generation when character selected ──
+  useEffect(() => {
+    if (pendingAutoChain && !isAutoChainRunning && !isGeneratingScript && !isRunning) {
+      setPendingAutoChain(false);
+      startAutoChain();
+    }
+  }, [pendingAutoChain, isAutoChainRunning, isGeneratingScript, isRunning, startAutoChain]);
 
   // ─── Status Polling Fallback (for when SSE stream is unreliable) ──
   const processedLogsRef = useRef<Set<string>>(new Set());
@@ -3040,51 +3055,25 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                         ))}
                       </div>
 
-                      {/* ── Auto Chain Frames Toggle ── */}
-                      <div className="mt-3">
-                        <button
-                          onClick={() => setAutoChainFrames(!autoChainFrames)}
-                          disabled={isRunning || isAutoChainRunning}
-                          className="w-full flex items-center gap-3 py-3 px-4 rounded-xl text-xs font-bold uppercase tracking-wide transition-all duration-300 cursor-pointer disabled:opacity-50 border-2"
-                          style={{
-                            backgroundColor: autoChainFrames ? `${T.lime}12` : T.cardBg,
-                            borderColor: autoChainFrames ? T.lime : T.cardBorder,
-                            color: autoChainFrames ? T.lime : T.textMuted,
-                          }}
-                        >
-                          <span className="text-base">🔗</span>
-                          <div className="flex-1 text-left">
-                            <div>Auto Chain Frames</div>
-                            <div className="text-[9px] font-normal lowercase tracking-normal mt-0.5 opacity-70">
-                              {autoChainFrames ? "AI generates frames using character reference" : "Click to auto-generate frames from character"}
-                            </div>
+                      {/* ── Auto Chain Info (automatic when character selected) ── */}
+                      {avatarImage && (
+                        <div className="mt-3 rounded-xl p-3 animate-fade-in" style={{ backgroundColor: `${T.lime}08`, border: `1px solid ${T.lime}30` }}>
+                          <div className="flex items-center gap-1.5 flex-wrap text-[10px] mb-2">
+                            <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.lime}15`, color: T.lime }}>🔗 Auto Chain</span>
+                            <span style={{ color: T.textMuted }}>—</span>
+                            <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.pink}20`, color: T.pink }}>🎭 Character</span>
+                            <span style={{ color: T.textMuted }}>→</span>
+                            <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.lime}15`, color: T.lime }}>🖼️ Frame 1</span>
+                            <span style={{ color: T.textMuted }}>→</span>
+                            <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.lime}15`, color: T.lime }}>🖼️ Frame 2-N</span>
+                            <span style={{ color: T.textMuted }}>→</span>
+                            <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.cyan}15`, color: T.cyan }}>🎬 Videos</span>
                           </div>
-                          <div className="w-10 h-5 rounded-full transition-all duration-300 flex items-center px-0.5" style={{ backgroundColor: autoChainFrames ? T.lime : T.cardBorder }}>
-                            <div className="w-4 h-4 rounded-full transition-all duration-300" style={{ backgroundColor: autoChainFrames ? T.dark : T.textMuted, marginLeft: autoChainFrames ? "18px" : "0px" }} />
-                          </div>
-                        </button>
-                        {autoChainFrames && (
-                          <div className="mt-2 rounded-xl p-3 animate-fade-in" style={{ backgroundColor: T.inputBg, border: `1px solid ${T.lime}30` }}>
-                            <div className="flex items-center gap-1.5 flex-wrap text-[10px] mb-2">
-                              <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.pink}20`, color: T.pink }}>🎭 Character</span>
-                              <span style={{ color: T.textMuted }}>→</span>
-                              <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.lime}15`, color: T.lime }}>🖼️ Frame 1</span>
-                              <span style={{ color: T.textMuted }}>→</span>
-                              <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.lime}15`, color: T.lime }}>🖼️ Frame 2-N</span>
-                              <span style={{ color: T.textMuted }}>→</span>
-                              <span className="px-2 py-1 rounded-lg font-bold" style={{ backgroundColor: `${T.cyan}15`, color: T.cyan }}>🎬 Videos</span>
-                            </div>
-                            <p className="text-[9px]" style={{ color: T.textMuted }}>
-                              Scene 1 uses your character as reference. Scenes 2+ use Scene 1's generated frame.
-                            </p>
-                            {!avatarImage && (
-                              <p className="text-[10px] mt-1.5 font-bold" style={{ color: T.pink }}>
-                                Select a character from 🎭 Character Library above
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                          <p className="text-[9px]" style={{ color: T.textMuted }}>
+                            🤖 Script AI will generate scripts with image prompts. Scene 1 uses your character as reference. Scenes 2+ use Scene 1's generated frame. Videos auto-merge at the end.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -3584,7 +3573,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
 
                         <div className="space-y-3">
                           {/* Auto Chain: Show generated frame preview */}
-                          {frameMode === "custom" && autoChainFrames && autoChainFrameUrls[i] && (
+                          {frameMode === "custom" && avatarImage && autoChainFrameUrls[i] && (
                             <div>
                               <label className="block text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: T.lime }}>
                                 🔗 Auto-Generated Frame
@@ -3600,7 +3589,7 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                             </div>
                           )}
                           {/* Auto Chain: Show waiting state */}
-                          {frameMode === "custom" && autoChainFrames && !autoChainFrameUrls[i] && isAutoChainRunning && autoChainStep === "frames" && (
+                          {frameMode === "custom" && avatarImage && !autoChainFrameUrls[i] && isAutoChainRunning && autoChainStep === "frames" && (
                             <div>
                               <label className="block text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: T.textMuted }}>
                                 🔗 Generating Frame...
@@ -3610,8 +3599,8 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                               </div>
                             </div>
                           )}
-                          {/* Per-Scene Start Frame Upload - only in Custom Frames mode without Auto Chain */}
-                          {frameMode === "custom" && !autoChainFrames && (
+                          {/* Per-Scene Start Frame Upload - only in Custom Frames mode without character (no auto chain) */}
+                          {frameMode === "custom" && !avatarImage && (
                             <div>
                               <label className="block text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: T.textMuted }}>
                                 📸 Start Frame
@@ -3833,30 +3822,15 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
 
           {/* ─── Generate / Delete / Reset Buttons ──────────────────────── */}
           <div className="flex flex-wrap items-center justify-center gap-4 mb-10 sm:mb-14">
-            {/* Auto Chain button - shown when Custom Frames + Auto Chain + Character selected */}
-            {!isRunning && pipelineStep === 0 && frameMode === "custom" && autoChainFrames && avatarImage && (
-              <button
-                onClick={startAutoChain}
-                disabled={isAutoChainRunning || scenes.filter((s) => s.script.trim() || s.framePrompt.trim()).length === 0}
-                className="px-8 py-4 rounded-2xl text-base font-black uppercase tracking-wider transition-all duration-300 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl"
-                style={{
-                  backgroundColor: T.lime,
-                  color: T.dark,
-                  boxShadow: `0 8px 30px ${T.lime}30`,
-                }}
-              >
-                🔗 Start Auto Chain
-              </button>
-            )}
+            {/* Auto Chain: show progress when running */}
             {isAutoChainRunning && (
               <div className="flex items-center gap-3 px-8 py-4 rounded-2xl border-2" style={{ borderColor: T.lime, backgroundColor: `${T.lime}08` }}>
                 <div className="w-5 h-5 rounded-full border-2 animate-spin" style={{ borderColor: `${T.lime}30`, borderTopColor: T.lime }} />
                 <div>
                   <span className="text-sm font-bold" style={{ color: T.lime }}>
-                    {autoChainStep === "script" && "Generating script..."}
-                    {autoChainStep === "frames" && `Generating frame ${autoChainCurrentScene}/${autoChainScenes.length}...`}
-                    {autoChainStep === "videos" && `Generating video ${autoChainCurrentScene}/${autoChainScenes.length}...`}
-                    {autoChainStep === "merge" && "Merging videos..."}
+                    {autoChainStep === "frames" && `🔗 Generating frame ${autoChainCurrentScene}/${autoChainScenes.length}...`}
+                    {autoChainStep === "videos" && `🔗 Generating video ${autoChainCurrentScene}/${autoChainScenes.length}...`}
+                    {autoChainStep === "merge" && "🔗 Merging videos..."}
                   </span>
                   <div className="w-48 h-1.5 rounded-full mt-1.5" style={{ backgroundColor: T.cardBorder }}>
                     <div className="h-full rounded-full transition-all duration-500" style={{ width: `${autoChainProgress}%`, backgroundColor: T.lime }} />
@@ -3884,8 +3858,8 @@ export default function AIAvatarMachine({ isAdmin = false, theme = "light", init
                 <p className="text-xs mt-1">{autoChainError}</p>
               </div>
             )}
-            {/* Regular generate button - hidden when auto chain is active */}
-            {!isRunning && pipelineStep === 0 && !(frameMode === "custom" && autoChainFrames && avatarImage) && (
+            {/* Regular generate button - hidden when auto chain is running */}
+            {!isRunning && pipelineStep === 0 && !isAutoChainRunning && (
               <>
                 <button
                   onClick={runGeneration}
